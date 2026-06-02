@@ -16,6 +16,10 @@ import (
 	"kvm_console/utils"
 )
 
+// Version 版本号，通过 ldflags 在构建时注入
+// 构建命令: go build -ldflags="-s -w -X main.Version=v1.0.0"
+var Version = "dev"
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "host-zram-apply" {
 		if err := service.ApplyHostZRAMPersistentProfile(); err != nil {

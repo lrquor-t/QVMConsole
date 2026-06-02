@@ -67,7 +67,8 @@ jobs:
           GOARCH: amd64
         run: |
           VERSION="v${{ inputs.version }}"
-          go build -ldflags="-s -w -X main.Version=${VERSION}" -o kvm-console .
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          go build -ldflags="-s -w -X main.Version=${VERSION} -X kvm_console/handler.Version=${VERSION} -X kvm_console/handler.BuildTime=${BUILD_TIME}" -o kvm-console .
 
       # ==================== 打包发行文件 ====================
       - name: 打包发行文件

@@ -98,6 +98,10 @@
           <SidebarIcons icon="setting" />
           <template #title>系统设置</template>
         </el-menu-item>
+        <el-menu-item index="/about">
+          <SidebarIcons icon="about" />
+          <template #title>关于项目</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 

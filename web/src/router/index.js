@@ -129,6 +129,12 @@ const routes = [
         name: 'TaskRecent',
         component: () => import('@/views/task/index.vue'),
         meta: { title: '任务中心' }
+      },
+      {
+        path: 'about',
+        name: 'About',
+        component: () => import('@/views/about/index.vue'),
+        meta: { title: '关于项目' }
       }
     ]
   }
@@ -154,6 +160,7 @@ router.beforeEach((to) => {
       to.path.startsWith('/vm/detail/') ||
       to.path.endsWith('/vnc-window') ||
       to.path === '/api-docs' ||
+      to.path === '/about' ||
       publicPaths.includes(to.path)
     if (to.path === '/' || to.path === '/dashboard') {
       return '/vm/list'

@@ -12,6 +12,14 @@ export function getPublicSettings() {
   })
 }
 
+// 获取系统版本信息
+export function getPublicVersion() {
+  return request({
+    url: '/public/version',
+    method: 'get'
+  })
+}
+
 // 获取系统设置
 export function getSettings(token = '') {
   return request({
