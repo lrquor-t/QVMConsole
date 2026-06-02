@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,7 +17,43 @@ import (
 	"kvm_console/utils"
 )
 
+// sshWarningPatterns SSH 客户端输出的非错误性警告信息，这些不应被视为错误原因
+var sshWarningPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^Warning: Permanently added .+ to the list of known hosts\.$`),
+	regexp.MustCompile(`^Warning: the .+ host key .+$`),
+}
+
+// stripSSHWarnings 从 stderr 输出中移除 SSH 的警告/信息性消息，保留真正的错误信息
+func stripSSHWarnings(stderr string) string {
+	lines := strings.Split(stderr, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		isWarning := false
+		for _, pattern := range sshWarningPatterns {
+			if pattern.MatchString(trimmed) {
+				isWarning = true
+				break
+			}
+		}
+		if !isWarning {
+			filtered = append(filtered, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(filtered, "\n"))
+}
+
 func remoteSSHCommand(ctx context.Context, node model.HostNode, command string, timeout time.Duration) (string, error) {
+	return remoteSSHExec(ctx, node, command, timeout, false)
+}
+
+// remoteSSHExec 执行远程 SSH 命令
+// tolerateRemoteExit 为 true 时，远程命令的非零退出码不视为 SSH 层面的错误
+// 因为 SSH 本身连接正常，只是远程命令执行失败（如 command -v 找不到命令）
+func remoteSSHExec(ctx context.Context, node model.HostNode, command string, timeout time.Duration, tolerateRemoteExit bool) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -30,11 +67,21 @@ func remoteSSHCommand(ctx context.Context, node model.HostNode, command string, 
 	if sshPort <= 0 {
 		sshPort = 22
 	}
-	cmd := fmt.Sprintf("sshpass -f %s ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 %s %s",
+	cmd := fmt.Sprintf("sshpass -f %s ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 %s %s",
 		shellSingleQuote(passwordFile), sshPort, shellSingleQuote(target), shellSingleQuote(command))
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, timeout)
 	if result.Error != nil {
-		return "", fmt.Errorf("%s", firstNonEmpty(result.Stderr, result.Error.Error()))
+		if result.ExitCode == 255 {
+			cleanStderr := stripSSHWarnings(result.Stderr)
+			errMsg := firstNonEmpty(cleanStderr, result.Error.Error())
+			return "", fmt.Errorf("SSH 连接失败: %s", errMsg)
+		}
+		if tolerateRemoteExit {
+			return result.Stdout, nil
+		}
+		cleanStderr := stripSSHWarnings(result.Stderr)
+		errMsg := firstNonEmpty(cleanStderr, result.Error.Error())
+		return "", fmt.Errorf("%s", errMsg)
 	}
 	return result.Stdout, nil
 }
@@ -55,12 +102,14 @@ func remoteRsyncFile(ctx context.Context, node model.HostNode, sourcePath, targe
 	}
 	cmd := fmt.Sprintf("sshpass -f %s rsync -aS --numeric-ids -e %s %s %s",
 		shellSingleQuote(passwordFile),
-		shellSingleQuote(fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", sshPort)),
+		shellSingleQuote(fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o LogLevel=ERROR", sshPort)),
 		shellSingleQuote(sourcePath),
 		shellSingleQuote(target))
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, timeout)
 	if result.Error != nil {
-		return fmt.Errorf("%s", firstNonEmpty(result.Stderr, result.Error.Error()))
+		cleanStderr := stripSSHWarnings(result.Stderr)
+		errMsg := firstNonEmpty(cleanStderr, result.Error.Error())
+		return fmt.Errorf("%s", errMsg)
 	}
 	return nil
 }

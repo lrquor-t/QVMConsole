@@ -124,20 +124,34 @@ func ProbeHostNode(id uint) (*HostNodeView, error) {
 		"test -d /var/lib/libvirt/images/templates && echo templates-ok",
 		"ovs-vsctl br-exists br-ovs && echo br-ovs-ok",
 	}
+	var firstSSHErr string
 	for i, check := range checks {
-		out, err := remoteSSHCommand(nil, *node, check, 30*time.Second)
+		out, err := remoteSSHExec(nil, *node, check, 30*time.Second, true)
 		key := fmt.Sprintf("check_%02d", i+1)
 		if err != nil {
 			updateHostNodeProbe(node, HostNodeStatusError, "节点探测失败: "+err.Error(), caps)
 			view := buildHostNodeView(*node)
 			return &view, err
 		}
-		caps[key] = strings.TrimSpace(out)
+		trimmed := strings.TrimSpace(out)
+		if trimmed == "" {
+			if firstSSHErr == "" {
+				firstSSHErr = fmt.Sprintf("检查 %s 未通过（命令未返回期望结果）", check)
+			}
+			caps[key] = "未通过"
+		} else {
+			caps[key] = trimmed
+		}
 	}
 	if _, err := callNodeAPI(*node, "GET", "/api/public/settings", nil, nil); err != nil {
 		updateHostNodeProbe(node, HostNodeStatusError, "面板 API 探测失败: "+err.Error(), caps)
 		view := buildHostNodeView(*node)
 		return &view, err
+	}
+	if firstSSHErr != "" {
+		updateHostNodeProbe(node, HostNodeStatusError, "部分检查未通过: "+firstSSHErr, caps)
+		view := buildHostNodeView(*node)
+		return &view, fmt.Errorf("部分检查未通过: %s", firstSSHErr)
 	}
 	updateHostNodeProbe(node, HostNodeStatusOnline, "节点探测通过", caps)
 	view := buildHostNodeView(*node)
