@@ -1701,25 +1701,6 @@
 
     </el-form>
 
-      <!-- 创建模式：底部快捷创建按钮 -->
-      <div v-if="!isEdit" class="form-submit-bar">
-        <el-tooltip :content="allRequiredTip" placement="top" :disabled="allRequiredFilled">
-          <el-button
-            type="primary"
-            size="large"
-            icon="Plus"
-            :loading="loading"
-            :disabled="!allRequiredFilled"
-            @click="submitForm"
-            class="form-submit-btn"
-          >
-            {{ submitButtonText }}
-          </el-button>
-        </el-tooltip>
-        <span v-if="!allRequiredFilled" class="form-submit-hint">
-          <el-icon><InfoFilled /></el-icon> 请完成所有必填项后{{ registrationMode ? '加入注册列表' : '创建' }}
-        </span>
-      </div>
       </div><!-- /vm-form-left -->
 
       <!-- ==================== 右侧预览面板 ==================== -->
@@ -1806,7 +1787,16 @@
         <template v-if="!isEdit">
           <el-button v-if="createStep > 0" @click="prevStep">上一步</el-button>
           <el-button v-if="createStep < maxStep" type="primary" @click="nextStep">下一步</el-button>
-          <el-button v-if="createStep === maxStep" type="success" :loading="loading" @click="submitForm">确定创建</el-button>
+          <el-tooltip :content="allRequiredTip" placement="top" :disabled="allRequiredFilled">
+            <el-button
+              type="warning"
+              :loading="loading"
+              :disabled="!allRequiredFilled"
+              @click="submitForm"
+            >
+              {{ submitButtonText }}
+            </el-button>
+          </el-tooltip>
         </template>
         <template v-else>
           <el-button type="primary" :loading="loading" @click="submitForm">保存修改</el-button>
@@ -5532,31 +5522,6 @@ defineExpose({
   min-width: 320px;
 }
 
-/* ==================== 底部创建按钮栏 ==================== */
-.form-submit-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 2px 4px;
-  margin-top: 4px;
-  border-top: 1px solid #ebeef5;
-}
-
-.form-submit-btn {
-  min-width: 180px;
-  font-size: 15px;
-  font-weight: 600;
-  border-radius: 8px;
-}
-
-.form-submit-hint {
-  font-size: 12px;
-  color: #c0c4cc;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 /* ==================== 编辑模式选项卡 ==================== */
 .edit-tabs-bar {
   display: flex;
@@ -6303,17 +6268,6 @@ defineExpose({
     font-size: 12px;
   }
 
-  /* 底部提交栏 */
-  .form-submit-bar {
-    flex-direction: column;
-    padding: 12px 0 4px;
-  }
-
-  .form-submit-btn {
-    width: 100%;
-    min-width: auto;
-  }
-
   /* 磁盘表格（编辑模式） */
   .edit-tab-content :deep(.el-table) {
     font-size: 11px;
@@ -6362,15 +6316,8 @@ defineExpose({
   .edit-tab-label {
     font-size: 10px;
   }
-
-  .form-submit-btn {
-    font-size: 13px;
-    padding: 10px 16px;
-  }
 }
 
-html.dark .form-submit-bar { border-top-color: var(--app-border-light); }
-html.dark .form-submit-hint { color: var(--el-text-color-placeholder); }
 
 html.dark .edit-tabs-bar { background: var(--app-bg-elevated); }
 html.dark .edit-tab-item { color: var(--el-text-color-secondary); }
