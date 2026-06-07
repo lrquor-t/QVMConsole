@@ -150,7 +150,7 @@
         </el-table-column>
         <el-table-column label="存储配额" width="140">
           <template #default="{ row }">
-            <template v-if="row.role !== 'admin' && row.quota">
+            <template v-if="row.quota">
               <span>{{ row.quota.used_storage_gb || '0 B' }} / {{ row.max_storage ? row.max_storage + 'GB' : '不限' }}</span>
               <el-progress v-if="row.max_storage > 0" :percentage="Math.min(Math.round(row.quota.used_storage / (row.max_storage * 1073741824) * 100), 100)" :stroke-width="4" :show-text="false" style="margin-top:2px;" />
             </template>
@@ -219,7 +219,7 @@
         </el-table-column>
         <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="warning" :disabled="row.role === 'admin'" @click="handleEditQuota(row)">配置</el-button>
+            <el-button size="small" type="warning" :disabled="row.role === 'admin' && row.username === userStore.username" @click="handleEditQuota(row)">配置</el-button>
             <el-button size="small" type="primary" :disabled="row.role === 'admin'" @click="handleAssign(row)">
               {{ row.cloud_type === 'lightweight' ? '注册VM' : '分配VM' }}
             </el-button>
@@ -341,6 +341,10 @@
               <span class="user-card-label">类型</span>
               <span class="user-card-value">管理员</span>
             </div>
+            <div v-if="row.role === 'admin' && row.quota" class="user-card-info-row">
+              <span class="user-card-label">存储配额</span>
+              <span class="user-card-value">{{ row.quota.used_storage_gb || '0 B' }} / {{ row.max_storage ? row.max_storage + 'GB' : '不限' }}</span>
+            </div>
             <div v-if="row.vms && row.vms.length" class="user-card-vms">
               <span class="user-card-label">虚拟机</span>
               <div class="user-card-vm-tags">
@@ -350,7 +354,7 @@
             </div>
           </div>
           <div class="user-card-actions">
-            <el-button size="small" type="warning" :disabled="row.role === 'admin'" @click="handleEditQuota(row)">配置</el-button>
+            <el-button size="small" type="warning" :disabled="row.role === 'admin' && row.username === userStore.username" @click="handleEditQuota(row)">配置</el-button>
             <el-button size="small" type="primary" :disabled="row.role === 'admin'" @click="handleAssign(row)">
               {{ row.cloud_type === 'lightweight' ? '注册VM' : '分配VM' }}
             </el-button>
@@ -474,6 +478,17 @@
           </template>
           <QuotaForm v-if="form.cloud_type !== 'lightweight'" :form="form" />
         </template>
+        <template v-if="form.role === 'admin'">
+          <el-divider content-position="left">存储配额</el-divider>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="存储配额 (GB)">
+                <el-input-number v-model="form.max_storage" :min="0" :max="102400" controls-position="right" style="flex: 1;" />
+                <div class="form-tip" style="margin-top:2px">设为 0 表示不限制</div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
@@ -487,11 +502,13 @@
         <el-alert type="info" :closable="false">
           <template #title>
             用户：<strong>{{ quotaForm.username }}</strong>
+            <el-tag v-if="quotaUserRole === 'admin'" type="danger" size="small" style="margin-left: 8px;">管理员</el-tag>
+            <el-tag v-else-if="quotaUserRole === 'user'" type="success" size="small" style="margin-left: 8px;">普通用户</el-tag>
             <span style="margin-left: 12px;">设为 0 表示不限制</span>
           </template>
         </el-alert>
       </div>
-      <el-form label-width="120px">
+      <el-form v-if="quotaUserRole !== 'admin'" label-width="120px">
         <el-form-item label="用户类型">
           <el-select v-model="quotaForm.cloud_type" style="width: 220px;">
             <el-option label="弹性云" value="elastic" />
@@ -504,7 +521,22 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <QuotaForm v-if="quotaForm.cloud_type !== 'lightweight'" :form="quotaForm" :show-usage="true" :usage="quotaUsage" />
+      <!-- 管理员仅显示存储配额 -->
+      <el-form v-if="quotaUserRole === 'admin'" label-width="120px">
+        <el-form-item label="存储配额 (GB)">
+          <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
+            <el-input-number v-model="quotaForm.max_storage" :min="0" :max="102400" controls-position="right" style="width: 240px;" />
+            <span v-if="quotaUsage" class="quota-used-tag">
+              <template v-if="quotaForm.max_storage > 0">
+                {{ quotaUsage.used_storage_gb || '0 B' }}/{{ quotaForm.max_storage }}GB
+              </template>
+              <template v-else>已用 {{ quotaUsage.used_storage_gb || '0 B' }}（不限）</template>
+            </span>
+          </div>
+          <div class="form-tip" style="margin-top:4px">设为 0 表示不限制。管理员仅受存储配额约束，其他资源不受限制。</div>
+        </el-form-item>
+      </el-form>
+      <QuotaForm v-if="quotaUserRole !== 'admin' && quotaForm.cloud_type !== 'lightweight'" :form="quotaForm" :show-usage="true" :usage="quotaUsage" />
       <template #footer>
         <el-button @click="quotaVisible = false">取消</el-button>
         <el-button type="primary" :loading="quotaLoading" @click="submitQuota">保存</el-button>
@@ -810,6 +842,7 @@ const quotaForm = reactive({
   max_bandwidth_up: 0, max_bandwidth_down: 0,
   max_traffic_down: 0, max_traffic_up: 0
 })
+const quotaUserRole = ref('')  // 当前正在编辑配额的用户的角色
 
 // 分配VM
 const assignVisible = ref(false)
@@ -1018,6 +1051,15 @@ watch(() => form.cloud_type, (cloudType) => {
   }
 })
 
+// 创建表单角色切换时重置存储配额默认值
+watch(() => form.role, (role) => {
+  if (role === 'admin') {
+    form.max_storage = 0
+  } else {
+    form.max_storage = 10
+  }
+})
+
 const userCurrentPage = ref(1)
 const userPageSize = ref(100)
 
@@ -1153,6 +1195,7 @@ const submitCreate = async () => {
 }
 
 const handleEditQuota = (row) => {
+  quotaUserRole.value = row.role || ''
   quotaForm.username = row.username
   quotaForm.cloud_type = row.cloud_type || 'elastic'
   quotaForm.dedicated_vpc_switch_id = row.dedicated_vpc_switch_id || null
@@ -1177,7 +1220,13 @@ const handleEditQuota = (row) => {
 const submitQuota = async () => {
   quotaLoading.value = true
   try {
-    await updateUserQuota(quotaForm.username, { ...quotaForm })
+    const payload = { ...quotaForm }
+    // 管理员不需要发送 cloud_type 和 dedicated_vpc_switch_id
+    if (quotaUserRole.value === 'admin') {
+      delete payload.cloud_type
+      delete payload.dedicated_vpc_switch_id
+    }
+    await updateUserQuota(quotaForm.username, payload)
     ElMessage.success('配额更新成功')
     quotaVisible.value = false
     fetchData()

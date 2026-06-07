@@ -377,9 +377,6 @@ func SyncAllUserQuotas() error {
 
 	var errs []string
 	for _, user := range users {
-		if user.Role == "admin" {
-			continue
-		}
 		if err := SetUserStorageQuota(user.Username, user.MaxStorage); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", user.Username, err))
 		}

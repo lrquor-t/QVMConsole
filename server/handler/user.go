@@ -449,6 +449,21 @@ func ResendInvite(c *gin.Context) {
 // UpdateUserQuota 更新用户配额
 func UpdateUserQuota(c *gin.Context) {
 	username := c.Param("username")
+
+	// 管理员不能为自己设置配额
+	operator, _ := c.Get("username")
+	operatorStr, _ := operator.(string)
+	if username == operatorStr {
+		var targetUser model.User
+		if err := model.DB.Where("username = ?", username).First(&targetUser).Error; err == nil && targetUser.Role == "admin" {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
+				"message": "管理员不能为自己设置配额",
+			})
+			return
+		}
+	}
+
 	var req UpdateQuotaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

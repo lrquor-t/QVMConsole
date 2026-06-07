@@ -114,6 +114,11 @@ func ListUsers() ([]VMUserInfo, error) {
 					info.LightweightVMRegistrations = regs
 				}
 			}
+		} else {
+			// 管理员也填充存储配额使用情况
+			if quota, err := GetUserQuotaUsage(u.Username); err == nil {
+				info.Quota = quota
+			}
 		}
 
 		result = append(result, info)
@@ -187,7 +192,7 @@ func CreateSystemUser(username, password, role string, maxCPU, maxMemory, maxDis
 }
 
 func provisionSystemUserResources(user *model.User, password string) error {
-	// 如果是普通用户，创建系统用户
+	// 根据角色创建系统用户
 	if user.Role == "user" {
 		// 确保 vmoperator 组存在
 		utils.ExecCommand("groupadd", "-f", "vmoperator")
@@ -211,15 +216,15 @@ func provisionSystemUserResources(user *model.User, password string) error {
 		// 初始化空的 VM 分配文件
 		utils.ExecShell(fmt.Sprintf("touch '%s/%s'", config.GlobalConfig.VMAccessDir, user.Username))
 
-		// 设置文件系统存储配额
-		if user.MaxStorage > 0 {
-			if err := SetUserStorageQuota(user.Username, user.MaxStorage); err != nil {
-				fmt.Printf("[警告] 设置用户 %s 文件系统配额失败: %v\n", user.Username, err)
-			}
-		}
-
 		// 创建用户后同步 SSH 拒绝配置（默认禁止 SSH）
 		regenerateSSHDenyConfig()
+	}
+
+	// 设置文件系统存储配额（所有角色都支持）
+	if user.MaxStorage > 0 {
+		if err := SetUserStorageQuota(user.Username, user.MaxStorage); err != nil {
+			fmt.Printf("[警告] 设置用户 %s 文件系统配额失败: %v\n", user.Username, err)
+		}
 	}
 
 	return nil
