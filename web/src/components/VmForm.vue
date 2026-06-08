@@ -2317,7 +2317,7 @@ import { getUserISOs, selfCreateVm, importVM } from '@/api/storage'
 import { getStorageFiles } from '@/api/storage'
 import { selfCloneVm } from '@/api/user'
 import { getVPCSecurityGroups, getVPCSwitches } from '@/api/vpc'
-import { getCPUAffinityPresets } from '@/api/settings'
+import { getCPUAffinityPresets, getSettings } from '@/api/settings'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, ArrowRight } from '@element-plus/icons-vue'
 import FormIcons from '@/components/icons/FormIcons.vue'
@@ -3253,6 +3253,7 @@ const prevStep = () => {
 // 数据列表
 const osVariants = ref([])
 const isoList = ref([])
+const isoStorageDir = ref('/var/lib/libvirt/images/ISO')
 const templates = ref([])
 const vpcSwitches = ref([])
 const vpcSecurityGroups = ref([])
@@ -4159,6 +4160,13 @@ const open = async (row, mode, options = {}) => {
       }
     } catch {}
   }
+  // 获取系统设置中的 ISO 存储位置
+  try {
+    const settingsRes = await getSettings()
+    if (settingsRes.data?.iso_dir) {
+      isoStorageDir.value = settingsRes.data.iso_dir
+    }
+  } catch {}
   initAdvancedIntro()
   bootTypeTouched.value = false
   registrationMode.value = mode === 'lightweight-register'

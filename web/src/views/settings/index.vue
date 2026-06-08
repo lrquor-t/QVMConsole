@@ -110,7 +110,7 @@
           <div style="display: flex; gap: 8px; width: 100%;">
             <el-input v-model="form.iso_dir" placeholder="/var/lib/libvirt/images/ISO" style="flex: 1;" />
             <el-button @click="handleSetToUserStorageISO" :loading="userStorageISOLoading">
-              一键修改到我的存储
+              替换为我的存储
             </el-button>
           </div>
           <div class="form-tip">
@@ -1296,7 +1296,6 @@ const handleSetToUserStorageISO = async () => {
     const isoPath = res.data?.iso_path
     if (isoPath) {
       form.iso_dir = isoPath
-      ElMessage.success('已修改为我的存储 ISO 目录: ' + isoPath)
     } else {
       ElMessage.error('获取存储 ISO 目录失败，请确保已开通存储池')
     }
