@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ func ExecCommandContextWithTimeout(ctx context.Context, name string, timeout tim
 		ctx = context.Background()
 	}
 	cmd := exec.Command(name, args...)
+	// 强制使用 C 语言环境，确保 virsh 等命令输出英文便于解析
+	cmd.Env = append(os.Environ(), "LANG=C", "LC_ALL=C")
 	prepareProcessGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

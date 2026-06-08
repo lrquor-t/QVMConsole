@@ -822,14 +822,13 @@ func EditVMConfig(name string, vcpu, memoryMB int) error {
 			// 运行中设置（如果可热插拔）
 			utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--live")
 		}
-		// 修改配置（持久化）
-		result := utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--config", "--maximum")
-		if result.Error != nil {
-			return fmt.Errorf("设置 CPU 最大值失败: %s", result.Stderr)
-		}
-		result = utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--config")
-		if result.Error != nil {
-			return fmt.Errorf("设置 CPU 失败: %s", result.Stderr)
+
+		// 当 domain XML 中存在 CPU topology 时，virsh setvcpus --config --maximum
+		// 会校验 sockets × dies × cores × threads == 目标 vcpu，不匹配则报错。
+		// virsh define 同样会校验。因此当存在 topology 时，必须同时修改 vcpu 和 topology
+		// 后 define 回去；不存在 topology 时仍用 virsh setvcpus 命令。
+		if err := setVMCPUWithTopologySync(name, vcpu); err != nil {
+			return err
 		}
 	}
 

@@ -193,7 +193,45 @@ sudo systemctl daemon-reload
 sudo rm -rf /opt/kvm-console
 ```
 
-## 八、GitHub Actions 构建
+## 八、本地构建打包
+
+项目根目录提供 `build.sh` 脚本，可在本地构建前端和后端并打包为发行文件。
+
+### 基本用法
+
+```bash
+# 完整构建（版本号默认为 dev）
+bash build.sh
+
+# 指定版本号构建
+bash build.sh -v 1.0.0
+
+# 仅构建后端（跳过前端）
+bash build.sh --skip-frontend
+
+# 仅构建前端（跳过后端）
+bash build.sh --skip-backend
+```
+
+### 构建产物
+
+构建完成后，产物位于 `release/` 目录：
+
+```
+release/
+├── kvm-console-linux-amd64.tar.gz   # 可直接用于离线安装的发行包
+└── kvm-console-linux-amd64/         # 解压后的文件
+    ├── kvm-console                  # 后端二进制
+    ├── web-dist/                    # 前端静态文件
+    └── install.sh                   # 安装脚本
+```
+
+### 环境要求
+
+- **Node.js** v20+（前端构建）
+- **Go** 1.25+（后端构建，需支持 CGO 交叉编译到 linux/amd64）
+
+## 九、GitHub Actions 构建
 
 项目包含 GitHub Actions 工作流，支持自动构建：
 

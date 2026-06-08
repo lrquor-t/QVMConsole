@@ -150,6 +150,70 @@ func parseTopologyAttr(topology string, pattern *regexp.Regexp) int {
 	return value
 }
 
+// setVMCPUWithTopologySync 设置虚拟机 vCPU 数量，同时同步 CPU topology。
+// 当 domain XML 中存在 topology 时，必须同时修改 vcpu 和 topology 后 define，
+// 因为 virsh setvcpus 和 virsh define 都会校验 sockets×dies×cores×threads == vcpu。
+// 不存在 topology 时，使用 virsh setvcpus 命令。
+func setVMCPUWithTopologySync(name string, vcpu int) error {
+	xmlResult := utils.ExecCommand("virsh", "dumpxml", name, "--inactive")
+	if xmlResult.Error != nil {
+		return fmt.Errorf("获取虚拟机 XML 失败: %s", xmlResult.Stderr)
+	}
+	xmlStr := xmlResult.Stdout
+
+	hasTopology := vmCPUTopologyRegexp.MatchString(xmlStr)
+
+	if !hasTopology {
+		// 无 topology，使用传统的 virsh setvcpus 命令
+		result := utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--config", "--maximum")
+		if result.Error != nil {
+			return fmt.Errorf("设置 CPU 最大值失败: %s", result.Stderr)
+		}
+		result = utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--config")
+		if result.Error != nil {
+			return fmt.Errorf("设置 CPU 失败: %s", result.Stderr)
+		}
+		return nil
+	}
+
+	// 有 topology：同时修改 vcpu 和 topology，然后 define
+	xmlStr = vmVCPUValueRegexp.ReplaceAllString(xmlStr, fmt.Sprintf("<vcpu placement='static'>%d</vcpu>", vcpu))
+
+	mode := ParseVMCPUTopologyModeFromDomainXML(xmlStr)
+	osType := detectVMOSType("", xmlStr)
+	xmlStr = ApplyCPUTopologyModeToDomainXML(xmlStr, mode, osType, vcpu)
+
+	// 兜底：如果 ApplyCPUTopologyModeToDomainXML 未修改 topology（auto 模式非 Windows），
+	// 需要直接按单插槽拓扑更新 cores 以保证 sockets×cores×threads == vcpu
+	if vmCPUTopologyRegexp.MatchString(xmlStr) {
+		topology := vmCPUTopologyRegexp.FindString(xmlStr)
+		sockets := parseTopologyAttr(topology, vmTopologySocketsRegex)
+		threads := parseTopologyAttr(topology, vmTopologyThreadsRegex)
+		if sockets <= 0 {
+			sockets = 1
+		}
+		if threads <= 0 {
+			threads = 1
+		}
+		if sockets*threads > 0 && sockets*parseTopologyAttr(topology, vmTopologyCoresRegex)*threads != vcpu {
+			cores := vcpu / (sockets * threads)
+			if cores > 0 && sockets*cores*threads == vcpu {
+				newTopology := fmt.Sprintf("<topology sockets='%d' dies='1' cores='%d' threads='%d'/>", sockets, cores, threads)
+				xmlStr = vmCPUTopologyRegexp.ReplaceAllString(xmlStr, newTopology)
+			}
+		}
+	}
+
+	xmlPath := fmt.Sprintf("/tmp/_cpu-topology-sync-%s.xml", name)
+	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, xmlStr))
+	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
+	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	if defineResult.Error != nil {
+		return fmt.Errorf("设置 CPU 失败: %s", defineResult.Stderr)
+	}
+	return nil
+}
+
 // SetVMCPUTopologyMode 设置虚拟机 CPU 拓扑模式。运行中的虚拟机需要先关机后再修改。
 func SetVMCPUTopologyMode(name, mode string) error {
 	stateResult := utils.ExecCommand("virsh", "domstate", name)
