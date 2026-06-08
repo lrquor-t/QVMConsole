@@ -60,9 +60,9 @@ func setUserShell(username string, enabled bool) {
 // killUserSSHSessions 杀死指定用户的所有 SSH 会话
 func killUserSSHSessions(username string) {
 	// 杀死该用户拥有的所有 sshd 进程（即该用户的 SSH 会话）
-	utils.ExecShell(fmt.Sprintf("pkill -KILL -u '%s' sshd 2>/dev/null || true", username))
+	utils.ExecShell(fmt.Sprintf("pkill -KILL -u %s sshd 2>/dev/null || true", utils.ShellSingleQuote(username)))
 	// 同时杀死该用户的所有 shell 进程（清理残留会话）
-	utils.ExecShell(fmt.Sprintf("pkill -KILL -u '%s' -t pts 2>/dev/null || true", username))
+	utils.ExecShell(fmt.Sprintf("pkill -KILL -u %s -t pts 2>/dev/null || true", utils.ShellSingleQuote(username)))
 }
 
 // regenerateSSHDenyConfig 重新生成 sshd DenyUsers 配置
@@ -125,7 +125,7 @@ func syncAllUserShells() {
 
 	for _, u := range users {
 		// 检查系统用户是否存在
-		checkResult := utils.ExecShell(fmt.Sprintf("id '%s' 2>/dev/null", u.Username))
+		checkResult := utils.ExecShell(fmt.Sprintf("id %s 2>/dev/null", utils.ShellSingleQuote(u.Username)))
 		if checkResult.Error != nil {
 			continue // 系统用户不存在，跳过
 		}

@@ -273,11 +273,11 @@ func BindPCIDeviceToVfio(pciAddress string) error {
 		return fmt.Errorf("设备 %s 是显示控制器，直通可能导致宿主机显示崩溃，已拒绝操作", pciAddress)
 	}
 
-	vendorResult := utils.ExecShell(fmt.Sprintf("cat /sys/bus/pci/devices/%s/vendor 2>/dev/null", pciAddress))
+	vendorResult := utils.ExecShell(fmt.Sprintf("cat /sys/bus/pci/devices/%s/vendor 2>/dev/null", utils.ShellSingleQuote(pciAddress)))
 	if vendorResult.Error != nil || strings.TrimSpace(vendorResult.Stdout) == "" {
 		return fmt.Errorf("无法读取设备 %s 的厂商 ID", pciAddress)
 	}
-	deviceResult := utils.ExecShell(fmt.Sprintf("cat /sys/bus/pci/devices/%s/device 2>/dev/null", pciAddress))
+	deviceResult := utils.ExecShell(fmt.Sprintf("cat /sys/bus/pci/devices/%s/device 2>/dev/null", utils.ShellSingleQuote(pciAddress)))
 	if deviceResult.Error != nil || strings.TrimSpace(deviceResult.Stdout) == "" {
 		return fmt.Errorf("无法读取设备 %s 的设备 ID", pciAddress)
 	}
@@ -305,7 +305,7 @@ func BindPCIDeviceToVfio(pciAddress string) error {
 
 	// 绑定到 vfio-pci（5秒超时）
 	newIDResult := utils.ExecShellWithTimeout(
-		fmt.Sprintf("echo '%s %s' > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null", vendorID, deviceID),
+		fmt.Sprintf("echo %s > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null", utils.ShellSingleQuote(vendorID+" "+deviceID)),
 		5*time.Second)
 	_ = newIDResult
 
@@ -339,7 +339,7 @@ func UnbindPCIDeviceFromVfio(pciAddress string) error {
 	}
 
 	// 触发设备重新探测
-	utils.ExecShell(fmt.Sprintf("echo 1 | tee /sys/bus/pci/devices/%s/remove 2>/dev/null", pciAddress))
+	utils.ExecShell(fmt.Sprintf("echo 1 | tee /sys/bus/pci/devices/%s/remove 2>/dev/null", utils.ShellSingleQuote(pciAddress)))
 	utils.ExecShell("echo 1 | tee /sys/bus/pci/rescan 2>/dev/null")
 
 	return nil
@@ -360,7 +360,7 @@ func ValidatePCIPassthrough(pciAddress string) error {
 	}
 
 	// 检查设备是否存在
-	devCheck := utils.ExecShell(fmt.Sprintf("test -e /sys/bus/pci/devices/%s && echo ok || echo fail", pciAddress))
+	devCheck := utils.ExecShell(fmt.Sprintf("test -e /sys/bus/pci/devices/%s && echo ok || echo fail", utils.ShellSingleQuote(pciAddress)))
 	if strings.TrimSpace(devCheck.Stdout) != "ok" {
 		return fmt.Errorf("设备 %s 不存在", pciAddress)
 	}

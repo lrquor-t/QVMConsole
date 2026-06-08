@@ -891,7 +891,7 @@ func revertExternalSnapshot(vmName, snapName string) error {
 
 	if len(sedParts) > 0 {
 		sedCmd := strings.Join(sedParts, "; ")
-		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '%s'\" virsh edit %s", sedCmd, vmName)
+		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '%s'\" virsh edit %s", sedCmd, utils.ShellSingleQuote(vmName))
 		editResult := utils.ExecShell(shellCmd)
 		if editResult.Error != nil {
 			for _, created := range createdRestoreOverlays {
@@ -907,7 +907,7 @@ func revertExternalSnapshot(vmName, snapName string) error {
 	if dumpResult.Error == nil {
 		hasBackingStore := strings.Contains(dumpResult.Stdout, "<backingStore")
 		if hasBackingStore {
-			shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", vmName)
+			shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", utils.ShellSingleQuote(vmName))
 			cleanResult := utils.ExecShell(shellCmd)
 			if cleanResult.Error != nil {
 				fmt.Printf("[警告] 清理 backingStore 失败: %s\n", cleanResult.Stderr)
@@ -1617,7 +1617,7 @@ func replaceVMDiskSource(vmName, oldPath, newPath string) error {
 	escapedOld := strings.ReplaceAll(oldPath, "/", "\\/")
 	escapedOld = strings.ReplaceAll(escapedOld, ".", "\\.")
 	escapedNew := strings.ReplaceAll(newPath, "/", "\\/")
-	shellCmd := fmt.Sprintf("EDITOR=\"sed -i 's|%s|%s|g'\" virsh edit %s", escapedOld, escapedNew, vmName)
+	shellCmd := fmt.Sprintf("EDITOR=\"sed -i 's|%s|%s|g'\" virsh edit %s", escapedOld, escapedNew, utils.ShellSingleQuote(vmName))
 	editResult := utils.ExecShell(shellCmd)
 	if editResult.Error != nil {
 		return fmt.Errorf("修改虚拟机磁盘配置失败: %s", editResult.Stderr)
@@ -1645,7 +1645,7 @@ func fixSnapshotDiskPermissions(vmName string) {
 	// 清理后让 libvirt 在下次启动时自动检测并生成完整的 backing chain 权限
 	dumpResult := utils.ExecCommand("virsh", "dumpxml", vmName)
 	if dumpResult.Error == nil && strings.Contains(dumpResult.Stdout, "<backingStore") {
-		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", vmName)
+		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", utils.ShellSingleQuote(vmName))
 		cleanResult := utils.ExecShell(shellCmd)
 		if cleanResult.Error != nil {
 			log.Printf("[快照权限修正] 清理 backingStore XML 失败: %s", cleanResult.Stderr)

@@ -208,13 +208,13 @@ func provisionSystemUserResources(user *model.User, password string) error {
 		}
 
 		// 设置系统密码
-		utils.ExecShell(fmt.Sprintf("echo '%s:%s' | chpasswd", user.Username, password))
+		utils.ExecShell(fmt.Sprintf("echo %s:%s | chpasswd", utils.ShellSingleQuote(user.Username), utils.ShellSingleQuote(password)))
 
 		// 创建 VM 访问配置目录
 		utils.ExecCommand("mkdir", "-p", config.GlobalConfig.VMAccessDir)
 
 		// 初始化空的 VM 分配文件
-		utils.ExecShell(fmt.Sprintf("touch '%s/%s'", config.GlobalConfig.VMAccessDir, user.Username))
+		utils.ExecShell(fmt.Sprintf("touch %s/%s", config.GlobalConfig.VMAccessDir, utils.ShellSingleQuote(user.Username)))
 
 		// 创建用户后同步 SSH 拒绝配置（默认禁止 SSH）
 		regenerateSSHDenyConfig()
@@ -233,7 +233,7 @@ func provisionSystemUserResources(user *model.User, password string) error {
 // FindVMOwner 根据 VM 名称查找归属用户
 func FindVMOwner(vmName string) string {
 	vmAccessDir := config.GlobalConfig.VMAccessDir
-	lsResult := utils.ExecShell(fmt.Sprintf("ls '%s' 2>/dev/null", vmAccessDir))
+	lsResult := utils.ExecShell(fmt.Sprintf("ls %s 2>/dev/null", vmAccessDir))
 	if lsResult.Error != nil || lsResult.Stdout == "" {
 		return ""
 	}
@@ -268,8 +268,8 @@ func AssignVMsToUserWithQuotas(username string, vmNames []string, lightweightQuo
 
 	// 写入分配文件
 	content := strings.Join(vmNames, "\n")
-	utils.ExecShell(fmt.Sprintf("echo '%s' > '%s/%s'",
-		content, config.GlobalConfig.VMAccessDir, username))
+	utils.ExecShell(fmt.Sprintf("echo %s > %s/%s",
+		utils.ShellSingleQuote(content), config.GlobalConfig.VMAccessDir, utils.ShellSingleQuote(username)))
 
 	// 重新生成 polkit 规则
 	if err := regeneratePolkitRules(); err != nil {
@@ -487,9 +487,9 @@ func DeleteSystemUser(username string, progressFn func(int, string)) error {
 	// 第四步：删除用户存储池目录
 	progressFn(60, "正在清理用户存储池...")
 	userStorageDir := fmt.Sprintf("%s/%s", GetStorageMountPoint(), username)
-	checkResult := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", userStorageDir))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(userStorageDir)))
 	if strings.TrimSpace(checkResult.Stdout) == "yes" {
-		result := utils.ExecShell(fmt.Sprintf("rm -rf '%s'", userStorageDir))
+		result := utils.ExecShell(fmt.Sprintf("rm -rf %s", utils.ShellSingleQuote(userStorageDir)))
 		if result.Error != nil {
 			fmt.Printf("[警告] 删除用户 %s 存储池目录失败: %s\n", username, result.Stderr)
 		}
@@ -509,7 +509,7 @@ func DeleteSystemUser(username string, progressFn func(int, string)) error {
 
 	// 第七步：删除 VM 分配文件
 	progressFn(85, "正在清理 VM 访问配置...")
-	utils.ExecShell(fmt.Sprintf("rm -f '%s/%s'", config.GlobalConfig.VMAccessDir, username))
+	utils.ExecShell(fmt.Sprintf("rm -f %s/%s", config.GlobalConfig.VMAccessDir, utils.ShellSingleQuote(username)))
 
 	// 第八步：删除系统用户
 	progressFn(90, "正在删除系统用户...")
@@ -541,7 +541,7 @@ func regeneratePolkitRules() error {
 	vmAccessDir := config.GlobalConfig.VMAccessDir
 
 	// 读取所有用户的 VM 映射
-	lsResult := utils.ExecShell(fmt.Sprintf("ls '%s' 2>/dev/null", vmAccessDir))
+	lsResult := utils.ExecShell(fmt.Sprintf("ls %s 2>/dev/null", vmAccessDir))
 	if lsResult.Error != nil || lsResult.Stdout == "" {
 		return nil
 	}
@@ -557,7 +557,7 @@ func regeneratePolkitRules() error {
 		}
 
 		// 读取该用户的 VM 列表
-		vmsResult := utils.ExecShell(fmt.Sprintf("cat '%s/%s' 2>/dev/null", vmAccessDir, username))
+		vmsResult := utils.ExecShell(fmt.Sprintf("cat %s/%s 2>/dev/null", vmAccessDir, utils.ShellSingleQuote(username)))
 		if vmsResult.Error != nil || vmsResult.Stdout == "" {
 			continue
 		}

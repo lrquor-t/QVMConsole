@@ -120,7 +120,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 	srcDiskPath := filepath.Join(GetUserDiskDir(params.Username), params.DiskFile)
 
 	// 检查源文件是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", srcDiskPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(srcDiskPath)))
 	if checkResult.Stdout != "ok" {
 		return nil, fmt.Errorf("磁盘文件不存在: %s", params.DiskFile)
 	}
@@ -140,7 +140,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 	// 确定目标磁盘路径（移动到 CloneDir）
 	// 检测磁盘格式
 	format := "qcow2"
-	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json '%s' 2>/dev/null", srcDiskPath))
+	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json %s 2>/dev/null", utils.ShellSingleQuote(srcDiskPath)))
 	if infoResult.Error == nil {
 		detected := parseQemuInfoStr(infoResult.Stdout, "format")
 		if detected != "" {
@@ -171,7 +171,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 			if cpResult.Error != nil {
 				return nil, fmt.Errorf("移动磁盘文件失败: %s", cpResult.Stderr)
 			}
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", srcDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(srcDiskPath)))
 		}
 		progressFn(20, "磁盘文件移动完成")
 	}
@@ -182,7 +182,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 	// 检查取消
 	select {
 	case <-ctx.Done():
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 		return nil, taskqueue.ErrTaskCanceled
 	default:
 	}
@@ -191,7 +191,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 
 	memoryMeta, ramMB, _, err := BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 		return nil, err
 	}
 
@@ -203,8 +203,8 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 	} else if params.BootType == "" || params.BootType == "bios" {
 		// 自动检测
 		efiCheck := utils.ExecShell(fmt.Sprintf(
-			"virt-filesystems -a '%s' --filesystems --long 2>/dev/null | head -5 | grep -q 'vfat' && echo 'uefi'",
-			destDiskPath))
+			"virt-filesystems -a %s --filesystems --long 2>/dev/null | head -5 | grep -q 'vfat' && echo 'uefi'",
+			utils.ShellSingleQuote(destDiskPath)))
 		if efiCheck.Error == nil && strings.TrimSpace(efiCheck.Stdout) == "uefi" {
 			needUEFI = true
 		}
@@ -227,7 +227,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		// 生成 qcow2 NVRAM，避免 pflash 虚拟机创建内部内存快照失败。
 		nvramClone := fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", params.Name)
 		if err := createQCOW2NVRAMFromTemplate("/usr/share/OVMF/OVMF_VARS_4M.ms.fd", nvramClone); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
@@ -239,7 +239,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		if rtcStartDate != VMRTCStartDateNow {
 			epoch, err := ParseRTCStartDateToEpoch(rtcStartDate)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 			rtcOffset = VMRTCOffsetAbsolute
@@ -296,28 +296,28 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, "windows")
@@ -327,12 +327,12 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		if params.CPUAffinity != "" {
 			affinityCores, affErr := ParseCPUAffinity(params.CPUAffinity)
 			if affErr != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, fmt.Errorf("CPU 亲和性格式错误: %w", affErr)
 			}
 			if len(affinityCores) > 0 {
 				if affErr := ValidateCPUAffinity(affinityCores); affErr != nil {
-					utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+					utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 					return nil, affErr
 				}
 			}
@@ -340,32 +340,32 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		xmlPath := fmt.Sprintf("/tmp/_vm-import-%s.xml", params.Name)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 		defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		if defineResult.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 		}
 		if memoryMeta != nil {
 			if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		if err := SetVMRemark(params.Name, params.Remark); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
@@ -395,7 +395,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		)
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("生成虚拟机 XML 失败: %s", result.Stderr)
 		}
 
@@ -405,33 +405,33 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, initType)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
-			return nil, err
-		}
-		vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
+		return nil, err
+	}
+	vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, initType)
@@ -441,7 +441,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 			var affErr error
 			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
 			if affErr != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr
 			}
 		}
@@ -453,44 +453,44 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 			}
 			vmXML, err = ApplyVMBootTypeToDomainXML(params.Name, vmXML, bootType)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 			appliedBootType = bootType
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if err := ensureVMUEFINVRAMFile(params.Name, vmXML, appliedBootType); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		// 写入临时文件并定义虚拟机
 		xmlPath := fmt.Sprintf("/tmp/_vm-import-%s.xml", params.Name)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 		defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		if defineResult.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 		}
 		if memoryMeta != nil {
 			if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		if err := SetVMRemark(params.Name, params.Remark); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
@@ -695,7 +695,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 	if !filepath.IsAbs(mainDiskSrc) {
 		return nil, fmt.Errorf("磁盘路径必须是绝对路径: %s", mainDiskSrc)
 	}
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", mainDiskSrc))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(mainDiskSrc)))
 	if strings.TrimSpace(checkResult.Stdout) != "ok" {
 		return nil, fmt.Errorf("磁盘文件不存在: %s", mainDiskSrc)
 	}
@@ -715,7 +715,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 
 	// 检测源磁盘格式
 	srcFormat := "qcow2"
-	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json '%s' 2>/dev/null", mainDiskSrc))
+	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json %s 2>/dev/null", utils.ShellSingleQuote(mainDiskSrc)))
 	if infoResult.Error == nil {
 		detected := parseQemuInfoStr(infoResult.Stdout, "format")
 		if detected != "" {
@@ -747,7 +747,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		// 如果不保留原磁盘，删除源文件
 		if !params.CopyDisk {
 			progressFn(18, "正在删除原磁盘文件...")
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", mainDiskSrc))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(mainDiskSrc)))
 		}
 		progressFn(20, "磁盘格式转换完成")
 	} else {
@@ -770,7 +770,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 				if cpResult.Error != nil {
 					return nil, fmt.Errorf("移动磁盘文件失败: %s", cpResult.Stderr)
 				}
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", mainDiskSrc))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(mainDiskSrc)))
 			}
 			progressFn(20, "磁盘文件移动完成")
 		}
@@ -782,7 +782,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 	// 检查取消
 	select {
 	case <-ctx.Done():
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 		return nil, taskqueue.ErrTaskCanceled
 	default:
 	}
@@ -791,7 +791,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 
 	memoryMeta, ramMB, _, err := BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 		return nil, err
 	}
 
@@ -825,7 +825,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 
 		nvramClone := fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", params.Name)
 		if err := createQCOW2NVRAMFromTemplate("/usr/share/OVMF/OVMF_VARS_4M.ms.fd", nvramClone); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
@@ -837,7 +837,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		if rtcStartDate != VMRTCStartDateNow {
 			epoch, err := ParseRTCStartDateToEpoch(rtcStartDate)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 			rtcOffset = VMRTCOffsetAbsolute
@@ -894,28 +894,28 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, "windows")
@@ -926,37 +926,37 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 			var affErr error
 			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
 			if affErr != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr
 			}
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		xmlPath := fmt.Sprintf("/tmp/_vm-importd-%s.xml", params.Name)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 		defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		if defineResult.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 		}
 		if memoryMeta != nil {
 			if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		if err := SetVMRemark(params.Name, params.Remark); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if params.StartAfterImport {
@@ -985,7 +985,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		)
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("生成虚拟机 XML 失败: %s", result.Stderr)
 		}
 
@@ -1002,33 +1002,33 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, initType)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, initType)
@@ -1038,7 +1038,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 			var affErr error
 			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
 			if affErr != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr
 			}
 		}
@@ -1050,42 +1050,42 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 			}
 			vmXML, err = ApplyVMBootTypeToDomainXML(params.Name, vmXML, bootType)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 			appliedBootType = bootType
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if err := ensureVMUEFINVRAMFile(params.Name, vmXML, appliedBootType); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 
 		xmlPath := fmt.Sprintf("/tmp/_vm-importd-%s.xml", params.Name)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 		defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		if defineResult.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 		}
 		if memoryMeta != nil {
 			if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, err
 			}
 		}
 		if err := SetVMRemark(params.Name, params.Remark); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 			return nil, err
 		}
 		if params.StartAfterImport {
@@ -1236,7 +1236,7 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 	}
 
 	// 检查源文件
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", srcDiskPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(srcDiskPath)))
 	if strings.TrimSpace(checkResult.Stdout) != "ok" {
 		return "", fmt.Errorf("磁盘文件不存在: %s", srcDiskPath)
 	}
@@ -1257,7 +1257,7 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 	// 检测格式
 	progressFn(5, "检测磁盘格式...")
 	srcFormat := "qcow2"
-	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json '%s' 2>/dev/null", srcDiskPath))
+	infoResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U --output=json %s 2>/dev/null", utils.ShellSingleQuote(srcDiskPath)))
 	if infoResult.Error == nil {
 		detected := parseQemuInfoStr(infoResult.Stdout, "format")
 		if detected != "" {
@@ -1308,7 +1308,7 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 		}
 		if !entry.CopyDisk {
 			progressFn(18, "正在删除原磁盘文件...")
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", srcDiskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(srcDiskPath)))
 		}
 	} else {
 		if entry.CopyDisk {
@@ -1326,7 +1326,7 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 				if cpResult.Error != nil {
 					return "", fmt.Errorf("移动磁盘文件失败: %s", cpResult.Stderr)
 				}
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", srcDiskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(srcDiskPath)))
 			}
 		}
 	}
@@ -1335,7 +1335,7 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 
 	progressFn(80, "挂载磁盘到虚拟机...")
 	if _, attachErr := AttachExistingDisk(vmName, destDiskPath, entry.Bus); attachErr != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", destDiskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 		return "", fmt.Errorf("挂载磁盘失败: %w", attachErr)
 	}
 

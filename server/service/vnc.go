@@ -84,9 +84,9 @@ func EnableVnc(vmName, password string) error {
 
 	// 直接导出 XML 到文件（避免 echo 管道的单引号问题）
 	if state == "running" {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	} else {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	}
 
 	// 构建 graphics 属性（TCP 绑定 127.0.0.1，仅本机可访问，通过后端 WebSocket 代理）
@@ -100,25 +100,25 @@ func EnableVnc(vmName, password string) error {
 	}
 
 	// 检查文件内容判断是替换还是新增
-	checkResult := utils.ExecShell(fmt.Sprintf("grep -c \"graphics type='vnc'\" '%s'", tmpXML))
+	checkResult := utils.ExecShell(fmt.Sprintf("grep -c \"graphics type='vnc'\" %s", utils.ShellSingleQuote(tmpXML)))
 	if strings.TrimSpace(checkResult.Stdout) != "0" {
 		// 替换现有 VNC 配置
 		utils.ExecShell(fmt.Sprintf(
-			`sed -i "/<graphics type='vnc'/,/<\/graphics>/c\    %s" '%s'`,
-			graphicsXML, tmpXML))
+			`sed -i "/<graphics type='vnc'/,/<\/graphics>/c\    %s" %s`,
+			graphicsXML, utils.ShellSingleQuote(tmpXML)))
 	} else {
 		// 新增 VNC 配置
 		utils.ExecShell(fmt.Sprintf(
-			`sed -i "/<\/devices>/i\    %s" '%s'`,
-			graphicsXML, tmpXML))
+			`sed -i "/<\/devices>/i\    %s" %s`,
+			graphicsXML, utils.ShellSingleQuote(tmpXML)))
 	}
 
 	// 保留已有视频模型；如果当前没有视频设备，则按系统类型补一个默认值
-	xmlContent := utils.ExecShell(fmt.Sprintf("cat '%s'", tmpXML))
+	xmlContent := utils.ExecShell(fmt.Sprintf("cat %s", utils.ShellSingleQuote(tmpXML)))
 	if xmlContent.Error == nil {
 		detectedOSType := detectVMOSType("", xmlContent.Stdout)
 		updatedXML := ApplyVMVideoModelToDomainXML(xmlContent.Stdout, ParseVMVideoModelFromDomainXML(xmlContent.Stdout), detectedOSType)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", tmpXML, updatedXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(tmpXML), updatedXML))
 	}
 
 	// 应用配置
@@ -126,14 +126,14 @@ func EnableVnc(vmName, password string) error {
 		utils.ExecCommand("virsh", "destroy", vmName)
 		utils.ExecCommand("virsh", "define", tmpXML)
 		if err := StartVM(vmName); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 			return err
 		}
 	} else {
 		utils.ExecCommand("virsh", "define", tmpXML)
 	}
 
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 	return nil
 }
 
@@ -149,29 +149,29 @@ func DisableVnc(vmName string) error {
 
 	// 直接导出 XML 到文件
 	if state == "running" {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	} else {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	}
 
 	// 替换为仅本地监听
 	newGraphics := "<graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'>\\n      <listen type='address' address='127.0.0.1'/>\\n    </graphics>"
 	utils.ExecShell(fmt.Sprintf(
-		`sed -i "/<graphics type='vnc'/,/<\/graphics>/c\    %s" '%s'`,
-		newGraphics, tmpXML))
+		`sed -i "/<graphics type='vnc'/,/<\/graphics>/c\    %s" %s`,
+		newGraphics, utils.ShellSingleQuote(tmpXML)))
 
 	if state == "running" {
 		utils.ExecCommand("virsh", "destroy", vmName)
 		utils.ExecCommand("virsh", "define", tmpXML)
 		if err := StartVM(vmName); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 			return err
 		}
 	} else {
 		utils.ExecCommand("virsh", "define", tmpXML)
 	}
 
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 	return nil
 }
 
@@ -200,12 +200,12 @@ func ChangeVncPassword(vmName, newPassword string) error {
 	xmlResult := utils.ExecCommand("virsh", "dumpxml", vmName)
 	if xmlResult.Error == nil {
 		tmpXML := fmt.Sprintf("/tmp/vnc_pwd_%s.xml", vmName)
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 		utils.ExecShell(fmt.Sprintf(
-			`sed -i "s|passwd='[^']*'|passwd='%s'|" '%s'`,
-			newPassword, tmpXML))
+			`sed -i "s|passwd='[^']*'|passwd='%s'|" %s`,
+			newPassword, utils.ShellSingleQuote(tmpXML)))
 		utils.ExecCommand("virsh", "define", tmpXML)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 	}
 
 	return nil
@@ -280,15 +280,15 @@ func ExposeVnc(vmName string, expose bool) error {
 
 	// 直接导出 XML 到文件
 	if state == "running" {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	} else {
-		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive '%s' > '%s'", vmName, tmpXML))
+		utils.ExecShell(fmt.Sprintf("virsh dumpxml --inactive %s > %s", utils.ShellSingleQuote(vmName), utils.ShellSingleQuote(tmpXML)))
 	}
 
 	// 检查是否有 VNC 配置
-	checkResult := utils.ExecShell(fmt.Sprintf("grep -c \"graphics type='vnc'\" '%s'", tmpXML))
+	checkResult := utils.ExecShell(fmt.Sprintf("grep -c \"graphics type='vnc'\" %s", utils.ShellSingleQuote(tmpXML)))
 	if strings.TrimSpace(checkResult.Stdout) == "0" {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 		return fmt.Errorf("VNC 未开启，请先开启 VNC")
 	}
 
@@ -301,21 +301,21 @@ func ExposeVnc(vmName string, expose bool) error {
 
 	// 替换 listen 地址（仅修改 graphics 和 listen 行，避免误改 mac address 等）
 	utils.ExecShell(fmt.Sprintf(
-		`sed -i "/<graphics type='vnc'/s|listen='[^']*'|listen='%s'|; /<listen type='address'/s|address='[^']*'|address='%s'|" '%s'`,
-		listenAddr, listenAddr, tmpXML))
+		`sed -i "/<graphics type='vnc'/s|listen='[^']*'|listen='%s'|; /<listen type='address'/s|address='[^']*'|address='%s'|" %s`,
+		listenAddr, listenAddr, utils.ShellSingleQuote(tmpXML)))
 
 	// 应用配置
 	if state == "running" {
 		utils.ExecCommand("virsh", "destroy", vmName)
 		utils.ExecCommand("virsh", "define", tmpXML)
 		if err := StartVM(vmName); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 			return err
 		}
 	} else {
 		utils.ExecCommand("virsh", "define", tmpXML)
 	}
 
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", tmpXML))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(tmpXML)))
 	return nil
 }

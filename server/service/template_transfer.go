@@ -465,7 +465,7 @@ func ExportTemplate(ctx context.Context, params *ExportTemplateParams, progressF
 		return nil, fmt.Errorf("替换模板导出包失败: %w", err)
 	}
 	_ = utils.ExecCommand("chown", "libvirt-qemu:kvm", exportPath)
-	sizeResult := utils.ExecShell(fmt.Sprintf("du -h '%s' | awk '{print $1}'", exportPath))
+	sizeResult := utils.ExecShell(fmt.Sprintf("du -h %s | awk '{print $1}'", utils.ShellSingleQuote(exportPath)))
 	fileSize := "未知"
 	if sizeResult.Error == nil && strings.TrimSpace(sizeResult.Stdout) != "" {
 		fileSize = strings.TrimSpace(sizeResult.Stdout)

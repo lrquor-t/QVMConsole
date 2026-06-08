@@ -170,9 +170,9 @@ func SetVMVideoModel(name, videoModel string) error {
 	}
 
 	xmlPath := fmt.Sprintf("/tmp/_video-%s.xml", name)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, xmlStr))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), xmlStr))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("修改显示设备失败: %s", defineResult.Stderr)
 	}

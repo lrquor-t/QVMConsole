@@ -43,7 +43,7 @@ func GetStorageImagePath() string {
 
 // getProjectID 获取用户的 project ID（基于系统 UID）
 func getProjectID(username string) (int, error) {
-	result := utils.ExecShell(fmt.Sprintf("id -u '%s' 2>/dev/null", username))
+	result := utils.ExecShell(fmt.Sprintf("id -u %s 2>/dev/null", utils.ShellSingleQuote(username)))
 	if result.Error != nil || strings.TrimSpace(result.Stdout) == "" {
 		return 0, fmt.Errorf("获取用户 %s 的 UID 失败", username)
 	}
@@ -71,22 +71,22 @@ func SetupUserProject(username string, dirs []string) error {
 	// 更新 /etc/projects（project_id:directory）
 	for _, dir := range dirs {
 		// 检查是否已存在该映射
-		checkResult := utils.ExecShell(fmt.Sprintf("grep -q '%d:%s' /etc/projects 2>/dev/null", projectID, dir))
+		checkResult := utils.ExecShell(fmt.Sprintf("grep -q %d:%s /etc/projects 2>/dev/null", projectID, utils.ShellSingleQuote(dir)))
 		if checkResult.Error != nil {
 			// 不存在，追加
-			utils.ExecShell(fmt.Sprintf("echo '%d:%s' >> /etc/projects", projectID, dir))
+			utils.ExecShell(fmt.Sprintf("echo %d:%s >> /etc/projects", projectID, utils.ShellSingleQuote(dir)))
 		}
 	}
 
 	// 更新 /etc/projid（project_name:project_id）
-	checkResult := utils.ExecShell(fmt.Sprintf("grep -q '%s:%d' /etc/projid 2>/dev/null", projectName, projectID))
+	checkResult := utils.ExecShell(fmt.Sprintf("grep -q %s:%d /etc/projid 2>/dev/null", utils.ShellSingleQuote(projectName), projectID))
 	if checkResult.Error != nil {
-		utils.ExecShell(fmt.Sprintf("echo '%s:%d' >> /etc/projid", projectName, projectID))
+		utils.ExecShell(fmt.Sprintf("echo %s:%d >> /etc/projid", utils.ShellSingleQuote(projectName), projectID))
 	}
 
 	// 对每个目录设置 project ID 和继承属性
 	for _, dir := range dirs {
-		result := utils.ExecShell(fmt.Sprintf("chattr +P -p %d '%s' 2>/dev/null", projectID, dir))
+		result := utils.ExecShell(fmt.Sprintf("chattr +P -p %d %s 2>/dev/null", projectID, utils.ShellSingleQuote(dir)))
 		if result.Error != nil {
 			return fmt.Errorf("设置目录 %s 的 project ID 失败: %s", dir, result.Stderr)
 		}
@@ -145,7 +145,7 @@ func RemoveUserStorageQuota(username string) error {
 	// 清理 /etc/projects 和 /etc/projid 中的条目
 	projectName := getProjectName(username)
 	utils.ExecShell(fmt.Sprintf("sed -i '/^%d:/d' /etc/projects 2>/dev/null", projectID))
-	utils.ExecShell(fmt.Sprintf("sed -i '/^%s:/d' /etc/projid 2>/dev/null", projectName))
+	utils.ExecShell(fmt.Sprintf("sed -i '/^%s:/d' /etc/projid 2>/dev/null", utils.ShellSingleQuote(projectName)))
 
 	return nil
 }
@@ -258,7 +258,7 @@ func parseQuotaNumber(s string) (int64, error) {
 // IsStorageFilesystemMounted 检查专用存储文件系统是否已挂载
 func IsStorageFilesystemMounted() bool {
 	mountPoint := GetStorageMountPoint()
-	result := utils.ExecShell(fmt.Sprintf("mount | grep -q ' %s '", mountPoint))
+	result := utils.ExecShell(fmt.Sprintf("mount | grep -q %s", utils.ShellSingleQuote(" "+mountPoint+" ")))
 	return result.Error == nil
 }
 
@@ -274,7 +274,7 @@ func InitStorageFilesystem(sizeGB int) error {
 	}
 
 	// 检查镜像文件是否已存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo yes || echo no", imgPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes || echo no", utils.ShellSingleQuote(imgPath)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		if sizeGB <= 0 {
 			// 默认与根分区大小相同
@@ -297,7 +297,7 @@ func InitStorageFilesystem(sizeGB int) error {
 		}
 
 		// 格式化为 ext4，启用 project 和 quota 特性
-		result = utils.ExecShell(fmt.Sprintf("mkfs.ext4 -O project,quota '%s'", imgPath))
+		result = utils.ExecShell(fmt.Sprintf("mkfs.ext4 -O project,quota %s", utils.ShellSingleQuote(imgPath)))
 		if result.Error != nil {
 			return fmt.Errorf("格式化存储文件系统失败: %s", result.Stderr)
 		}
@@ -313,7 +313,7 @@ func InitStorageFilesystem(sizeGB int) error {
 	}
 
 	// 启用 project 配额
-	utils.ExecShell(fmt.Sprintf("quotaon -P '%s' 2>/dev/null || true", mountPoint))
+	utils.ExecShell(fmt.Sprintf("quotaon -P %s 2>/dev/null || true", utils.ShellSingleQuote(mountPoint)))
 
 	// 确保 /etc/projects 和 /etc/projid 文件存在
 	utils.ExecShell("touch /etc/projects /etc/projid")
@@ -332,7 +332,7 @@ func EnsureStorageFilesystem() error {
 	mountPoint := GetStorageMountPoint()
 
 	// 检查镜像文件是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo yes || echo no", imgPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes || echo no", utils.ShellSingleQuote(imgPath)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		// 镜像不存在，初始化
 		return InitStorageFilesystem(0)
@@ -346,7 +346,7 @@ func EnsureStorageFilesystem() error {
 	}
 
 	// 启用配额
-	utils.ExecShell(fmt.Sprintf("quotaon -P '%s' 2>/dev/null || true", mountPoint))
+	utils.ExecShell(fmt.Sprintf("quotaon -P %s 2>/dev/null || true", utils.ShellSingleQuote(mountPoint)))
 
 	return nil
 }

@@ -96,7 +96,7 @@ echo __PART_LIST__
 part-list %s
 echo __FILESYSTEMS__
 list-filesystems
-GUESTFISH`, shellSingleQuote(diskPath), device, device, device, device)
+GUESTFISH`, utils.ShellSingleQuote(diskPath), device, device, device, device)
 
 	result := utils.ExecShellWithTimeout(script, 2*time.Minute)
 	if result.Error != nil {
@@ -128,7 +128,7 @@ GUESTFISH`, shellSingleQuote(diskPath), device, device, device, device)
 
 func buildGuestfishPartitionMetaScript(diskPath, device string, partitions []guestDiskPartition) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("guestfish --ro -a %s <<'GUESTFISH'\nrun\n", shellSingleQuote(diskPath)))
+	b.WriteString(fmt.Sprintf("guestfish --ro -a %s <<'GUESTFISH'\nrun\n", utils.ShellSingleQuote(diskPath)))
 	for _, part := range partitions {
 		b.WriteString(fmt.Sprintf("echo __PART_META_%d__\n", part.Num))
 		b.WriteString(fmt.Sprintf("part-get-gpt-type %s %d\n", device, part.Num))
@@ -398,7 +398,7 @@ func runWritableGuestfish(ctx context.Context, diskPath string, commands []strin
 func runWritableGuestfishOperation(ctx context.Context, diskPath string, commands []string, cleanupPaths []string, operationName, timeoutMessage string) error {
 	var b strings.Builder
 	b.WriteString("set +e\n")
-	b.WriteString(fmt.Sprintf("guestfish -a %s <<'GUESTFISH'\n", shellSingleQuote(diskPath)))
+	b.WriteString(fmt.Sprintf("guestfish -a %s <<'GUESTFISH'\n", utils.ShellSingleQuote(diskPath)))
 	for _, command := range commands {
 		b.WriteString(command)
 		b.WriteByte('\n')
@@ -406,14 +406,14 @@ func runWritableGuestfishOperation(ctx context.Context, diskPath string, command
 	b.WriteString("GUESTFISH\n")
 	b.WriteString("guestfish_status=$?\n")
 	for _, cleanupPath := range cleanupPaths {
-		b.WriteString(fmt.Sprintf("rm -f %s\n", shellSingleQuote(cleanupPath)))
+		b.WriteString(fmt.Sprintf("rm -f %s\n", utils.ShellSingleQuote(cleanupPath)))
 	}
 	b.WriteString("exit $guestfish_status\n")
 
 	result := utils.ExecShellContextWithTimeout(ctx, b.String(), 10*time.Minute)
 	if result.Error != nil {
 		for _, cleanupPath := range cleanupPaths {
-			utils.ExecShell(fmt.Sprintf("rm -f %s", shellSingleQuote(cleanupPath)))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cleanupPath)))
 		}
 		if ctx != nil && ctx.Err() != nil {
 			return fmt.Errorf("%s已取消", operationName)

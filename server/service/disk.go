@@ -115,7 +115,7 @@ func ListDisks(vmName string) ([]DiskInfo, error) {
 			}
 		} else if disk.Path != "" {
 			// 关机时也能用 qemu-img info 获取
-			qemuInfo := utils.ExecShell(fmt.Sprintf("qemu-img info --output=json -U '%s' 2>/dev/null", disk.Path))
+			qemuInfo := utils.ExecShell(fmt.Sprintf("qemu-img info --output=json -U %s 2>/dev/null", utils.ShellSingleQuote(disk.Path)))
 			if qemuInfo.Error == nil {
 				disk.CapacityGB = parseQemuInfoGB(qemuInfo.Stdout, "virtual-size")
 				disk.UsedGB = parseQemuInfoGB(qemuInfo.Stdout, "actual-size")
@@ -230,7 +230,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 	}
 
 	// 检查文件是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", diskPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(diskPath)))
 	if checkResult.Stdout != "ok" {
 		return "", fmt.Errorf("磁盘文件不存在: %s", diskPath)
 	}
@@ -243,7 +243,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 		destPath := filepath.Join(destDir, filename)
 
 		// 检查目标文件是否已存在，加时间戳避免冲突
-		destCheck := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo exists", destPath))
+		destCheck := utils.ExecShell(fmt.Sprintf("test -f %s && echo exists", utils.ShellSingleQuote(destPath)))
 		if strings.TrimSpace(destCheck.Stdout) == "exists" {
 			ts := time.Now().Format("20060102150405")
 			ext := filepath.Ext(filename)
@@ -252,7 +252,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 		}
 
 		// 移动文件
-		mvResult := utils.ExecShell(fmt.Sprintf("mv '%s' '%s'", diskPath, destPath))
+		mvResult := utils.ExecShell(fmt.Sprintf("mv %s %s", utils.ShellSingleQuote(diskPath), utils.ShellSingleQuote(destPath)))
 		if mvResult.Error != nil {
 			return "", fmt.Errorf("移动磁盘文件到默认目录失败: %s", mvResult.Stderr)
 		}
@@ -305,7 +305,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 		format, diskPath, nextDev, bus)
 
 	xmlPath := fmt.Sprintf("/tmp/_attach-disk-%s-%s.xml", vmName, nextDev)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, diskXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), diskXML))
 
 	var attachArgs []string
 	if vmState == "running" {
@@ -314,7 +314,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 		attachArgs = []string{"attach-device", vmName, xmlPath, "--config"}
 	}
 	attachResult := utils.ExecCommand("virsh", attachArgs...)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if attachResult.Error != nil {
 		return "", fmt.Errorf("挂载磁盘失败: %s", attachResult.Stderr)
 	}
@@ -392,7 +392,7 @@ func AddDiskWithBusInDir(vmName string, sizeGB int, format, bus, diskDir string)
 		format, diskPath, nextDev, bus)
 
 	xmlPath := fmt.Sprintf("/tmp/_attach-disk-%s-%s.xml", vmName, nextDev)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, diskXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), diskXML))
 
 	var attachArgs []string
 	if vmState == "running" {
@@ -401,9 +401,9 @@ func AddDiskWithBusInDir(vmName string, sizeGB int, format, bus, diskDir string)
 		attachArgs = []string{"attach-device", vmName, xmlPath, "--config"}
 	}
 	attachResult := utils.ExecCommand("virsh", attachArgs...)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if attachResult.Error != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", fmt.Errorf("挂载磁盘失败: %s", attachResult.Stderr)
 	}
 
@@ -532,13 +532,13 @@ func SetDiskBus(vmName, device, newBus string) error {
 
 	newXML := strings.Join(newLines, "\n")
 	xmlPath := fmt.Sprintf("/tmp/_diskbus-%s.xml", vmName)
-	writeResult := utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, newXML))
+	writeResult := utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), newXML))
 	if writeResult.Error != nil {
 		return fmt.Errorf("写入 XML 失败: %s", writeResult.Stderr)
 	}
 
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("修改磁盘驱动失败: %s", defineResult.Stderr)
 	}
@@ -610,7 +610,7 @@ func RemoveDisk(vmName, device string, deleteFile bool) error {
 
 	// 获取磁盘路径
 	pathResult := utils.ExecShell(fmt.Sprintf(
-		"virsh domblklist '%s' | awk '$1==\"%s\"{print $2}'", vmName, device))
+		"virsh domblklist %s | awk '$1==\"%s\"{print $2}'", utils.ShellSingleQuote(vmName), device))
 	diskPath := strings.TrimSpace(pathResult.Stdout)
 
 	// 分离磁盘
@@ -627,7 +627,7 @@ func RemoveDisk(vmName, device string, deleteFile bool) error {
 
 	// 删除文件
 	if deleteFile && diskPath != "" {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 	}
 
 	return nil
@@ -694,7 +694,7 @@ func GetVMQcow2Disks(vmName string) ([]DiskSimpleInfo, error) {
 		}
 
 		// 通过 du 获取文件实际占用字节数
-		duResult := utils.ExecShell(fmt.Sprintf("du -b '%s' 2>/dev/null | awk '{print $1}'", disk.Path))
+		duResult := utils.ExecShell(fmt.Sprintf("du -b %s 2>/dev/null | awk '{print $1}'", utils.ShellSingleQuote(disk.Path)))
 		if duResult.Error == nil {
 			info.SizeBytes, _ = strconv.ParseInt(strings.TrimSpace(duResult.Stdout), 10, 64)
 		}
@@ -709,7 +709,7 @@ func GetVMQcow2Disks(vmName string) ([]DiskSimpleInfo, error) {
 // GetDiskFilePath 获取磁盘设备对应的文件路径
 func GetDiskFilePath(vmName, device string) string {
 	pathResult := utils.ExecShell(fmt.Sprintf(
-		"virsh domblklist '%s' | awk '$1==\"%s\"{print $2}'", vmName, device))
+		"virsh domblklist %s | awk '$1==\"%s\"{print $2}'", utils.ShellSingleQuote(vmName), device))
 	return strings.TrimSpace(pathResult.Stdout)
 }
 
@@ -723,7 +723,7 @@ func TransferDiskFile(diskPath, username string) error {
 	destPath := filepath.Join(diskDir, filename)
 
 	// 如果目标文件已存在，加上时间戳避免冲突
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo exists", destPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo exists", utils.ShellSingleQuote(destPath)))
 	if strings.TrimSpace(checkResult.Stdout) == "exists" {
 		ts := time.Now().Format("20060102150405")
 		ext := filepath.Ext(filename)
@@ -732,7 +732,7 @@ func TransferDiskFile(diskPath, username string) error {
 	}
 
 	// 移动文件
-	mvResult := utils.ExecShell(fmt.Sprintf("mv '%s' '%s'", diskPath, destPath))
+	mvResult := utils.ExecShell(fmt.Sprintf("mv %s %s", utils.ShellSingleQuote(diskPath), utils.ShellSingleQuote(destPath)))
 	if mvResult.Error != nil {
 		return fmt.Errorf("转移磁盘文件失败: %s", mvResult.Stderr)
 	}

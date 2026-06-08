@@ -68,7 +68,7 @@ func remoteSSHExec(ctx context.Context, node model.HostNode, command string, tim
 		sshPort = 22
 	}
 	cmd := fmt.Sprintf("sshpass -f %s ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 %s %s",
-		shellSingleQuote(passwordFile), sshPort, shellSingleQuote(target), shellSingleQuote(command))
+		utils.ShellSingleQuote(passwordFile), sshPort, utils.ShellSingleQuote(target), utils.ShellSingleQuote(command))
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, timeout)
 	if result.Error != nil {
 		if result.ExitCode == 255 {
@@ -101,10 +101,10 @@ func remoteRsyncFile(ctx context.Context, node model.HostNode, sourcePath, targe
 		sshPort = 22
 	}
 	cmd := fmt.Sprintf("sshpass -f %s rsync -aS --numeric-ids -e %s %s %s",
-		shellSingleQuote(passwordFile),
-		shellSingleQuote(fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o LogLevel=ERROR", sshPort)),
-		shellSingleQuote(sourcePath),
-		shellSingleQuote(target))
+		utils.ShellSingleQuote(passwordFile),
+		utils.ShellSingleQuote(fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o LogLevel=ERROR", sshPort)),
+		utils.ShellSingleQuote(sourcePath),
+		utils.ShellSingleQuote(target))
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, timeout)
 	if result.Error != nil {
 		cleanStderr := stripSSHWarnings(result.Stderr)
@@ -135,15 +135,15 @@ func ensureDefaultSSHKeyTrusted(ctx context.Context, node model.HostNode) error 
 		ctx = context.Background()
 	}
 	keyPath := "/root/.ssh/id_ed25519"
-	if result := utils.ExecShell("test -f " + shellSingleQuote(keyPath) + " || ssh-keygen -t ed25519 -N '' -f " + shellSingleQuote(keyPath) + " >/dev/null"); result.Error != nil {
+	if result := utils.ExecShell("test -f " + utils.ShellSingleQuote(keyPath) + " || ssh-keygen -t ed25519 -N '' -f " + utils.ShellSingleQuote(keyPath) + " >/dev/null"); result.Error != nil {
 		return fmt.Errorf("生成本机迁移 SSH Key 失败: %s", result.Stderr)
 	}
-	pub := utils.ExecShell("cat " + shellSingleQuote(keyPath+".pub"))
+	pub := utils.ExecShell("cat " + utils.ShellSingleQuote(keyPath+".pub"))
 	if pub.Error != nil || strings.TrimSpace(pub.Stdout) == "" {
 		return fmt.Errorf("读取本机迁移 SSH 公钥失败: %s", pub.Stderr)
 	}
 	install := fmt.Sprintf("mkdir -p /root/.ssh && chmod 700 /root/.ssh && grep -qxF %s /root/.ssh/authorized_keys 2>/dev/null || echo %s >> /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys",
-		shellSingleQuote(strings.TrimSpace(pub.Stdout)), shellSingleQuote(strings.TrimSpace(pub.Stdout)))
+		utils.ShellSingleQuote(strings.TrimSpace(pub.Stdout)), utils.ShellSingleQuote(strings.TrimSpace(pub.Stdout)))
 	if _, err := remoteSSHCommand(ctx, node, install, 30*time.Second); err != nil {
 		return err
 	}

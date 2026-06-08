@@ -787,7 +787,7 @@ func GetAllISOs() ([]ISOFileInfo, error) {
 	seen := make(map[string]bool)
 	var all []ISOFileInfo
 	for label, dir := range paths {
-		result := utils.ExecShell(fmt.Sprintf("find '%s' -maxdepth 1 -name '*.iso' -type f 2>/dev/null", dir))
+		result := utils.ExecShell(fmt.Sprintf("find %s -maxdepth 1 -name '*.iso' -type f 2>/dev/null", utils.ShellSingleQuote(dir)))
 		if result.Error != nil || strings.TrimSpace(result.Stdout) == "" {
 			continue
 		}
@@ -824,11 +824,11 @@ func buildISOInfo(filePath, poolName string) ISOFileInfo {
 	name := filepath.Base(filePath)
 	nameLower := strings.ToLower(name)
 	iso := ISOFileInfo{Name: name, Path: filePath, Pool: poolName}
-	sizeResult := utils.ExecShell(fmt.Sprintf("du -h '%s' | awk '{print $1}'", filePath))
+	sizeResult := utils.ExecShell(fmt.Sprintf("du -h %s | awk '{print $1}'", utils.ShellSingleQuote(filePath)))
 	if sizeResult.Error == nil {
 		iso.Size = strings.TrimSpace(sizeResult.Stdout)
 	}
-	bytesResult := utils.ExecShell(fmt.Sprintf("stat -c '%%s' '%s' 2>/dev/null", filePath))
+	bytesResult := utils.ExecShell(fmt.Sprintf("stat -c '%%s' %s 2>/dev/null", utils.ShellSingleQuote(filePath)))
 	if bytesResult.Error == nil {
 		iso.SizeBytes, _ = strconv.ParseInt(strings.TrimSpace(bytesResult.Stdout), 10, 64)
 	}

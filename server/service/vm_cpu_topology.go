@@ -205,9 +205,9 @@ func setVMCPUWithTopologySync(name string, vcpu int) error {
 	}
 
 	xmlPath := fmt.Sprintf("/tmp/_cpu-topology-sync-%s.xml", name)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, xmlStr))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), xmlStr))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("设置 CPU 失败: %s", defineResult.Stderr)
 	}
@@ -235,9 +235,9 @@ func SetVMCPUTopologyMode(name, mode string) error {
 	updated := ApplyCPUTopologyModeToDomainXML(xmlStr, mode, osType, ParseVCPUCountFromDomainXML(xmlStr))
 
 	xmlPath := fmt.Sprintf("/tmp/_cpu-topology-%s.xml", name)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, updated))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), updated))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("修改 CPU 拓扑失败: %s", defineResult.Stderr)
 	}

@@ -207,8 +207,8 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	// 创建磁盘
 	diskPath := filepath.Join(cloneDir, fmt.Sprintf("%s.%s", params.Name, params.DiskFormat))
-	createCmd := fmt.Sprintf("qemu-img create -f %s '%s' %dG",
-		params.DiskFormat, diskPath, params.DiskSize)
+	createCmd := fmt.Sprintf("qemu-img create -f %s %s %dG",
+		params.DiskFormat, utils.ShellSingleQuote(diskPath), params.DiskSize)
 	result := utils.ExecShell(createCmd)
 	if result.Error != nil {
 		return "", fmt.Errorf("创建磁盘失败: %s", result.Stderr)
@@ -216,7 +216,7 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	progressFn(30, "生成虚拟机配置...")
 	if err := EnsureOVSNetworkReady(); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 
@@ -322,7 +322,7 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	installResult := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 	if installResult.Error != nil {
 		// 生成失败，清理磁盘
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", fmt.Errorf("生成虚拟机 XML 失败: %s", installResult.Stderr)
 	}
 	// virt-install --print-xml 带 --cdrom 时会输出两个 <domain> XML（安装阶段+后续阶段）
@@ -342,33 +342,33 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if memoryMeta != nil {
 		vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", err
 		}
 	}
 	vmXML, err = ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, params.OSType)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, params.OSType)
@@ -380,12 +380,12 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if params.CPUAffinity != "" {
 		affinityCores, err := ParseCPUAffinity(params.CPUAffinity)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", fmt.Errorf("CPU 亲和性格式错误: %w", err)
 		}
 		if len(affinityCores) > 0 {
 			if err := ValidateCPUAffinity(affinityCores); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 				return "", err
 			}
 		}
@@ -395,22 +395,22 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if normalizedBootType != "" {
 		vmXML, err = ApplyVMBootTypeToDomainXML(params.Name, vmXML, normalizedBootType)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", err
 		}
 	}
 	vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	vmXML, err = ApplyAdditionalCDROMsToDomainXML(vmXML, params.ISOPaths)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 	if err := ensureVMUEFINVRAMFile(params.Name, vmXML, normalizedBootType); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 
@@ -418,24 +418,24 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if len(params.HostDevices) > 0 {
 		progressFn(55, "配置硬件直通设备...")
 		if err := EnsureVfioModuleLoaded(); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", fmt.Errorf("加载 vfio-pci 模块失败: %w", err)
 		}
 		for _, hd := range params.HostDevices {
 			if err := ValidatePCIPassthrough(hd.PCIAddress); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 				return "", fmt.Errorf("设备 %s 直通验证失败: %w", hd.PCIAddress, err)
 			}
 			if !isDeviceVfioBound(hd.PCIAddress) {
 				if err := BindPCIDeviceToVfio(hd.PCIAddress); err != nil {
-					utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+					utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 					return "", fmt.Errorf("绑定设备 %s 到 vfio-pci 失败: %w", hd.PCIAddress, err)
 				}
 			}
 		}
 		vmXML, err = ApplyHostDevsToDomainXML(vmXML, params.HostDevices)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", fmt.Errorf("应用硬件直通设备失败: %w", err)
 		}
 	}
@@ -443,34 +443,32 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	// 写入临时文件并定义虚拟机
 	xmlPath := fmt.Sprintf("/tmp/_vm-create-%s.xml", params.Name)
 	if err := os.WriteFile(xmlPath, []byte(vmXML), 0644); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", fmt.Errorf("写入虚拟机 XML 失败: %w", err)
 	}
 
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 	}
 	if memoryMeta != nil {
 		if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			return "", err
 		}
 	}
 	if err := SetVMRemark(params.Name, params.Remark); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
-
 	if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
-
 	if err := StartVM(params.Name); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 

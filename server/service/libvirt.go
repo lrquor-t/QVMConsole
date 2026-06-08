@@ -372,7 +372,7 @@ func GetVM(name string) (*VmDetail, error) {
 
 	// 创建时间
 	xmlPath := fmt.Sprintf("/etc/libvirt/qemu/%s.xml", name)
-	statRes := utils.ExecShell(fmt.Sprintf("stat -c '%%W|%%Y' '%s' 2>/dev/null", xmlPath))
+	statRes := utils.ExecShell(fmt.Sprintf("stat -c %%W|%%Y %s 2>/dev/null", utils.ShellSingleQuote(xmlPath)))
 	if statRes.Error == nil {
 		parts := strings.Split(strings.TrimSpace(statRes.Stdout), "|")
 		if len(parts) >= 2 {
@@ -720,7 +720,7 @@ func fixBackingStoreXML(vmName string) {
 	if !strings.Contains(dumpResult.Stdout, "<backingStore") {
 		return
 	}
-	shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", vmName)
+	shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", utils.ShellSingleQuote(vmName))
 	utils.ExecShell(shellCmd)
 }
 
@@ -793,13 +793,13 @@ func ResetVM(name string) error {
 func FixOnReboot(name string) {
 	xmlPath := fmt.Sprintf("/etc/libvirt/qemu/%s.xml", name)
 	// 检查是否需要修复
-	checkResult := utils.ExecShell(fmt.Sprintf("grep '<on_reboot>destroy</on_reboot>' '%s' 2>/dev/null", xmlPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("grep '<on_reboot>destroy</on_reboot>' %s 2>/dev/null", utils.ShellSingleQuote(xmlPath)))
 	if checkResult.Error != nil || strings.TrimSpace(checkResult.Stdout) == "" {
 		return // 不需要修复
 	}
 	// 直接 sed 修改 XML 文件
 	utils.ExecShell(fmt.Sprintf(
-		"sed -i 's|<on_reboot>destroy</on_reboot>|<on_reboot>restart</on_reboot>|' '%s'", xmlPath))
+		"sed -i 's|<on_reboot>destroy</on_reboot>|<on_reboot>restart</on_reboot>|' %s", utils.ShellSingleQuote(xmlPath)))
 	// 重载 libvirtd 使配置生效
 	utils.ExecCommand("systemctl", "reload", "libvirtd")
 }
@@ -915,9 +915,9 @@ func SetVMBootOrder(name string, bootOrder []string) error {
 
 	newXML := strings.Join(newLines, "\n")
 	xmlPath := fmt.Sprintf("/tmp/_boot-%s.xml", name)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, newXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), newXML))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("设置启动顺序失败: %s", defineResult.Stderr)
 	}
@@ -1469,7 +1469,7 @@ func hasVMBridgeVLANTag(vmName string) bool {
 	// 通过 OVS 查询该端口是否有 VLAN tag
 	result := utils.ExecShell(fmt.Sprintf(
 		"ovs-vsctl list port %s 2>/dev/null | awk '$1==\"tag\" {print $3}'",
-		shellSingleQuote(vnet)))
+		utils.ShellSingleQuote(vnet)))
 	tag := strings.TrimSpace(result.Stdout)
 	if tag == "" || tag == "[]" {
 		return false
@@ -1479,7 +1479,7 @@ func hasVMBridgeVLANTag(vmName string) bool {
 
 // getInterfaceCIDR 获取网络接口的 IPv4 CIDR 子网
 func getInterfaceCIDR(iface string) string {
-	result := utils.ExecShell(fmt.Sprintf("ip -4 -o addr show %s 2>/dev/null | awk '{print $4}' | head -1", shellSingleQuote(iface)))
+	result := utils.ExecShell(fmt.Sprintf("ip -4 -o addr show %s 2>/dev/null | awk '{print $4}' | head -1", utils.ShellSingleQuote(iface)))
 	cidr := strings.TrimSpace(result.Stdout)
 	if cidr == "" {
 		return ""
@@ -1505,7 +1505,7 @@ func parseARPScanMacIPs(output string) map[string]string {
 
 // getAllHostNeighborMacIPs 从 ip neigh 中获取指定网桥的所有 MAC -> IP 映射
 func getAllHostNeighborMacIPs(bridge string) map[string]string {
-	result := utils.ExecShell(fmt.Sprintf("ip neigh show dev %s 2>/dev/null", shellSingleQuote(bridge)))
+	result := utils.ExecShell(fmt.Sprintf("ip neigh show dev %s 2>/dev/null", utils.ShellSingleQuote(bridge)))
 	if result.Error != nil {
 		return nil
 	}
@@ -1684,7 +1684,7 @@ func getVMDiskInfo(name string) diskInfoResult {
 	}
 
 	// 获取磁盘配置容量（默认展示虚拟机设置大小，而非实际占用）
-	qemuInfoResult := utils.ExecShell(fmt.Sprintf("qemu-img info --output=json -U '%s' 2>/dev/null", info.path))
+	qemuInfoResult := utils.ExecShell(fmt.Sprintf("qemu-img info --output=json -U %s 2>/dev/null", utils.ShellSingleQuote(info.path)))
 	if qemuInfoResult.Error == nil {
 		info.size = parseQemuInfoGB(qemuInfoResult.Stdout, "virtual-size")
 		if info.size != "-" && info.size != "" {
@@ -1709,7 +1709,7 @@ func getVMDiskInfo(name string) diskInfoResult {
 
 	// 获取 backing file（模板来源）
 	if info.template == "" {
-		backingResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U '%s' 2>/dev/null | grep 'backing file:' | awk '{print $3}'", info.path))
+		backingResult := utils.ExecShell(fmt.Sprintf("qemu-img info -U %s 2>/dev/null | grep 'backing file:' | awk '{print $3}'", utils.ShellSingleQuote(info.path)))
 		if backingResult.Error == nil {
 			backing := strings.TrimSpace(backingResult.Stdout)
 			if backing != "" {
@@ -1793,13 +1793,13 @@ func SetVMNicModel(name, nicModel string) error {
 
 	newXML := strings.Join(newLines, "\n")
 	xmlPath := fmt.Sprintf("/tmp/_nic-%s.xml", name)
-	writeResult := utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, newXML))
+	writeResult := utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), newXML))
 	if writeResult.Error != nil {
 		return fmt.Errorf("写入 XML 失败: %s", writeResult.Stderr)
 	}
 
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("修改网卡类型失败: %s", defineResult.Stderr)
 	}

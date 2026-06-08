@@ -39,7 +39,7 @@ func StartRescue(vmName, rescueISO string, progress func(int, string)) error {
 	}
 
 	// 检查 ISO 文件是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", rescueISO))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(rescueISO)))
 	if strings.TrimSpace(checkResult.Stdout) != "ok" {
 		return fmt.Errorf("救援 ISO 文件不存在: %s", rescueISO)
 	}
@@ -182,7 +182,7 @@ func StopRescue(vmName string, progress func(int, string)) error {
 // 检查方式: 救援临时配置文件是否存在
 func IsInRescueMode(vmName string) bool {
 	configPath := rescueConfigPath(vmName)
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", configPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(configPath)))
 	return strings.TrimSpace(checkResult.Stdout) == "ok"
 }
 
@@ -238,7 +238,7 @@ func saveOriginalConfig(vmName string) (*RescueOriginalConfig, error) {
 	}
 
 	configPath := rescueConfigPath(vmName)
-	writeResult := utils.ExecShell(fmt.Sprintf("cat > '%s' << 'JSONEOF'\n%s\nJSONEOF", configPath, string(data)))
+	writeResult := utils.ExecShell(fmt.Sprintf("cat > %s << 'JSONEOF'\n%s\nJSONEOF", utils.ShellSingleQuote(configPath), string(data)))
 	if writeResult.Error != nil {
 		return nil, fmt.Errorf("保存配置文件失败: %s", writeResult.Stderr)
 	}
@@ -249,7 +249,7 @@ func saveOriginalConfig(vmName string) (*RescueOriginalConfig, error) {
 // loadOriginalConfig 从临时文件加载原始配置
 func loadOriginalConfig(vmName string) (*RescueOriginalConfig, error) {
 	configPath := rescueConfigPath(vmName)
-	catResult := utils.ExecShell(fmt.Sprintf("cat '%s'", configPath))
+	catResult := utils.ExecShell(fmt.Sprintf("cat %s", utils.ShellSingleQuote(configPath)))
 	if catResult.Error != nil {
 		return nil, fmt.Errorf("读取配置文件失败: %s", catResult.Stderr)
 	}
@@ -315,9 +315,9 @@ func switchDiskBusForRescue(vmName string, origConfig *RescueOriginalConfig) err
 
 	newXML := strings.Join(newLines, "\n")
 	xmlPath := fmt.Sprintf("/tmp/_rescue-disk-%s.xml", vmName)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, newXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), newXML))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("定义磁盘配置失败: %s", defineResult.Stderr)
 	}
@@ -400,9 +400,9 @@ func restoreDiskBus(vmName string, origConfig *RescueOriginalConfig) error {
 
 	newXML := strings.Join(newLines, "\n")
 	xmlPath := fmt.Sprintf("/tmp/_rescue-restore-%s.xml", vmName)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, newXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), newXML))
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("恢复磁盘配置失败: %s", defineResult.Stderr)
 	}

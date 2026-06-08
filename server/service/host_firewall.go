@@ -391,7 +391,7 @@ func CloseHostFirewallConnections(mode string) (int, error) {
 	}
 	for _, conn := range preview.Connections {
 		cmd := fmt.Sprintf("ss -K -t state established sport = :%d dport = :%d dst %s 2>/dev/null || true",
-			conn.LocalPort, conn.PeerPort, shellSingleQuote(conn.PeerIP))
+			conn.LocalPort, conn.PeerPort, utils.ShellSingleQuote(conn.PeerIP))
 		utils.ExecShellWithTimeout(cmd, 5*time.Second)
 	}
 	return preview.Count, nil

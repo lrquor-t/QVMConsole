@@ -96,7 +96,7 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	params.BootType = strings.TrimSpace(params.BootType)
 
 	templatePath := filepath.Join(templateDir, params.Template+".qcow2")
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", templatePath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(templatePath)))
 	if checkResult.Stdout != "ok" {
 		return nil, fmt.Errorf("模板不存在: %s", params.Template)
 	}
@@ -155,11 +155,11 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 		progressFn(10, "创建原生完整克隆磁盘（脱离链式条件）...")
 		var convertCmd string
 		if params.DiskSize > 0 {
-			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 '%s' '%s' && qemu-img resize '%s' %dG",
-				templatePath, cloneDisk, cloneDisk, params.DiskSize)
+			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s && qemu-img resize %s %dG",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk), utils.ShellSingleQuote(cloneDisk), params.DiskSize)
 		} else {
-			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 '%s' '%s'",
-				templatePath, cloneDisk)
+			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk))
 		}
 		result := utils.ExecShellWithTimeout(convertCmd, 2*time.Hour)
 		if result.Error != nil {
@@ -167,9 +167,9 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 		}
 	} else {
 		progressFn(10, "创建原生链式克隆磁盘...")
-		createCmd := fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b '%s' '%s'", templatePath, cloneDisk)
+		createCmd := fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b %s %s", utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk))
 		if params.DiskSize > 0 {
-			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b '%s' '%s' '%dG'", templatePath, cloneDisk, params.DiskSize)
+			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b %s %s %dG", utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk), params.DiskSize)
 		}
 		result := utils.ExecShell(createCmd)
 		if result.Error != nil {
@@ -196,11 +196,11 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	progressFn(55, "生成虚拟机定义...")
 	cmdParts := []string{
 		"virt-install",
-		fmt.Sprintf("--name '%s'", params.Name),
+		fmt.Sprintf("--name %s", utils.ShellSingleQuote(params.Name)),
 		fmt.Sprintf("--ram %d", ramMB),
 		fmt.Sprintf("--vcpus %d", params.VCPU),
 		"--machine q35",
-		fmt.Sprintf("--disk '%s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap'", cloneDisk, params.DiskBus),
+		fmt.Sprintf("--disk %s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap", utils.ShellSingleQuote(cloneDisk), params.DiskBus),
 		"--osinfo detect=on,require=off",
 		BuildOVSVirtInstallNetworkArg(params.NicModel),
 		"--graphics vnc,listen=0.0.0.0",
@@ -314,7 +314,7 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	}
 
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		cleanupLinkedCloneArtifacts("", cloneDisk)
 		return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
@@ -385,6 +385,6 @@ func cleanupLinkedCloneArtifacts(vmName, diskPath string) {
 		utils.ExecCommand("virsh", "undefine", vmName, "--nvram", "--snapshots-metadata")
 	}
 	if strings.TrimSpace(diskPath) != "" {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 	}
 }

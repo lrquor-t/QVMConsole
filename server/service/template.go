@@ -553,7 +553,7 @@ func resolveTemplateBootType(templatePath, templateType, bootType string, bootVe
 func DetectTemplateBootType(templatePath string) string {
 	result := utils.ExecShellWithTimeout(fmt.Sprintf(
 		"virt-filesystems -a %s --filesystems --long 2>/dev/null | awk 'tolower($0) ~ /(^|[[:space:]])vfat([[:space:]]|$)|efi/ {found=1} END {if (found) print \"uefi\"; else print \"bios\"}'",
-		shellSingleQuote(templatePath),
+		utils.ShellSingleQuote(templatePath),
 	), templateBootDetectTimeout)
 	if result.Error == nil {
 		bootType := normalizeTemplateBootType(result.Stdout)
@@ -1787,7 +1787,7 @@ func pivotRunningVMToTemplateBacking(vmName, backingPath string) error {
 	if err != nil {
 		return err
 	}
-	createCmd := "qemu-img create -f qcow2 -F qcow2 -b " + shellSingleQuote(backingPath) + " " + shellSingleQuote(targetPath) + " " + strconv.FormatInt(chain[0].VirtualSize, 10)
+	createCmd := "qemu-img create -f qcow2 -F qcow2 -b " + utils.ShellSingleQuote(backingPath) + " " + utils.ShellSingleQuote(targetPath) + " " + strconv.FormatInt(chain[0].VirtualSize, 10)
 	createResult := utils.ExecShellContextWithTimeout(context.Background(), createCmd, 10*time.Minute)
 	if createResult.Error != nil {
 		return fmt.Errorf("创建热切换目标 overlay 失败: %s", firstNonEmpty(createResult.Stderr, createResult.Error.Error()))
@@ -1795,9 +1795,9 @@ func pivotRunningVMToTemplateBacking(vmName, backingPath string) error {
 	_ = setLibvirtDiskFileOwner(targetPath)
 	cmd := strings.Join([]string{
 		"virsh blockcopy",
-		shellSingleQuote(vmName),
-		shellSingleQuote(diskInfo.device),
-		"--dest", shellSingleQuote(targetPath),
+		utils.ShellSingleQuote(vmName),
+		utils.ShellSingleQuote(diskInfo.device),
+		"--dest", utils.ShellSingleQuote(targetPath),
 		"--format qcow2",
 		"--wait --verbose --pivot --transient-job --shallow --reuse-external",
 	}, " ")
@@ -1819,9 +1819,9 @@ func pivotRunningVMToTemplateBacking(vmName, backingPath string) error {
 func blockPullRunningVMToBase(vmName, device, diskPath, basePath string) error {
 	cmd := strings.Join([]string{
 		"virsh blockpull",
-		shellSingleQuote(vmName),
-		shellSingleQuote(device),
-		"--base", shellSingleQuote(basePath),
+		utils.ShellSingleQuote(vmName),
+		utils.ShellSingleQuote(device),
+		"--base", utils.ShellSingleQuote(basePath),
 		"--wait --verbose",
 	}, " ")
 	result := utils.ExecShellContextWithTimeout(context.Background(), cmd, 8*time.Hour)

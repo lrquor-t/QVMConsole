@@ -37,14 +37,14 @@ func GetVMExportSize(vmName string) (int64, error) {
 
 	// 检查是否有 backing file（链式克隆）
 	backingResult := utils.ExecShell(fmt.Sprintf(
-		"qemu-img info -U '%s' 2>/dev/null | grep 'backing file:'", diskInfo.path))
+		"qemu-img info -U %s 2>/dev/null | grep 'backing file:'", utils.ShellSingleQuote(diskInfo.path)))
 	hasBacking := backingResult.Error == nil && strings.TrimSpace(backingResult.Stdout) != ""
 
 	if hasBacking {
 		// 链式克隆：计算整个 backing chain 的实际数据量之和
 		// 使用 --backing-chain 获取所有层的 actual-size
 		chainResult := utils.ExecShell(fmt.Sprintf(
-			"qemu-img info -U --backing-chain --output=json '%s' 2>/dev/null", diskInfo.path))
+			"qemu-img info -U --backing-chain --output=json %s 2>/dev/null", utils.ShellSingleQuote(diskInfo.path)))
 		if chainResult.Error == nil && strings.TrimSpace(chainResult.Stdout) != "" {
 			var totalSize int64
 			// 简单解析所有 actual-size 字段
@@ -67,7 +67,7 @@ func GetVMExportSize(vmName string) (int64, error) {
 	}
 
 	// 独立磁盘：返回实际文件大小
-	sizeResult := utils.ExecShell(fmt.Sprintf("stat -c '%%s' '%s' 2>/dev/null", diskInfo.path))
+	sizeResult := utils.ExecShell(fmt.Sprintf("stat -c '%%s' %s 2>/dev/null", utils.ShellSingleQuote(diskInfo.path)))
 	if sizeResult.Error == nil {
 		var size int64
 		fmt.Sscanf(strings.TrimSpace(sizeResult.Stdout), "%d", &size)
@@ -108,7 +108,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 	// admin 没有系统用户，仍用 root；普通用户用 sudo -u 执行
 	useSudo := false
 	if params.Username != "admin" {
-		checkUser := utils.ExecShell(fmt.Sprintf("id '%s' 2>/dev/null", params.Username))
+		checkUser := utils.ExecShell(fmt.Sprintf("id %s 2>/dev/null", utils.ShellSingleQuote(params.Username)))
 		if checkUser.Error == nil && strings.TrimSpace(checkUser.Stdout) != "" {
 			useSudo = true
 			// 确保用户在 kvm 组中（兼容旧用户）
@@ -125,7 +125,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 
 	// 检查是否有 backing file（链式克隆）
 	backingResult := utils.ExecShell(fmt.Sprintf(
-		"qemu-img info -U '%s' 2>/dev/null | grep 'backing file:'", diskInfo.path))
+		"qemu-img info -U %s 2>/dev/null | grep 'backing file:'", utils.ShellSingleQuote(diskInfo.path)))
 	hasBacking := backingResult.Error == nil && strings.TrimSpace(backingResult.Stdout) != ""
 
 	if hasBacking {
@@ -135,14 +135,16 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 
 		var convertCmd string
 		if useSudo {
-			convertCmd = fmt.Sprintf("sudo -u '%s' qemu-img convert -O qcow2 '%s' '%s'", params.Username, diskInfo.path, exportPath)
+			convertCmd = fmt.Sprintf("sudo -u %s qemu-img convert -O qcow2 %s %s",
+				utils.ShellSingleQuote(params.Username), utils.ShellSingleQuote(diskInfo.path), utils.ShellSingleQuote(exportPath))
 		} else {
-			convertCmd = fmt.Sprintf("qemu-img convert -O qcow2 '%s' '%s'", diskInfo.path, exportPath)
+			convertCmd = fmt.Sprintf("qemu-img convert -O qcow2 %s %s",
+				utils.ShellSingleQuote(diskInfo.path), utils.ShellSingleQuote(exportPath))
 		}
 		result := utils.ExecShellWithTimeout(convertCmd, 2*time.Hour)
 		if result.Error != nil {
 			// 清理不完整的文件
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", exportPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(exportPath)))
 			return nil, fmt.Errorf("导出失败（qemu-img convert）: %s", result.Stderr)
 		}
 	} else {
@@ -157,7 +159,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 			result = utils.ExecCommandLongRunning("cp", "--sparse=always", diskInfo.path, exportPath)
 		}
 		if result.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", exportPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(exportPath)))
 			return nil, fmt.Errorf("导出失败（cp）: %s", result.Stderr)
 		}
 	}
@@ -165,7 +167,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 	// 检查取消
 	select {
 	case <-ctx.Done():
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", exportPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(exportPath)))
 		return nil, taskqueue.ErrTaskCanceled
 	default:
 	}
@@ -176,7 +178,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 	utils.ExecCommand("chown", "libvirt-qemu:kvm", exportPath)
 
 	// 获取导出文件大小
-	sizeResult := utils.ExecShell(fmt.Sprintf("du -h '%s' | awk '{print $1}'", exportPath))
+	sizeResult := utils.ExecShell(fmt.Sprintf("du -h %s | awk '{print $1}'", utils.ShellSingleQuote(exportPath)))
 	fileSize := "未知"
 	if sizeResult.Error == nil {
 		fileSize = strings.TrimSpace(sizeResult.Stdout)

@@ -344,9 +344,9 @@ func createQCOW2NVRAMFromTemplate(templatePath, nvramPath string) error {
 	}
 	fixResult := utils.ExecShell(fmt.Sprintf(
 		"chmod 600 %s && (chown libvirt-qemu:kvm %s 2>/dev/null || chown qemu:qemu %s 2>/dev/null || true)",
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
 	))
 	if fixResult.Error != nil {
 		return fmt.Errorf("设置 NVRAM 文件权限失败: %s", firstNonEmpty(fixResult.Stderr, fixResult.Error.Error()))
@@ -386,9 +386,9 @@ func convertExistingNVRAMToQCOW2(nvramPath string) error {
 	}
 	fixResult := utils.ExecShell(fmt.Sprintf(
 		"chmod 600 %s && (chown libvirt-qemu:kvm %s 2>/dev/null || chown qemu:qemu %s 2>/dev/null || true)",
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
 	))
 	if fixResult.Error != nil {
 		return fmt.Errorf("设置 NVRAM 文件权限失败: %s", firstNonEmpty(fixResult.Stderr, fixResult.Error.Error()))

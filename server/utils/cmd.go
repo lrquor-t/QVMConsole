@@ -121,3 +121,13 @@ func ExecShellWithTimeout(command string, timeout time.Duration) *CmdResult {
 func ExecShellContextWithTimeout(ctx context.Context, command string, timeout time.Duration) *CmdResult {
 	return ExecCommandContextWithTimeout(ctx, "bash", timeout, "-c", command)
 }
+
+// ShellSingleQuote 对 shell 参数做单引号转义，防止命令注入。
+// 将单引号替换为 '"'"'（结束引号、转义单引号、开始引号），
+// 使参数在 shell 单引号上下文中安全使用。
+func ShellSingleQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}

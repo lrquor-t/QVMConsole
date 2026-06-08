@@ -371,7 +371,7 @@ func readVMCreatedAtText(name string) string {
 	}
 
 	xmlPath := fmt.Sprintf("/etc/libvirt/qemu/%s.xml", name)
-	result := utils.ExecShell(fmt.Sprintf("stat -c '%%W|%%Y' '%s' 2>/dev/null", xmlPath))
+	result := utils.ExecShell(fmt.Sprintf("stat -c '%%W|%%Y' %s 2>/dev/null", utils.ShellSingleQuote(xmlPath)))
 	if result.Error != nil {
 		return ""
 	}

@@ -350,10 +350,10 @@ func executeLiveVMDiskMigration(ctx context.Context, plan *vmDiskMigrationPlan, 
 	progress(20, "正在启动热迁移 blockcopy...")
 	cmdParts := []string{
 		"virsh blockcopy",
-		shellSingleQuote(plan.VMName),
-		shellSingleQuote(plan.Device),
-		"--dest", shellSingleQuote(plan.TargetPath),
-		"--format", shellSingleQuote(plan.Format),
+		utils.ShellSingleQuote(plan.VMName),
+		utils.ShellSingleQuote(plan.Device),
+		"--dest", utils.ShellSingleQuote(plan.TargetPath),
+		"--format", utils.ShellSingleQuote(plan.Format),
 		"--wait --verbose --pivot --transient-job",
 	}
 	if plan.BackingPath != "" {
@@ -396,10 +396,10 @@ func prepareLiveShallowDiskTarget(ctx context.Context, plan *vmDiskMigrationPlan
 	if err := os.MkdirAll(filepath.Dir(plan.TargetPath), 0755); err != nil {
 		return fmt.Errorf("创建目标目录失败: %w", err)
 	}
-	cmd := "qemu-img create -f " + shellSingleQuote(plan.Format) +
-		" -F " + shellSingleQuote(plan.BackingFormat) +
-		" -b " + shellSingleQuote(plan.BackingPath) +
-		" " + shellSingleQuote(plan.TargetPath) +
+	cmd := "qemu-img create -f " + utils.ShellSingleQuote(plan.Format) +
+		" -F " + utils.ShellSingleQuote(plan.BackingFormat) +
+		" -b " + utils.ShellSingleQuote(plan.BackingPath) +
+		" " + utils.ShellSingleQuote(plan.TargetPath) +
 		" " + strconv.FormatInt(plan.VirtualSize, 10)
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, 10*time.Minute)
 	if result.Error != nil {
@@ -471,7 +471,7 @@ func copyDiskFileSparse(ctx context.Context, sourcePath, targetPath string) erro
 		return fmt.Errorf("创建目标目录失败: %w", err)
 	}
 	cmd := "cp --sparse=always --reflink=auto --preserve=mode,ownership,timestamps " +
-		shellSingleQuote(sourcePath) + " " + shellSingleQuote(targetPath)
+		utils.ShellSingleQuote(sourcePath) + " " + utils.ShellSingleQuote(targetPath)
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, 8*time.Hour)
 	if result.Error != nil {
 		if ctx.Err() != nil {
@@ -490,10 +490,10 @@ func rebaseDiskBackingUnsafe(plan *vmDiskMigrationPlan) error {
 	if backingFormat == "" {
 		return fmt.Errorf("链式硬盘缺少 backing 格式，无法迁移")
 	}
-	cmd := "qemu-img rebase -u -f " + shellSingleQuote(plan.Format) +
-		" -F " + shellSingleQuote(backingFormat) +
-		" -b " + shellSingleQuote(plan.BackingPath) +
-		" " + shellSingleQuote(plan.TargetPath)
+	cmd := "qemu-img rebase -u -f " + utils.ShellSingleQuote(plan.Format) +
+		" -F " + utils.ShellSingleQuote(backingFormat) +
+		" -b " + utils.ShellSingleQuote(plan.BackingPath) +
+		" " + utils.ShellSingleQuote(plan.TargetPath)
 	result := utils.ExecShellContextWithTimeout(context.Background(), cmd, 10*time.Minute)
 	if result.Error != nil {
 		return fmt.Errorf("修正 backing 路径失败: %s", firstNonEmpty(result.Stderr, result.Error.Error()))

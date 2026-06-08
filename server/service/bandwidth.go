@@ -58,7 +58,7 @@ func KBpsToMbps(kbps int) int {
 // getVMMAC 获取 VM 的第一个网卡 MAC 地址
 func getVMMAC(vmName string) string {
 	result := utils.ExecShell(fmt.Sprintf(
-		"virsh domiflist %s 2>/dev/null | grep -oP '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1", shellSingleQuote(vmName)))
+		"virsh domiflist %s 2>/dev/null | grep -oP '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1", utils.ShellSingleQuote(vmName)))
 	if result.Error != nil {
 		return ""
 	}
@@ -68,7 +68,7 @@ func getVMMAC(vmName string) string {
 // getVMVnetIF 获取运行中 VM 的 vnet 接口名称
 func getVMVnetIF(vmName string) string {
 	result := utils.ExecShell(fmt.Sprintf(
-		"virsh domiflist %s 2>/dev/null | awk 'NR>2 && $1 ~ /^vnet/ {print $1; exit}'", shellSingleQuote(vmName)))
+		"virsh domiflist %s 2>/dev/null | awk 'NR>2 && $1 ~ /^vnet/ {print $1; exit}'", utils.ShellSingleQuote(vmName)))
 	if result.Error != nil || strings.TrimSpace(result.Stdout) == "" || strings.TrimSpace(result.Stdout) == "-" {
 		return ""
 	}
@@ -79,7 +79,7 @@ func clearTCBandwidthLimit(vnetIF string) {
 	if vnetIF == "" {
 		return
 	}
-	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", shellSingleQuote(vnetIF)))
+	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", utils.ShellSingleQuote(vnetIF)))
 	clearTCUploadLimit(vnetIF)
 }
 
@@ -106,7 +106,7 @@ func applyTCVPCSwitchDownlinkLimit(gwPort string, downMbps int) {
 	if gwPort == "" {
 		return
 	}
-	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", shellSingleQuote(gwPort)))
+	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", utils.ShellSingleQuote(gwPort)))
 	if downMbps <= 0 {
 		return
 	}
@@ -116,14 +116,14 @@ func applyTCVPCSwitchDownlinkLimit(gwPort string, downMbps int) {
 		burstBytes = 15360
 	}
 	result := utils.ExecShell(fmt.Sprintf(
-		"tc qdisc add dev %s root handle 1: htb default 1", shellSingleQuote(gwPort)))
+		"tc qdisc add dev %s root handle 1: htb default 1", utils.ShellSingleQuote(gwPort)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 VPC 网关 tc qdisc 失败 (%s): %s\n", gwPort, result.Stderr)
 		return
 	}
 	result = utils.ExecShell(fmt.Sprintf(
 		"tc class add dev %s parent 1: classid 1:1 htb rate %dkbit ceil %dkbit burst %d",
-		shellSingleQuote(gwPort), rateKbit, rateKbit, burstBytes))
+		utils.ShellSingleQuote(gwPort), rateKbit, rateKbit, burstBytes))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 VPC 网关 tc class 失败 (%s): %s\n", gwPort, result.Stderr)
 	}
@@ -133,7 +133,7 @@ func clearTCVPCSwitchDownlinkLimit(gwPort string) {
 	if gwPort == "" {
 		return
 	}
-	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", shellSingleQuote(gwPort)))
+	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", utils.ShellSingleQuote(gwPort)))
 }
 
 // applyTCDownloadLimit 使用 tc 命令在 vnet 接口的 egress 方向设置下行限速
@@ -147,7 +147,7 @@ func applyTCDownloadLimit(vnetIF string, avgKBps, peakKBps, burstKB int) {
 	}
 
 	// 先清除已有的 tc qdisc
-	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", shellSingleQuote(vnetIF)))
+	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", utils.ShellSingleQuote(vnetIF)))
 
 	if avgKBps <= 0 {
 		return // 不限制，清除即可
@@ -159,7 +159,7 @@ func applyTCDownloadLimit(vnetIF string, avgKBps, peakKBps, burstKB int) {
 
 	// 创建根 qdisc
 	result := utils.ExecShell(fmt.Sprintf(
-		"tc qdisc add dev %s root handle 1: htb default 1", shellSingleQuote(vnetIF)))
+		"tc qdisc add dev %s root handle 1: htb default 1", utils.ShellSingleQuote(vnetIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 tc qdisc 失败 (%s): %s\n", vnetIF, result.Stderr)
 		return
@@ -168,7 +168,7 @@ func applyTCDownloadLimit(vnetIF string, avgKBps, peakKBps, burstKB int) {
 	// 创建限速 class，rate=ceil 做硬限制
 	result = utils.ExecShell(fmt.Sprintf(
 		"tc class add dev %s parent 1: classid 1:1 htb rate %dkbit ceil %dkbit burst %d",
-		shellSingleQuote(vnetIF), rateKbit, rateKbit, burstBytes))
+		utils.ShellSingleQuote(vnetIF), rateKbit, rateKbit, burstBytes))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 tc class 失败 (%s): %s\n", vnetIF, result.Stderr)
 	}
@@ -199,11 +199,11 @@ func clearTCUploadLimit(vnetIF string) {
 		return
 	}
 	ifbIF := tcUploadIFBName(vnetIF)
-	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s ingress 2>/dev/null", shellSingleQuote(vnetIF)))
+	utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s ingress 2>/dev/null", utils.ShellSingleQuote(vnetIF)))
 	if ifbIF != "" {
-		utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", shellSingleQuote(ifbIF)))
-		utils.ExecShell(fmt.Sprintf("ip link set %s down 2>/dev/null || true", shellSingleQuote(ifbIF)))
-		utils.ExecShell(fmt.Sprintf("ip link del %s 2>/dev/null || true", shellSingleQuote(ifbIF)))
+		utils.ExecShell(fmt.Sprintf("tc qdisc del dev %s root 2>/dev/null", utils.ShellSingleQuote(ifbIF)))
+		utils.ExecShell(fmt.Sprintf("ip link set %s down 2>/dev/null || true", utils.ShellSingleQuote(ifbIF)))
+		utils.ExecShell(fmt.Sprintf("ip link del %s 2>/dev/null || true", utils.ShellSingleQuote(ifbIF)))
 	}
 }
 
@@ -230,42 +230,42 @@ func applyTCUploadLimit(vnetIF string, avgKBps int) {
 
 	utils.ExecShell("modprobe ifb 2>/dev/null || true")
 	result := utils.ExecShell(fmt.Sprintf("ip link show %s >/dev/null 2>&1 || ip link add %s type ifb",
-		shellSingleQuote(ifbIF), shellSingleQuote(ifbIF)))
+		utils.ShellSingleQuote(ifbIF), utils.ShellSingleQuote(ifbIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 创建 IFB 上行整形接口失败 (%s): %s\n", ifbIF, result.Stderr)
 		return
 	}
-	result = utils.ExecShell(fmt.Sprintf("ip link set %s up", shellSingleQuote(ifbIF)))
+	result = utils.ExecShell(fmt.Sprintf("ip link set %s up", utils.ShellSingleQuote(ifbIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 启用 IFB 上行整形接口失败 (%s): %s\n", ifbIF, result.Stderr)
 		return
 	}
-	result = utils.ExecShell(fmt.Sprintf("ip link set dev %s txqueuelen %d", shellSingleQuote(ifbIF), tcIFBTxQueueLen()))
+	result = utils.ExecShell(fmt.Sprintf("ip link set dev %s txqueuelen %d", utils.ShellSingleQuote(ifbIF), tcIFBTxQueueLen()))
 	if result.Error != nil {
 		fmt.Printf("[警告] 调整 IFB 上行队列长度失败 (%s): %s\n", ifbIF, result.Stderr)
 	}
 	result = utils.ExecShell(fmt.Sprintf(
-		"tc qdisc add dev %s root handle 1: htb default 1", shellSingleQuote(ifbIF)))
+		"tc qdisc add dev %s root handle 1: htb default 1", utils.ShellSingleQuote(ifbIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 IFB 上行 qdisc 失败 (%s): %s\n", ifbIF, result.Stderr)
 		return
 	}
 	result = utils.ExecShell(fmt.Sprintf(
 		"tc class add dev %s parent 1: classid 1:1 htb rate %dkbit ceil %dkbit burst %d",
-		shellSingleQuote(ifbIF), rateKbit, rateKbit, burstBytes))
+		utils.ShellSingleQuote(ifbIF), rateKbit, rateKbit, burstBytes))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 IFB 上行 class 失败 (%s): %s\n", ifbIF, result.Stderr)
 		return
 	}
 	result = utils.ExecShell(fmt.Sprintf(
 		"tc qdisc add dev %s parent 1:1 handle 10: fq_codel limit 100 target 20ms interval 100ms",
-		shellSingleQuote(ifbIF)))
+		utils.ShellSingleQuote(ifbIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 IFB 上行 fq_codel 队列失败 (%s): %s\n", ifbIF, result.Stderr)
 	}
 
 	result = utils.ExecShell(fmt.Sprintf(
-		"tc qdisc add dev %s ingress", shellSingleQuote(vnetIF)))
+		"tc qdisc add dev %s ingress", utils.ShellSingleQuote(vnetIF)))
 	if result.Error != nil {
 		fmt.Printf("[警告] 添加 tc ingress qdisc 失败 (%s): %s\n", vnetIF, result.Stderr)
 		return
@@ -273,11 +273,11 @@ func applyTCUploadLimit(vnetIF string, avgKBps int) {
 
 	result = utils.ExecShell(fmt.Sprintf(
 		"tc filter add dev %s parent ffff: protocol all prio 1 matchall action mirred egress redirect dev %s",
-		shellSingleQuote(vnetIF), shellSingleQuote(ifbIF)))
+		utils.ShellSingleQuote(vnetIF), utils.ShellSingleQuote(ifbIF)))
 	if result.Error != nil {
 		result = utils.ExecShell(fmt.Sprintf(
 			"tc filter add dev %s parent ffff: protocol all prio 1 u32 match u32 0 0 action mirred egress redirect dev %s",
-			shellSingleQuote(vnetIF), shellSingleQuote(ifbIF)))
+			utils.ShellSingleQuote(vnetIF), utils.ShellSingleQuote(ifbIF)))
 		if result.Error != nil {
 			fmt.Printf("[警告] 添加 tc 上行 IFB 重定向规则失败 (%s -> %s): %s\n", vnetIF, ifbIF, result.Stderr)
 		}

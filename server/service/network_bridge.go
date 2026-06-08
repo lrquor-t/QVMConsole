@@ -322,7 +322,7 @@ func BuildOVSVirtInstallNetworkArgForBridge(modelName, bridge string) string {
 		bridge = ovsBridgeName()
 	}
 	value := fmt.Sprintf("bridge=%s,virtualport.type=openvswitch,model=%s", strings.TrimSpace(bridge), strings.TrimSpace(modelName))
-	return "--network " + shellSingleQuote(value)
+	return "--network " + utils.ShellSingleQuote(value)
 }
 
 func readIPAddrJSON() ([]ipAddrJSON, error) {
@@ -452,7 +452,7 @@ func migrateInterfaceIPv4ToBridge(uplink, bridge string) {
 UPLINK=%s
 BRIDGE=%s
 %s
-`, shellSingleQuote(uplink), shellSingleQuote(bridge), bridgeHostIPMigrationShell())
+`, utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(bridge), bridgeHostIPMigrationShell())
 	utils.ExecCommand("bash", "-c", script)
 }
 
@@ -461,7 +461,7 @@ func migrateBridgeIPv4ToInterface(bridge, uplink string) {
 BRIDGE=%s
 UPLINK=%s
 %s
-`, shellSingleQuote(bridge), shellSingleQuote(uplink), bridgeHostIPRollbackShell())
+`, utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(uplink), bridgeHostIPRollbackShell())
 	utils.ExecCommand("bash", "-c", script)
 }
 
@@ -531,7 +531,7 @@ func buildBridgeRestoreScriptContent(bridge, uplink string, migrateHostIP bool) 
 set -e
 BRIDGE=%s
 UPLINK=%s
-`, shellSingleQuote(bridge), shellSingleQuote(uplink))
+`, utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(uplink))
 	if migrateHostIP {
 		content += `# 先记录物理口当前 DHCP/静态地址，加入 OVS 后再迁移到 bridge。
 `

@@ -342,7 +342,7 @@ func BuildVMMigrationPreview(vmName string, req VMMigrationRequest) (*VMMigratio
 	if mode == MigrationModeLive && !strings.Contains(strings.ToLower(state), "running") {
 		preview.Blockers = append(preview.Blockers, "热迁移要求源虚拟机正在运行")
 	}
-	if out, err := remoteSSHCommand(context.Background(), *node, "virsh dominfo "+shellSingleQuote(vmName)+" >/dev/null 2>&1 && echo exists || echo missing", 30*time.Second); err == nil {
+	if out, err := remoteSSHCommand(context.Background(), *node, "virsh dominfo "+utils.ShellSingleQuote(vmName)+" >/dev/null 2>&1 && echo exists || echo missing", 30*time.Second); err == nil {
 		if strings.TrimSpace(out) == "exists" {
 			preview.Blockers = append(preview.Blockers, "目标节点已存在同名虚拟机")
 		}
@@ -622,20 +622,20 @@ func AdoptMigratedVM(req MigrationAdoptRequest) (*MigrationAdoptResult, error) {
 func executeColdMigration(ctx context.Context, node model.HostNode, preview *VMMigrationPreview, xmlText string, progress func(int, string)) error {
 	for i, disk := range preview.Disks {
 		progress(25+(i*30)/maxInt(1, len(preview.Disks)), "正在复制磁盘 overlay: "+filepath.Base(disk.SourcePath))
-		if _, err := remoteSSHCommand(ctx, node, "test ! -e "+shellSingleQuote(disk.TargetPath), 30*time.Second); err != nil {
+		if _, err := remoteSSHCommand(ctx, node, "test ! -e "+utils.ShellSingleQuote(disk.TargetPath), 30*time.Second); err != nil {
 			return fmt.Errorf("目标磁盘已存在或无法访问: %s", disk.TargetPath)
 		}
 		if err := remoteRsyncFile(ctx, node, disk.SourcePath, disk.TargetPath, 6*time.Hour); err != nil {
 			return fmt.Errorf("复制磁盘 %s 失败: %w", disk.SourcePath, err)
 		}
-		_, _ = remoteSSHCommand(ctx, node, "chown libvirt-qemu:kvm "+shellSingleQuote(disk.TargetPath)+" || true", 30*time.Second)
+		_, _ = remoteSSHCommand(ctx, node, "chown libvirt-qemu:kvm "+utils.ShellSingleQuote(disk.TargetPath)+" || true", 30*time.Second)
 	}
 	progress(62, "正在复制并定义虚拟机 XML...")
 	targetXML := "/tmp/kvm-migrate-" + preview.VMName + ".xml"
 	if err := writeRemoteFile(ctx, node, xmlText, targetXML, 30*time.Second); err != nil {
 		return err
 	}
-	if _, err := remoteSSHCommand(ctx, node, "virsh define "+shellSingleQuote(targetXML), 60*time.Second); err != nil {
+	if _, err := remoteSSHCommand(ctx, node, "virsh define "+utils.ShellSingleQuote(targetXML), 60*time.Second); err != nil {
 		return fmt.Errorf("目标节点定义 VM 失败: %w", err)
 	}
 	return nil
@@ -700,11 +700,11 @@ func executeLiveMigration(ctx context.Context, node model.HostNode, preview *VMM
 	}
 	migrateHost := migrationURIHost(node.SSHHost)
 	cmd := fmt.Sprintf("virsh migrate --live --persistent --copy-storage-inc --verbose --xml %s --migrateuri %s --disks-uri %s %s %s",
-		shellSingleQuote(localXML),
-		shellSingleQuote("tcp://"+migrateHost),
-		shellSingleQuote("tcp://"+migrateHost),
-		shellSingleQuote(preview.VMName),
-		shellSingleQuote(sshURI))
+		utils.ShellSingleQuote(localXML),
+		utils.ShellSingleQuote("tcp://"+migrateHost),
+		utils.ShellSingleQuote("tcp://"+migrateHost),
+		utils.ShellSingleQuote(preview.VMName),
+		utils.ShellSingleQuote(sshURI))
 	result := utils.ExecShellContextWithTimeout(ctx, cmd, 6*time.Hour)
 	if result.Error != nil {
 		return fmt.Errorf("热迁移失败: %s", firstNonEmpty(result.Stderr, result.Error.Error()))
@@ -819,7 +819,7 @@ func runMigrationSpeedTest(ctx context.Context, node model.HostNode) (float64, f
 		_ = server.Serve(listener)
 	}()
 	url := "http://" + net.JoinHostPort(sourceIP, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)) + "/" + token
-	cmd := "curl -fsS --max-time 180 -w '%{speed_download} %{time_total}' -o /dev/null " + shellSingleQuote(url)
+	cmd := "curl -fsS --max-time 180 -w '%{speed_download} %{time_total}' -o /dev/null " + utils.ShellSingleQuote(url)
 	out, err := remoteSSHCommand(ctx, node, cmd, 4*time.Minute)
 	if err != nil {
 		return 0, 0, err
@@ -1037,8 +1037,8 @@ func (restore *migrationCPUThrottleRestore) Restore(ctx context.Context, node mo
 	if err := setVirshSchedInfo(vmName, restore.PeriodKey, periodValue, restore.QuotaKey, quotaValue); err == nil {
 		return nil
 	}
-	cmd := "virsh schedinfo " + shellSingleQuote(vmName) + " --live --set " +
-		shellSingleQuote(restore.PeriodKey+"="+periodValue) + " --set " + shellSingleQuote(restore.QuotaKey+"="+quotaValue)
+	cmd := "virsh schedinfo " + utils.ShellSingleQuote(vmName) + " --live --set " +
+		utils.ShellSingleQuote(restore.PeriodKey+"="+periodValue) + " --set " + utils.ShellSingleQuote(restore.QuotaKey+"="+quotaValue)
 	if _, err := remoteSSHCommand(ctx, node, cmd, 30*time.Second); err != nil {
 		return err
 	}
@@ -1060,7 +1060,7 @@ func prepareLiveMigrationTargets(ctx context.Context, node model.HostNode, previ
 		if strings.TrimSpace(disk.TargetPath) == "" {
 			return created, fmt.Errorf("目标磁盘路径为空: %s", disk.Target)
 		}
-		if _, err := remoteSSHCommand(ctx, node, "test ! -e "+shellSingleQuote(disk.TargetPath), 30*time.Second); err != nil {
+		if _, err := remoteSSHCommand(ctx, node, "test ! -e "+utils.ShellSingleQuote(disk.TargetPath), 30*time.Second); err != nil {
 			return created, fmt.Errorf("目标磁盘已存在或无法访问: %s", disk.TargetPath)
 		}
 		cmd, err := buildLiveMigrationTargetCreateCommand(disk)
@@ -1084,15 +1084,15 @@ func buildLiveMigrationTargetCreateCommand(disk MigrationDisk) (string, error) {
 		return "", fmt.Errorf("磁盘 %s 缺少容量信息，无法创建热迁移目标盘", disk.SourcePath)
 	}
 	dir := filepath.Dir(disk.TargetPath)
-	cmd := "set -e; mkdir -p " + shellSingleQuote(dir) + "; test ! -e " + shellSingleQuote(disk.TargetPath) + "; qemu-img create -f " + shellSingleQuote(format)
+	cmd := "set -e; mkdir -p " + utils.ShellSingleQuote(dir) + "; test ! -e " + utils.ShellSingleQuote(disk.TargetPath) + "; qemu-img create -f " + utils.ShellSingleQuote(format)
 	if strings.TrimSpace(disk.BackingPath) != "" {
 		backingFormat := strings.TrimSpace(disk.BackingFormat)
 		if backingFormat == "" {
 			return "", fmt.Errorf("磁盘 %s 缺少 backing 格式信息，无法创建热迁移目标盘", disk.SourcePath)
 		}
-		cmd += " -F " + shellSingleQuote(backingFormat) + " -b " + shellSingleQuote(disk.BackingPath)
+		cmd += " -F " + utils.ShellSingleQuote(backingFormat) + " -b " + utils.ShellSingleQuote(disk.BackingPath)
 	}
-	cmd += " " + shellSingleQuote(disk.TargetPath) + " " + strconv.FormatInt(disk.VirtualSize, 10) + "; chown libvirt-qemu:kvm " + shellSingleQuote(disk.TargetPath) + " || true"
+	cmd += " " + utils.ShellSingleQuote(disk.TargetPath) + " " + strconv.FormatInt(disk.VirtualSize, 10) + "; chown libvirt-qemu:kvm " + utils.ShellSingleQuote(disk.TargetPath) + " || true"
 	return cmd, nil
 }
 
@@ -1101,7 +1101,7 @@ func cleanupLiveMigrationTargets(ctx context.Context, node model.HostNode, paths
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
-		_, _ = remoteSSHCommand(ctx, node, "rm -f "+shellSingleQuote(path), 30*time.Second)
+		_, _ = remoteSSHCommand(ctx, node, "rm -f "+utils.ShellSingleQuote(path), 30*time.Second)
 	}
 }
 
@@ -1135,13 +1135,13 @@ func prepareMigrationNVRAMOnTarget(ctx context.Context, node model.HostNode, xml
 	secure := bootType == VMBootTypeUEFISecure
 	templatePath := resolveOVMFVarsTemplatePath(secure)
 	nvramDir := filepath.Dir(nvramPath)
-	mkdirCmd := "mkdir -p " + shellSingleQuote(nvramDir)
+	mkdirCmd := "mkdir -p " + utils.ShellSingleQuote(nvramDir)
 	convertCmd := fmt.Sprintf("qemu-img convert -f raw -O qcow2 %s %s && chmod 600 %s && (chown libvirt-qemu:kvm %s 2>/dev/null || chown qemu:qemu %s 2>/dev/null || true)",
-		shellSingleQuote(templatePath),
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath),
-		shellSingleQuote(nvramPath))
+		utils.ShellSingleQuote(templatePath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath),
+		utils.ShellSingleQuote(nvramPath))
 	fullCmd := mkdirCmd + " && " + convertCmd
 	if _, err := remoteSSHCommand(ctx, node, fullCmd, 60*time.Second); err != nil {
 		return nvramPath, xmlText, fmt.Errorf("目标节点创建 NVRAM 文件失败: %w", err)
@@ -1310,7 +1310,7 @@ func compareRemoteBacking(node model.HostNode, backing qemuImgInfo, skipHash boo
 		return check
 	}
 	if skipHash {
-		remoteCmd := "qemu-img info -U --output=json " + shellSingleQuote(path)
+		remoteCmd := "qemu-img info -U --output=json " + utils.ShellSingleQuote(path)
 		out, err := remoteSSHCommand(context.Background(), node, remoteCmd, 2*time.Minute)
 		if err != nil {
 			check.Message = "目标 backing 不存在或不可读: " + err.Error()
@@ -1337,7 +1337,7 @@ func compareRemoteBacking(node model.HostNode, backing qemuImgInfo, skipHash boo
 		return check
 	}
 	check.SourceSHA256 = strings.Fields(sourceHash.Stdout)[0]
-	remoteCmd := "set -e; qemu-img info -U --output=json " + shellSingleQuote(path) + "; sha256sum " + shellSingleQuote(path)
+	remoteCmd := "set -e; qemu-img info -U --output=json " + utils.ShellSingleQuote(path) + "; sha256sum " + utils.ShellSingleQuote(path)
 	out, err := remoteSSHCommand(context.Background(), node, remoteCmd, 12*time.Minute)
 	if err != nil {
 		check.Message = "目标 backing 不存在或不可读: " + err.Error()
@@ -1762,7 +1762,7 @@ func diskTargetExists(node model.HostNode, path string) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
-	out, err := remoteSSHCommand(context.Background(), node, "test -e "+shellSingleQuote(path)+" && echo exists || echo missing", 30*time.Second)
+	out, err := remoteSSHCommand(context.Background(), node, "test -e "+utils.ShellSingleQuote(path)+" && echo exists || echo missing", 30*time.Second)
 	return err == nil && strings.TrimSpace(out) == "exists"
 }
 
@@ -1847,7 +1847,7 @@ func validateCachedPreviewForExecution(preview *VMMigrationPreview, params VMMig
 	if err != nil {
 		return err
 	}
-	out, err := remoteSSHCommand(context.Background(), *node, "virsh dominfo "+shellSingleQuote(preview.VMName)+" >/dev/null 2>&1 && echo exists || echo missing", 30*time.Second)
+	out, err := remoteSSHCommand(context.Background(), *node, "virsh dominfo "+utils.ShellSingleQuote(preview.VMName)+" >/dev/null 2>&1 && echo exists || echo missing", 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("检查目标 VM 名称失败: %w", err)
 	}
@@ -1884,7 +1884,7 @@ func migrationDiskStorageTargetsChanged(preview *VMMigrationPreview, params VMMi
 }
 
 func writeLocalFile(path, content string) error {
-	result := utils.ExecShell(fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", shellSingleQuote(path), content))
+	result := utils.ExecShell(fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", utils.ShellSingleQuote(path), content))
 	if result.Error != nil {
 		return fmt.Errorf("%s", firstNonEmpty(result.Stderr, result.Error.Error()))
 	}

@@ -401,23 +401,23 @@ func buildPublicIPNATCommands(ipRow model.PublicIP, req PublicIPBindRequest) []s
 	comment := publicIPRuleComment + ":" + publicIP
 	var cmds []string
 	if addr := publicIPAddrForHost(ipRow); addr != "" && uplink != "" {
-		cmds = append(cmds, fmt.Sprintf("ip addr replace %s dev %s || true", shellSingleQuote(addr), shellSingleQuote(uplink)))
+		cmds = append(cmds, fmt.Sprintf("ip addr replace %s dev %s || true", utils.ShellSingleQuote(addr), utils.ShellSingleQuote(uplink)))
 	}
 	cmds = append(cmds,
 		fmt.Sprintf("iptables -t nat -A PREROUTING -d %s/32 -m comment --comment %s -j DNAT --to-destination %s",
-			shellSingleQuote(publicIP), shellSingleQuote(comment+":dnat"), shellSingleQuote(privateIP)),
+			utils.ShellSingleQuote(publicIP), utils.ShellSingleQuote(comment+":dnat"), utils.ShellSingleQuote(privateIP)),
 	)
 	if uplink != "" {
 		cmds = append(cmds, fmt.Sprintf("iptables -t nat -I POSTROUTING 1 -s %s/32 -o %s -m comment --comment %s -j SNAT --to-source %s",
-			shellSingleQuote(privateIP), shellSingleQuote(uplink), shellSingleQuote(comment+":snat"), shellSingleQuote(publicIP)))
+			utils.ShellSingleQuote(privateIP), utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(comment+":snat"), utils.ShellSingleQuote(publicIP)))
 	} else {
 		cmds = append(cmds, fmt.Sprintf("iptables -t nat -I POSTROUTING 1 -s %s/32 -m comment --comment %s -j SNAT --to-source %s",
-			shellSingleQuote(privateIP), shellSingleQuote(comment+":snat"), shellSingleQuote(publicIP)))
+			utils.ShellSingleQuote(privateIP), utils.ShellSingleQuote(comment+":snat"), utils.ShellSingleQuote(publicIP)))
 	}
 	if !IsVPCManagedIP(privateIP) {
 		cmds = append(cmds,
-			fmt.Sprintf("iptables -A FORWARD -d %s/32 -m comment --comment %s -j ACCEPT", shellSingleQuote(privateIP), shellSingleQuote(comment+":forward-in")),
-			fmt.Sprintf("iptables -A FORWARD -s %s/32 -m comment --comment %s -j ACCEPT", shellSingleQuote(privateIP), shellSingleQuote(comment+":forward-out")),
+			fmt.Sprintf("iptables -A FORWARD -d %s/32 -m comment --comment %s -j ACCEPT", utils.ShellSingleQuote(privateIP), utils.ShellSingleQuote(comment+":forward-in")),
+			fmt.Sprintf("iptables -A FORWARD -s %s/32 -m comment --comment %s -j ACCEPT", utils.ShellSingleQuote(privateIP), utils.ShellSingleQuote(comment+":forward-out")),
 		)
 	}
 	return cmds
@@ -431,9 +431,9 @@ func buildPublicIPClassicRouteCommands(ipRow model.PublicIP, req PublicIPBindReq
 	var cmds []string
 	if strings.TrimSpace(req.VMPrivateIP) != "" {
 		cmds = append(cmds, fmt.Sprintf("ip route replace %s/32 via %s dev %s || true",
-			shellSingleQuote(ipRow.IP), shellSingleQuote(req.VMPrivateIP), shellSingleQuote(bridge)))
+			utils.ShellSingleQuote(ipRow.IP), utils.ShellSingleQuote(req.VMPrivateIP), utils.ShellSingleQuote(bridge)))
 	} else {
-		cmds = append(cmds, fmt.Sprintf("ip route replace %s/32 dev %s || true", shellSingleQuote(ipRow.IP), shellSingleQuote(bridge)))
+		cmds = append(cmds, fmt.Sprintf("ip route replace %s/32 dev %s || true", utils.ShellSingleQuote(ipRow.IP), utils.ShellSingleQuote(bridge)))
 	}
 	cmds = append(cmds, buildPublicIPAntiSpoofCommands(ipRow, req)...)
 	return cmds
@@ -457,11 +457,11 @@ func buildPublicIPAntiSpoofCommands(ipRow model.PublicIP, req PublicIPBindReques
 	}
 	cookie := publicIPFlowCookie(ipRow.IP)
 	return []string{
-		fmt.Sprintf("ovs-ofctl -O OpenFlow13 del-flows %s %s || true", shellSingleQuote(bridge), shellSingleQuote("cookie="+cookie+"/-1")),
-		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", shellSingleQuote(bridge), shellSingleQuote(fmt.Sprintf("cookie=%s,priority=240,in_port=%s,ip,nw_src=%s,actions=NORMAL", cookie, ofport, ipRow.IP))),
-		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", shellSingleQuote(bridge), shellSingleQuote(fmt.Sprintf("cookie=%s,priority=240,in_port=%s,arp,arp_spa=%s,actions=NORMAL", cookie, ofport, ipRow.IP))),
-		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", shellSingleQuote(bridge), shellSingleQuote(fmt.Sprintf("cookie=%s,priority=230,in_port=%s,ip,actions=drop", cookie, ofport))),
-		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", shellSingleQuote(bridge), shellSingleQuote(fmt.Sprintf("cookie=%s,priority=230,in_port=%s,arp,actions=drop", cookie, ofport))),
+		fmt.Sprintf("ovs-ofctl -O OpenFlow13 del-flows %s %s || true", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote("cookie="+cookie+"/-1")),
+		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(fmt.Sprintf("cookie=%s,priority=240,in_port=%s,ip,nw_src=%s,actions=NORMAL", cookie, ofport, ipRow.IP))),
+		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(fmt.Sprintf("cookie=%s,priority=240,in_port=%s,arp,arp_spa=%s,actions=NORMAL", cookie, ofport, ipRow.IP))),
+		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(fmt.Sprintf("cookie=%s,priority=230,in_port=%s,ip,actions=drop", cookie, ofport))),
+		fmt.Sprintf("ovs-ofctl -O OpenFlow13 add-flow %s %s", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(fmt.Sprintf("cookie=%s,priority=230,in_port=%s,arp,actions=drop", cookie, ofport))),
 	}
 }
 
@@ -725,7 +725,7 @@ cleanup_iptables_comments filter FORWARD
 `)
 	for _, bridge := range publicIPManagedBridges() {
 		b.WriteString(fmt.Sprintf("ovs-ofctl -O OpenFlow13 del-flows %s %s 2>/dev/null || true\n",
-			shellSingleQuote(bridge), shellSingleQuote("cookie="+publicIPFlowPrefix+"00000000000000/"+publicIPFlowMask)))
+			utils.ShellSingleQuote(bridge), utils.ShellSingleQuote("cookie="+publicIPFlowPrefix+"00000000000000/"+publicIPFlowMask)))
 	}
 	return b.String()
 }
@@ -766,7 +766,7 @@ func cleanupPublicIPHostAddressesShell(ipRows []model.PublicIP) string {
 	b.WriteString("# 清理面板托管的宿主机公网地址，后续会按当前绑定重新添加\n")
 	for _, item := range items {
 		b.WriteString(fmt.Sprintf("ip addr del %s dev %s 2>/dev/null || true\n",
-			shellSingleQuote(item.addr), shellSingleQuote(item.dev)))
+			utils.ShellSingleQuote(item.addr), utils.ShellSingleQuote(item.dev)))
 	}
 	return b.String()
 }

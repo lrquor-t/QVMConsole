@@ -34,7 +34,7 @@ func checkCanceled(ctx context.Context, vmName, diskPath string) error {
 			utils.ExecCommand("virsh", "undefine", vmName, "--remove-all-storage", "--nvram", "--snapshots-metadata")
 		}
 		if diskPath != "" {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		}
 		return taskqueue.ErrTaskCanceled
 	default:
@@ -181,7 +181,7 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 
 	// 确定模板路径
 	templatePath := filepath.Join(templateDir, params.Template+".qcow2")
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", templatePath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(templatePath)))
 	if checkResult.Stdout != "ok" {
 		return nil, fmt.Errorf("模板不存在: %s", params.Template)
 	}
@@ -261,18 +261,18 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 
 		// 如果指定了磁盘大小，进行扩容
 		if params.DiskSize > 0 {
-			utils.ExecShell(fmt.Sprintf("qemu-img resize '%s' %dG", cloneDisk, params.DiskSize))
+			utils.ExecShell(fmt.Sprintf("qemu-img resize %s %dG", utils.ShellSingleQuote(cloneDisk), params.DiskSize))
 		}
 	} else if params.CloneMode == "full" {
 		// ===== 完整克隆：将模板数据完整复制到新磁盘，脱离链式依赖 =====
 		progressFn(10, "创建完整克隆磁盘（脱离链式条件）...")
 		var convertCmd string
 		if params.DiskSize > 0 {
-			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 '%s' '%s' && qemu-img resize '%s' %dG",
-				templatePath, cloneDisk, cloneDisk, params.DiskSize)
+			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s && qemu-img resize %s %dG",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk), utils.ShellSingleQuote(cloneDisk), params.DiskSize)
 		} else {
-			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 '%s' '%s'",
-				templatePath, cloneDisk)
+			convertCmd = fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk))
 		}
 		result := utils.ExecShellWithTimeout(convertCmd, 2*time.Hour)
 		if result.Error != nil {
@@ -283,11 +283,11 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 		progressFn(10, "创建链式克隆磁盘...")
 		var createCmd string
 		if params.DiskSize > 0 {
-			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b '%s' '%s' '%dG'",
-				templatePath, cloneDisk, params.DiskSize)
+			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b %s %s %dG",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk), params.DiskSize)
 		} else {
-			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b '%s' '%s'",
-				templatePath, cloneDisk)
+			createCmd = fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b %s %s",
+				utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(cloneDisk))
 		}
 		result := utils.ExecShell(createCmd)
 		if result.Error != nil {
@@ -302,38 +302,38 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 
 	if isFnOS {
 		if err := prepareFnOSSystemDiskExpansion(ctx, cloneDisk, progressFn); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		if err := cloneFnOS(params, cloneDisk, progressFn); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 	}
 	if tplType == "linux" {
 		progressFn(25, "重置 Linux 首次启动身份...")
 		if err := prepareLinuxCloneFirstBootIdentity(params, cloneDisk); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		params.LinuxIdentityPrepared = true
 	}
 	if isWindows {
 		if err := prepareWindowsSystemDiskExpansion(ctx, cloneDisk, progressFn); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 	}
 
 	progressFn(30, "创建虚拟机定义...")
 	if err := EnsureOVSNetworkReady(); err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 		return nil, err
 	}
 
 	memoryMeta, ramMB, _, err := BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
 	if err != nil {
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 		return nil, err
 	}
 
@@ -361,7 +361,7 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 	if isWindows {
 		// ===== Windows 克隆 =====
 		if err := cloneWindows(ctx, params, cloneDisk, ramMB, memoryMeta, needUEFI, progressFn); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 	} else {
@@ -371,20 +371,20 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 			bootOpt = "--boot uefi "
 		}
 		installCmd := fmt.Sprintf(
-			"virt-install --name '%s' --ram %d --vcpus %d "+
+			"virt-install --name %s --ram %d --vcpus %d "+
 				"--machine q35 "+
 				bootOpt+
-				"--disk '%s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap' "+
+				"--disk %s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap "+
 				"--osinfo detect=on,require=off "+
 				BuildOVSVirtInstallNetworkArg(params.NicModel)+" "+
 				"--graphics vnc,listen=0.0.0.0 "+
 				"--video virtio "+
 				"--import --cpu host-passthrough --print-xml",
-			params.Name, ramMB, params.VCPU, cloneDisk, params.DiskBus,
+			utils.ShellSingleQuote(params.Name), ramMB, params.VCPU, utils.ShellSingleQuote(cloneDisk), params.DiskBus,
 		)
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, fmt.Errorf("生成虚拟机 XML 失败: %s", result.Stderr)
 		}
 
@@ -393,33 +393,33 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, !isOther)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, tplType)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		vmXML, err = ApplySMBIOS1ConfigToDomainXML(vmXML, params.SMBIOS1, true)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMAPICToDomainXML(vmXML, params.APIC)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		vmXML, err = ApplyVMPAEToDomainXML(vmXML, params.PAE)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, tplType)
@@ -428,66 +428,66 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 			var affErr error
 			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
 			if affErr != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, affErr
 			}
 		}
 		if cloneBootType != "" {
 			vmXML, err = ApplyVMBootTypeToDomainXML(params.Name, vmXML, cloneBootType)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, err
 			}
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		if needUEFI {
 			vmXML, err = prepareUEFITemplateNVRAMForClone(vmXML, params.Name, meta.NVRAMPath)
 			if err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, err
 			}
 		}
 		if err := ensureVMUEFINVRAMFile(params.Name, vmXML, cloneBootType); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 
 		// 写入临时文件并定义虚拟机
 		xmlPath := fmt.Sprintf("/tmp/_vm-%s.xml", params.Name)
-		utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+		utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 		defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		if defineResult.Error != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 		}
 		if memoryMeta != nil {
 			if err := writeVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, err
 			}
 		}
 		if err := WriteVMTemplateSource(params.Name, params.Template, params.CloneMode); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 		if err := SetVMRemark(params.Name, params.Remark); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 
 		if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 
 		if err := StartVM(params.Name); err != nil {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", cloneDisk))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 			return nil, err
 		}
 	}
@@ -599,7 +599,7 @@ func buildLinuxFirstBootIdentityCommands(hostname string) []string {
 		"rm -f /var/lib/systemd/network/*.lease 2>/dev/null || true",
 		"rm -rf /run/systemd/netif/leases/* 2>/dev/null || true",
 		"rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance 2>/dev/null || true",
-		fmt.Sprintf("printf '%%s\\n' %s > /etc/hostname", shellSingleQuote(hostname)),
+		fmt.Sprintf("printf '%%s\\n' %s > /etc/hostname", utils.ShellSingleQuote(hostname)),
 		buildLinuxHostsCommand(hostname),
 	}
 }
@@ -610,7 +610,7 @@ if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
   sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${TARGET_HOSTNAME}/" /etc/hosts
 else
   printf '127.0.1.1\t%%s\n' "$TARGET_HOSTNAME" >> /etc/hosts
-fi`, shellSingleQuote(hostname))
+fi`, utils.ShellSingleQuote(hostname))
 }
 
 // cloneFnOS FnOS 克隆逻辑（离线注入首个管理员账号和初始化状态）
@@ -768,7 +768,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 		nvramTemplate := filepath.Join(templateDir, "win2k22-nvram.fd")
 		nvramClone = fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", params.Name)
 
-		checkNvram := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo ok", nvramTemplate))
+		checkNvram := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(nvramTemplate)))
 		if checkNvram.Stdout == "ok" {
 			if err := createQCOW2NVRAMFromTemplate(nvramTemplate, nvramClone); err != nil {
 				return err
@@ -914,10 +914,10 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 
 	// 写入 XML 并定义
 	xmlPath := fmt.Sprintf("/tmp/_win-clone-%s.xml", params.Name)
-	utils.ExecShell(fmt.Sprintf("cat > '%s' << 'XMLEOF'\n%s\nXMLEOF", xmlPath, vmXML))
+	utils.ExecShell(fmt.Sprintf("cat > %s << 'XMLEOF'\n%s\nXMLEOF", utils.ShellSingleQuote(xmlPath), vmXML))
 
 	defineResult := utils.ExecCommand("virsh", "define", xmlPath)
-	utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+	utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 	if defineResult.Error != nil {
 		return fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 	}
@@ -953,17 +953,9 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 	return nil
 }
 
-// shellSingleQuote 对 shell 参数做单引号转义，避免注入命令时被错误解析
-func shellSingleQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
-}
-
 func buildFnOSUserProvisionCommand(username string) string {
-	quotedUser := shellSingleQuote(username)
-	quotedHome := shellSingleQuote("/home/" + username)
+	quotedUser := utils.ShellSingleQuote(username)
+	quotedHome := utils.ShellSingleQuote("/home/" + username)
 	return fmt.Sprintf(`TARGET_USER=%s
 TARGET_HOME=%s
 if ! getent group Users >/dev/null 2>&1; then
@@ -984,13 +976,13 @@ passwd -u "$TARGET_USER" 2>/dev/null || true`, quotedUser, quotedHome)
 
 func buildFnOSPasswordCommand(username, password string) string {
 	return fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd",
-		shellSingleQuote(username),
-		shellSingleQuote(password),
+		utils.ShellSingleQuote(username),
+		utils.ShellSingleQuote(password),
 	)
 }
 
 func buildFnOSHostnameCommand(hostname string) string {
-	return fmt.Sprintf("printf '%%s\\n' %s > /etc/hostname", shellSingleQuote(hostname))
+	return fmt.Sprintf("printf '%%s\\n' %s > /etc/hostname", utils.ShellSingleQuote(hostname))
 }
 
 func buildFnOSHostsCommand(hostname string) string {
@@ -999,7 +991,7 @@ if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
   sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${TARGET_HOSTNAME}/" /etc/hosts
 else
   printf '127.0.1.1\t%%s\n' "$TARGET_HOSTNAME" >> /etc/hosts
-fi`, shellSingleQuote(hostname))
+fi`, utils.ShellSingleQuote(hostname))
 }
 
 func buildFnOSIdentityResetCommand() string {
@@ -1028,7 +1020,7 @@ printf '%%s\n' "$CUSTOM_MACHINE_ID" > /usr/trim/etc/machine_id
 if [ -s /etc/machine-id ] && [ ! -e /var/lib/dbus/machine-id ]; then
   cp /etc/machine-id /var/lib/dbus/machine-id
 fi
-chattr +i /usr/trim/etc/machine_id /etc/device_id 2>/dev/null || true`, shellSingleQuote(normalized), shellSingleQuote(machineID)), nil
+chattr +i /usr/trim/etc/machine_id /etc/device_id 2>/dev/null || true`, utils.ShellSingleQuote(normalized), utils.ShellSingleQuote(machineID)), nil
 }
 
 func normalizeFnOSDeviceID(deviceID string) (string, string, error) {
@@ -1080,7 +1072,7 @@ func prepareUEFITemplateNVRAMForClone(domainXML, vmName, templateNVRAMPath strin
 	if templateNVRAMPath == "" {
 		return domainXML, nil
 	}
-	checkTemplate := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", shellSingleQuote(templateNVRAMPath)))
+	checkTemplate := utils.ExecShell(fmt.Sprintf("test -f %s && echo ok", utils.ShellSingleQuote(templateNVRAMPath)))
 	if strings.TrimSpace(checkTemplate.Stdout) != "ok" {
 		return domainXML, nil
 	}
@@ -1170,7 +1162,7 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 	time.Sleep(30 * time.Second)
 
 	// 清理 known_hosts
-	utils.ExecShell(fmt.Sprintf("ssh-keygen -f '/root/.ssh/known_hosts' -R '%s' 2>/dev/null", ip))
+	utils.ExecShell(fmt.Sprintf("ssh-keygen -f /root/.ssh/known_hosts -R %s 2>/dev/null", utils.ShellSingleQuote(ip)))
 
 	// 使用模板中设置的用户登录 SSH
 	sshUser := templateUser
@@ -1180,7 +1172,7 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 	for i := 0; i < 12; i++ {
 		testResult := utils.ExecShell(fmt.Sprintf(
 			"sshpass -p %s ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o UserKnownHostsFile=/dev/null %s 'echo ok' 2>/dev/null",
-			shellSingleQuote(sshPass), shellSingleQuote(fmt.Sprintf("%s@%s", sshUser, ip))))
+			utils.ShellSingleQuote(sshPass), utils.ShellSingleQuote(fmt.Sprintf("%s@%s", sshUser, ip))))
 		if strings.TrimSpace(testResult.Stdout) == "ok" {
 			sshReady = true
 			break
@@ -1211,8 +1203,8 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 
 	// 设置 hostname
 	initCmds = append(initCmds,
-		fmt.Sprintf("hostnamectl set-hostname %s", shellSingleQuote(params.Hostname)),
-		fmt.Sprintf("echo %s > /etc/hostname", shellSingleQuote(params.Hostname)),
+		fmt.Sprintf("hostnamectl set-hostname %s", utils.ShellSingleQuote(params.Hostname)),
+		fmt.Sprintf("echo %s > /etc/hostname", utils.ShellSingleQuote(params.Hostname)),
 		fmt.Sprintf("sed -i 's/127.0.1.1.*/127.0.1.1\\t%s/' /etc/hosts", params.Hostname),
 	)
 
@@ -1241,8 +1233,8 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 			targetUser = templateUser
 		}
 		initCmds = append(initCmds,
-			fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd", shellSingleQuote("root"), shellSingleQuote(params.Password)),
-			fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd", shellSingleQuote(targetUser), shellSingleQuote(params.Password)),
+			fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd", utils.ShellSingleQuote("root"), utils.ShellSingleQuote(params.Password)),
+			fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd", utils.ShellSingleQuote(targetUser), utils.ShellSingleQuote(params.Password)),
 		)
 	}
 
@@ -1266,7 +1258,7 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 		// root 直接执行
 		sshCmd = fmt.Sprintf(
 			"sshpass -p %s ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s bash -s << 'INITEOF'\n%s\nINITEOF",
-			shellSingleQuote(sshPass), shellSingleQuote("root@"+ip), script)
+			utils.ShellSingleQuote(sshPass), utils.ShellSingleQuote("root@"+ip), script)
 	} else {
 		// 普通用户：先写脚本到临时文件，再通过 sudo 或 su 提权执行。
 		// Debian 默认可能禁用 root SSH 密码登录，但允许普通用户 su 到 root。
@@ -1286,8 +1278,8 @@ func initLinuxClone(params *CloneParams, ip string, progressFn func(int, string)
 				"  exit \"$INIT_STATUS\"\n"+
 				"fi\n"+
 				"INITEOF",
-			shellSingleQuote(sshPass), shellSingleQuote(fmt.Sprintf("%s@%s", sshUser, ip)), script,
-			shellSingleQuote(sshPass), shellSingleQuote(sshPass), shellSingleQuote(sshPass))
+			utils.ShellSingleQuote(sshPass), utils.ShellSingleQuote(fmt.Sprintf("%s@%s", sshUser, ip)), script,
+			utils.ShellSingleQuote(sshPass), utils.ShellSingleQuote(sshPass), utils.ShellSingleQuote(sshPass))
 	}
 
 	result := utils.ExecShellWithTimeout(sshCmd, 5*time.Minute)
@@ -1488,8 +1480,8 @@ func waitForLinuxCloneCredential(username, password, ip string, timeout time.Dur
 	for time.Now().Before(deadline) {
 		result := utils.ExecShell(fmt.Sprintf(
 			"sshpass -p %s ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o UserKnownHostsFile=/dev/null %s 'echo ok' 2>/dev/null",
-			shellSingleQuote(password),
-			shellSingleQuote(fmt.Sprintf("%s@%s", username, ip)),
+			utils.ShellSingleQuote(password),
+			utils.ShellSingleQuote(fmt.Sprintf("%s@%s", username, ip)),
 		))
 		if strings.TrimSpace(result.Stdout) == "ok" {
 			return nil
@@ -1801,7 +1793,7 @@ func createReinstallSystemDisk(templatePath, targetPath string, diskSize int) er
 	if diskSize > 0 {
 		sizeArg = fmt.Sprintf(" '%dG'", diskSize)
 	}
-	cmd := fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b '%s' '%s'%s", templatePath, targetPath, sizeArg)
+	cmd := fmt.Sprintf("qemu-img create -f qcow2 -F qcow2 -b %s %s%s", utils.ShellSingleQuote(templatePath), utils.ShellSingleQuote(targetPath), sizeArg)
 	result := utils.ExecShell(cmd)
 	if result.Error != nil {
 		return fmt.Errorf("创建新系统盘失败: %s", firstNonEmpty(result.Stderr, result.Error.Error()))
@@ -2093,7 +2085,7 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 	}
 
 	// 弹出 cdrom（防止 undefine --remove-all-storage 删除 ISO 文件）
-	utils.ExecShell(fmt.Sprintf("virsh change-media '%s' hda --eject 2>/dev/null || true", name))
+	utils.ExecShell(fmt.Sprintf("virsh change-media %s hda --eject 2>/dev/null || true", utils.ShellSingleQuote(name)))
 
 	// 取消定义（含快照和 NVRAM，不使用 --remove-all-storage 避免删除 ISO 和需要转移的磁盘）
 	result := utils.ExecCommand("virsh", "undefine", name, "--nvram", "--snapshots-metadata")
@@ -2109,13 +2101,13 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 	if deleteDisks != nil {
 		for _, diskPath := range deleteDisks {
 			if diskPath != "" {
-				utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 			}
 		}
 	} else if len(allDiskPaths) > 0 {
 		// 兼容模式：删除所有磁盘
 		for _, diskPath := range allDiskPaths {
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", diskPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		}
 	}
 
@@ -2131,7 +2123,7 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 			filename := filepath.Base(diskPath)
 			destPath := filepath.Join(diskDir, filename)
 			// 如果目标文件已存在，加上时间戳避免冲突
-			checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo exists", destPath))
+			checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo exists", utils.ShellSingleQuote(destPath)))
 			if strings.TrimSpace(checkResult.Stdout) == "exists" {
 				ts := time.Now().Format("20060102150405")
 				ext := filepath.Ext(filename)
@@ -2139,7 +2131,7 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 				destPath = filepath.Join(diskDir, fmt.Sprintf("%s_%s%s", nameOnly, ts, ext))
 			}
 			// 移动文件
-			mvResult := utils.ExecShell(fmt.Sprintf("mv '%s' '%s'", diskPath, destPath))
+			mvResult := utils.ExecShell(fmt.Sprintf("mv %s %s", utils.ShellSingleQuote(diskPath), utils.ShellSingleQuote(destPath)))
 			if mvResult.Error != nil {
 				log.Printf("[警告] 转移磁盘 %s 到用户存储失败: %s", diskPath, mvResult.Stderr)
 				// 转移失败不阻断删除流程
@@ -2169,7 +2161,7 @@ func CheckDiskTransferQuota(username string, diskPaths []string) (int64, error) 
 	// 计算要转移的磁盘总大小
 	var totalBytes int64
 	for _, diskPath := range diskPaths {
-		duResult := utils.ExecShell(fmt.Sprintf("du -b '%s' 2>/dev/null | awk '{print $1}'", diskPath))
+		duResult := utils.ExecShell(fmt.Sprintf("du -b %s 2>/dev/null | awk '{print $1}'", utils.ShellSingleQuote(diskPath)))
 		if duResult.Error == nil {
 			size, _ := strconv.ParseInt(strings.TrimSpace(duResult.Stdout), 10, 64)
 			totalBytes += size

@@ -561,7 +561,7 @@ func refreshNIC(vmName, mac, network string) {
 					_ = ApplyVPCSwitchRuntime(vmName, *sw)
 				}
 			}
-			utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 			return
 		}
 		_ = os.WriteFile(xmlPath, []byte(BuildOVSInterfaceXML(mac, nicModel)), 0644)
@@ -570,7 +570,7 @@ func refreshNIC(vmName, mac, network string) {
 			time.Sleep(1 * time.Second)
 			utils.ExecCommand("virsh", "attach-device", vmName, xmlPath, "--live")
 		}
-		utils.ExecShell(fmt.Sprintf("rm -f '%s'", xmlPath))
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(xmlPath)))
 		return
 	}
 
@@ -688,8 +688,8 @@ func removePortForwardsForIP(targetIP string) {
 		// 删除 FORWARD 规则
 		if destPort != "" {
 			utils.ExecShell(fmt.Sprintf(
-				"iptables -D FORWARD -d '%s' -p '%s' --dport '%s' -j ACCEPT 2>/dev/null",
-				targetIP, proto, destPort))
+				"iptables -D FORWARD -d %s -p %s --dport %s -j ACCEPT 2>/dev/null",
+				utils.ShellSingleQuote(targetIP), utils.ShellSingleQuote(proto), utils.ShellSingleQuote(destPort)))
 		}
 
 		// 删除 UFW 规则
@@ -707,7 +707,7 @@ func removePortForwardsForIP(targetIP string) {
 func buildVMOwnerMap() map[string]string {
 	owners := make(map[string]string)
 	vmAccessDir := config.GlobalConfig.VMAccessDir
-	lsResult := utils.ExecShell(fmt.Sprintf("ls '%s' 2>/dev/null", vmAccessDir))
+	lsResult := utils.ExecShell(fmt.Sprintf("ls %s 2>/dev/null", utils.ShellSingleQuote(vmAccessDir)))
 	if lsResult.Error != nil || strings.TrimSpace(lsResult.Stdout) == "" {
 		return owners
 	}
@@ -999,8 +999,8 @@ func AddPortForward(params *PortForwardAddParams) error {
 		destPort := strings.Replace(params.VMPort, ":", "-", 1)
 
 		// DNAT 规则
-		cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -d '%s' -p '%s' --dport '%s' -j DNAT --to-destination '%s:%s'",
-			hostIP, proto, params.HostPort, params.VMIP, destPort)
+		cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -d %s -p %s --dport %s -j DNAT --to-destination %s:%s",
+			utils.ShellSingleQuote(hostIP), utils.ShellSingleQuote(proto), utils.ShellSingleQuote(params.HostPort), utils.ShellSingleQuote(params.VMIP), destPort)
 		result := utils.ExecShell(cmd)
 		if result.Error != nil {
 			return fmt.Errorf("添加 %s NAT 规则失败: %s", proto, result.Stderr)
@@ -1008,8 +1008,8 @@ func AddPortForward(params *PortForwardAddParams) error {
 
 		// 非 VPC 转发继续使用传统 FORWARD 放行；VPC 转发必须经过安全组 ACL。
 		if !IsVPCManagedIP(params.VMIP) {
-			fwdCmd := fmt.Sprintf("iptables -I FORWARD -d '%s' -p '%s' --dport '%s' -j ACCEPT",
-				params.VMIP, proto, destPort)
+			fwdCmd := fmt.Sprintf("iptables -I FORWARD -d %s -p %s --dport %s -j ACCEPT",
+				utils.ShellSingleQuote(params.VMIP), utils.ShellSingleQuote(proto), destPort)
 			utils.ExecShell(fwdCmd)
 		}
 
@@ -1384,8 +1384,8 @@ func deletePortForwardWithOptions(ruleID int, preserveProbeState bool) error {
 	// 删除 FORWARD 规则
 	if destIP != "" && destPort != "" {
 		utils.ExecShell(fmt.Sprintf(
-			"iptables -D FORWARD -d '%s' -p '%s' --dport '%s' -j ACCEPT 2>/dev/null",
-			destIP, proto, destPort))
+			"iptables -D FORWARD -d %s -p %s --dport %s -j ACCEPT 2>/dev/null",
+			utils.ShellSingleQuote(destIP), utils.ShellSingleQuote(proto), utils.ShellSingleQuote(destPort)))
 	}
 
 	// 删除 UFW 规则
@@ -1609,7 +1609,7 @@ func restorePortForwardCommand(line, hostIP string) error {
 		return nil
 	}
 	if strings.Contains(line, "||") {
-		result := utils.ExecShell("HOST_IP=" + shellSingleQuote(hostIP) + "; " + line)
+		result := utils.ExecShell("HOST_IP=" + utils.ShellSingleQuote(hostIP) + "; " + line)
 		if result.Error != nil {
 			return fmt.Errorf("%s: %s", line, result.Stderr)
 		}
@@ -1622,7 +1622,7 @@ func restorePortForwardCommand(line, hostIP string) error {
 	if !ok {
 		return nil
 	}
-	prefix := "HOST_IP=" + shellSingleQuote(hostIP) + "; "
+	prefix := "HOST_IP=" + utils.ShellSingleQuote(hostIP) + "; "
 	if result := utils.ExecShell(prefix + checkLine); result.Error == nil {
 		return nil
 	}
@@ -1677,13 +1677,13 @@ func SavePortForwardRules() error {
 
 	// 备份
 	utils.ExecShell(fmt.Sprintf(
-		"[ -f '%s/rules.sh' ] && cp '%s/rules.sh' '%s/backups/rules.sh.'$(date +%%Y%%m%%d_%%H%%M%%S)",
-		portfwdDir, portfwdDir, portfwdDir))
+		"[ -f %s/rules.sh ] && cp %s/rules.sh %s/backups/rules.sh.$(date +%%Y%%m%%d_%%H%%M%%S)",
+		utils.ShellSingleQuote(portfwdDir), utils.ShellSingleQuote(portfwdDir), utils.ShellSingleQuote(portfwdDir)))
 
 	// 只保留最近 10 个备份
 	utils.ExecShell(fmt.Sprintf(
-		"ls -t '%s/backups'/rules.sh.* 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null",
-		portfwdDir))
+		"ls -t %s/backups/rules.sh.* 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null",
+		utils.ShellSingleQuote(portfwdDir)))
 
 	// 导出规则
 	script := fmt.Sprintf("#!/bin/bash\n# KVM 端口转发规则 - 自动生成\nHOST_IP=\"%s\"\n\n", hostIP)
@@ -1718,8 +1718,8 @@ func SavePortForwardRules() error {
 	}
 
 	rulesPath := portfwdDir + "/rules.sh"
-	writeResult := utils.ExecShell(fmt.Sprintf("cat > '%s' << 'RULESEOF'\n%s\nRULESEOF\nchmod +x '%s'",
-		rulesPath, script, rulesPath))
+	writeResult := utils.ExecShell(fmt.Sprintf("cat > %s << 'RULESEOF'\n%s\nRULESEOF\nchmod +x %s",
+		utils.ShellSingleQuote(rulesPath), script, utils.ShellSingleQuote(rulesPath)))
 	if writeResult.Error != nil {
 		return fmt.Errorf("保存规则失败: %s", writeResult.Stderr)
 	}
@@ -1768,7 +1768,7 @@ func getHostIP() string {
 	nic := config.GlobalConfig.ExternalNIC
 	if nic != "" {
 		result := utils.ExecShell(fmt.Sprintf(
-			"ip -4 addr show '%s' 2>/dev/null | grep -oP '(?<=inet\\s)\\d+\\.\\d+\\.\\d+\\.\\d+'", nic))
+			"ip -4 addr show %s 2>/dev/null | grep -oP '(?<=inet\\s)\\d+\\.\\d+\\.\\d+\\.\\d+'", utils.ShellSingleQuote(nic)))
 		if result.Error == nil && result.Stdout != "" {
 			return strings.TrimSpace(result.Stdout)
 		}

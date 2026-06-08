@@ -109,9 +109,9 @@ func IsStorageInitialized(username string) bool {
 	shareDir := GetUserShareDir(username)
 	diskDir := GetUserDiskDir(username)
 	// 三个目录都存在才算初始化（兼容旧用户：disk 目录不存在时自动创建）
-	result1 := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", isoDir))
-	result2 := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", shareDir))
-	result3 := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", diskDir))
+	result1 := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(isoDir)))
+	result2 := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(shareDir)))
+	result3 := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(diskDir)))
 
 	isoOK := strings.TrimSpace(result1.Stdout) == "yes"
 	shareOK := strings.TrimSpace(result2.Stdout) == "yes"
@@ -131,14 +131,14 @@ func IsStorageInitialized(username string) bool {
 
 	// 确保 disk 目录在 project quota mapping 中（兼容旧用户升级场景）
 	if diskOK {
-		checkResult := utils.ExecShell(fmt.Sprintf("grep -q '%s' /etc/projects 2>/dev/null", diskDir))
+		checkResult := utils.ExecShell(fmt.Sprintf("grep -q %s /etc/projects 2>/dev/null", utils.ShellSingleQuote(diskDir)))
 		if checkResult.Error != nil {
 			// disk 目录不在 project mapping 中，自动加入
 			_ = SetupUserProject(username, []string{diskDir})
 			// 对已有文件追溯设置 project ID
 			projectID, err := getProjectID(username)
 			if err == nil {
-				utils.ExecShell(fmt.Sprintf("find '%s' -exec chattr -p %d {} \\; 2>/dev/null", diskDir, projectID))
+				utils.ExecShell(fmt.Sprintf("find %s -exec chattr -p %d {} \\; 2>/dev/null", utils.ShellSingleQuote(diskDir), projectID))
 			}
 		}
 	}
@@ -276,7 +276,7 @@ func ListUserFiles(username, category string) ([]UserFileInfo, error) {
 	}
 
 	// 检查目录是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", dir))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(dir)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		return []UserFileInfo{}, nil
 	}
@@ -344,12 +344,12 @@ func DeleteUserFile(username, category, filename string) error {
 	filePath := filepath.Join(dir, filename)
 
 	// 检查文件是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo yes || echo no", filePath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes || echo no", utils.ShellSingleQuote(filePath)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		return fmt.Errorf("文件不存在: %s", filename)
 	}
 
-	result := utils.ExecShell(fmt.Sprintf("rm -f '%s'", filePath))
+	result := utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(filePath)))
 	if result.Error != nil {
 		return fmt.Errorf("删除文件失败: %s", result.Stderr)
 	}
@@ -377,7 +377,7 @@ func GetUserFilePath(username, category, filename string) (string, error) {
 	}
 
 	filePath := filepath.Join(dir, filename)
-	checkResult := utils.ExecShell(fmt.Sprintf("test -f '%s' && echo yes || echo no", filePath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes || echo no", utils.ShellSingleQuote(filePath)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		return "", fmt.Errorf("文件不存在: %s", filename)
 	}
@@ -390,7 +390,7 @@ func GetUserISOs(username string) []ISOFileInfo {
 	dir := GetUserISODir(username)
 
 	result := utils.ExecShell(fmt.Sprintf(
-		"find '%s' -maxdepth 1 -name '*.iso' -type f 2>/dev/null", dir))
+		"find %s -maxdepth 1 -name '*.iso' -type f 2>/dev/null", utils.ShellSingleQuote(dir)))
 	if result.Error != nil || result.Stdout == "" {
 		return []ISOFileInfo{}
 	}
@@ -425,7 +425,7 @@ func MountStorageToVM(username, vmName, category string, readonly bool) error {
 	}
 
 	// 检查目录是否存在
-	checkResult := utils.ExecShell(fmt.Sprintf("test -d '%s' && echo yes || echo no", hostPath))
+	checkResult := utils.ExecShell(fmt.Sprintf("test -d %s && echo yes || echo no", utils.ShellSingleQuote(hostPath)))
 	if strings.TrimSpace(checkResult.Stdout) != "yes" {
 		return fmt.Errorf("存储池目录不存在，请先初始化存储池")
 	}
@@ -444,7 +444,7 @@ func UnmountStorageFromVM(vmName, tag string) error {
 
 // getDirSizeBytes 获取目录总大小（字节）
 func getDirSizeBytes(dir string) int64 {
-	result := utils.ExecShell(fmt.Sprintf("du -sb '%s' 2>/dev/null | awk '{print $1}'", dir))
+	result := utils.ExecShell(fmt.Sprintf("du -sb %s 2>/dev/null | awk '{print $1}'", utils.ShellSingleQuote(dir)))
 	if result.Error != nil || result.Stdout == "" {
 		return 0
 	}

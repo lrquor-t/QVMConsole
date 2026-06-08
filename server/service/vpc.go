@@ -722,7 +722,7 @@ func EnsureVPCSwitchRuntime(sw model.VPCSwitch) error {
 	}
 	utils.ExecCommand("ip", "link", "set", port, "up")
 	utils.ExecShell(fmt.Sprintf("ip -4 addr show dev %s | grep -q '%s/24' || ip addr add %s/24 dev %s",
-		shellSingleQuote(port), shellSingleQuote(sw.GatewayIP), shellSingleQuote(sw.GatewayIP), shellSingleQuote(port)))
+		utils.ShellSingleQuote(port), utils.ShellSingleQuote(sw.GatewayIP), utils.ShellSingleQuote(sw.GatewayIP), utils.ShellSingleQuote(port)))
 	if err := ensureLocalDNSMasqInputRules(port); err != nil {
 		return err
 	}
@@ -780,22 +780,22 @@ func ensureVPCSwitchNAT(sw model.VPCSwitch, gatewayPort string) error {
 	}
 	cleanupStaleManagedNATRules(sw.CIDR, gatewayPort, uplink)
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s -o %s -j MASQUERADE", shellSingleQuote(sw.CIDR), shellSingleQuote(uplink)),
-		fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", shellSingleQuote(sw.CIDR), shellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s -o %s -j MASQUERADE", utils.ShellSingleQuote(sw.CIDR), utils.ShellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", utils.ShellSingleQuote(sw.CIDR), utils.ShellSingleQuote(uplink)),
 		"配置 VPC 出站 NAT",
 	); err != nil {
 		return err
 	}
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -j ACCEPT", shellSingleQuote(gatewayPort), shellSingleQuote(uplink)),
-		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -j ACCEPT", shellSingleQuote(gatewayPort), shellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -j ACCEPT", utils.ShellSingleQuote(gatewayPort), utils.ShellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -j ACCEPT", utils.ShellSingleQuote(gatewayPort), utils.ShellSingleQuote(uplink)),
 		"配置 VPC 出站转发",
 	); err != nil {
 		return err
 	}
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", shellSingleQuote(uplink), shellSingleQuote(gatewayPort)),
-		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", shellSingleQuote(uplink), shellSingleQuote(gatewayPort)),
+		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(gatewayPort)),
+		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(gatewayPort)),
 		"配置 VPC 回程转发",
 	); err != nil {
 		return err
@@ -811,11 +811,11 @@ func removeVPCSwitchNAT(sw model.VPCSwitch) {
 		return
 	}
 	utils.ExecShell(fmt.Sprintf("while iptables -t nat -D POSTROUTING -s %s -o %s -j MASQUERADE 2>/dev/null; do :; done",
-		shellSingleQuote(sw.CIDR), shellSingleQuote(uplink)))
+		utils.ShellSingleQuote(sw.CIDR), utils.ShellSingleQuote(uplink)))
 	utils.ExecShell(fmt.Sprintf("while iptables -D FORWARD -i %s -o %s -j ACCEPT 2>/dev/null; do :; done",
-		shellSingleQuote(port), shellSingleQuote(uplink)))
+		utils.ShellSingleQuote(port), utils.ShellSingleQuote(uplink)))
 	utils.ExecShell(fmt.Sprintf("while iptables -D FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done",
-		shellSingleQuote(uplink), shellSingleQuote(port)))
+		utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(port)))
 }
 
 func vpcSwitchCookie(switchID uint) string {
@@ -1180,13 +1180,13 @@ func ensureVPCDNSMasq(id uint, configChanged bool) {
 func isVPCDNSMasqRunning(id uint) bool {
 	pidPath := vpcDNSMasqPIDPath(id)
 	result := utils.ExecShell(fmt.Sprintf("[ -f %s ] && ps -p $(cat %s) -o comm= | grep -q '^dnsmasq$'",
-		shellSingleQuote(pidPath), shellSingleQuote(pidPath)))
+		utils.ShellSingleQuote(pidPath), utils.ShellSingleQuote(pidPath)))
 	return result.Error == nil
 }
 
 func reloadVPCDNSMasq(id uint) {
 	pidPath := vpcDNSMasqPIDPath(id)
-	result := utils.ExecShell(fmt.Sprintf("[ -f %s ] && kill -HUP $(cat %s)", shellSingleQuote(pidPath), shellSingleQuote(pidPath)))
+	result := utils.ExecShell(fmt.Sprintf("[ -f %s ] && kill -HUP $(cat %s)", utils.ShellSingleQuote(pidPath), utils.ShellSingleQuote(pidPath)))
 	if result.Error == nil {
 		return
 	}
@@ -1197,7 +1197,7 @@ func reloadVPCDNSMasq(id uint) {
 
 func stopVPCDNSMasq(id uint) {
 	pidPath := vpcDNSMasqPIDPath(id)
-	utils.ExecShell(fmt.Sprintf("[ -f %s ] && kill $(cat %s) 2>/dev/null || true", shellSingleQuote(pidPath), shellSingleQuote(pidPath)))
+	utils.ExecShell(fmt.Sprintf("[ -f %s ] && kill $(cat %s) 2>/dev/null || true", utils.ShellSingleQuote(pidPath), utils.ShellSingleQuote(pidPath)))
 	_ = os.Remove(pidPath)
 }
 
@@ -3043,7 +3043,7 @@ func ApplyVPCACLRules() error {
 	if table == "" {
 		table = "kvm_console_vpc_acl"
 	}
-	result := utils.ExecShell(fmt.Sprintf("nft delete table inet %s 2>/dev/null || true; nft -f %s", shellSingleQuote(table), shellSingleQuote(path)))
+	result := utils.ExecShell(fmt.Sprintf("nft delete table inet %s 2>/dev/null || true; nft -f %s", utils.ShellSingleQuote(table), utils.ShellSingleQuote(path)))
 	if result.Error != nil {
 		return fmt.Errorf("应用 VPC ACL 失败: %s", result.Stderr)
 	}

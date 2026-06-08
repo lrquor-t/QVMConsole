@@ -52,8 +52,8 @@ type QuotaUsage struct {
 
 // GetUserVMList 获取用户拥有的VM列表（从访问列表文件读取）
 func GetUserVMList(username string) []string {
-	vmsResult := utils.ExecShell(fmt.Sprintf("cat '%s/%s' 2>/dev/null",
-		config.GlobalConfig.VMAccessDir, username))
+	vmsResult := utils.ExecShell(fmt.Sprintf("cat %s/%s 2>/dev/null",
+		utils.ShellSingleQuote(config.GlobalConfig.VMAccessDir), username))
 	if vmsResult.Error != nil || vmsResult.Stdout == "" {
 		return nil
 	}
@@ -283,8 +283,8 @@ func AddVMToUser(username, vmName string) error {
 
 	vms = append(vms, vmName)
 	content := strings.Join(vms, "\n")
-	utils.ExecShell(fmt.Sprintf("echo '%s' > '%s/%s'",
-		content, config.GlobalConfig.VMAccessDir, username))
+	utils.ExecShell(fmt.Sprintf("echo %s > %s/%s",
+		utils.ShellSingleQuote(content), utils.ShellSingleQuote(config.GlobalConfig.VMAccessDir), username))
 
 	// 重新生成 polkit 规则
 	if err := regeneratePolkitRules(); err != nil {
@@ -307,11 +307,11 @@ func RemoveVMFromUser(username, vmName string) error {
 
 	if len(newVMs) == 0 {
 		// 清空文件
-		utils.ExecShell(fmt.Sprintf("> '%s/%s'", config.GlobalConfig.VMAccessDir, username))
+		utils.ExecShell(fmt.Sprintf("> %s/%s", utils.ShellSingleQuote(config.GlobalConfig.VMAccessDir), username))
 	} else {
 		content := strings.Join(newVMs, "\n")
-		utils.ExecShell(fmt.Sprintf("echo '%s' > '%s/%s'",
-			content, config.GlobalConfig.VMAccessDir, username))
+		utils.ExecShell(fmt.Sprintf("echo %s > %s/%s",
+			utils.ShellSingleQuote(content), utils.ShellSingleQuote(config.GlobalConfig.VMAccessDir), username))
 	}
 
 	// 重新生成 polkit 规则
@@ -415,7 +415,7 @@ func getVMDiskCapacityGB(vmName string) int {
 
 			// 使用 qemu-img info 获取虚拟大小（配置容量）
 			imgResult := utils.ExecShell(fmt.Sprintf(
-				"qemu-img info -U '%s' 2>/dev/null | grep 'virtual size'", diskPath))
+				"qemu-img info -U %s 2>/dev/null | grep 'virtual size'", utils.ShellSingleQuote(diskPath)))
 			if imgResult.Error == nil && imgResult.Stdout != "" {
 				// 格式: virtual size: 50 GiB (53687091200 bytes)
 				re := regexp.MustCompile(`virtual size:\s*([\d.]+)\s*(GiB|GB|MiB|MB|TiB|TB)`)
@@ -463,7 +463,7 @@ func GetVMDiskDevCapacityGB(vmName, dev string) int {
 // getDiskFileCapacityGB 获取磁盘文件的虚拟容量（GB）
 func getDiskFileCapacityGB(diskPath string) int {
 	imgResult := utils.ExecShell(fmt.Sprintf(
-		"qemu-img info -U '%s' 2>/dev/null | grep 'virtual size'", diskPath))
+		"qemu-img info -U %s 2>/dev/null | grep 'virtual size'", utils.ShellSingleQuote(diskPath)))
 	if imgResult.Error == nil && imgResult.Stdout != "" {
 		re := regexp.MustCompile(`virtual size:\s*([\d.]+)\s*(GiB|GB|MiB|MB|TiB|TB)`)
 		if matches := re.FindStringSubmatch(imgResult.Stdout); len(matches) > 2 {

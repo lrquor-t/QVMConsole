@@ -156,7 +156,7 @@ func EnsureOVSNetworkReady() error {
 	if result := utils.ExecCommand("ip", "link", "set", bridge, "up"); result.Error != nil {
 		return fmt.Errorf("启动 OVS 网桥失败: %s", result.Stderr)
 	}
-	addrResult := utils.ExecShell(fmt.Sprintf("ip -4 addr show dev %s | grep -q '%s/24'", shellSingleQuote(bridge), ovsGatewayIP()))
+	addrResult := utils.ExecShell(fmt.Sprintf("ip -4 addr show dev %s | grep -q '%s/24'", utils.ShellSingleQuote(bridge), ovsGatewayIP()))
 	if addrResult.Error != nil {
 		utils.ExecCommand("ip", "addr", "flush", "dev", bridge)
 		if result := utils.ExecCommand("ip", "addr", "add", ovsGatewayIP()+"/24", "dev", bridge); result.Error != nil {
@@ -200,22 +200,22 @@ func EnsureOVSNetworkReady() error {
 	subnet := ovsSubnetCIDR()
 	cleanupStaleManagedNATRules(subnet, bridge, uplink)
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s -o %s -j MASQUERADE", shellSingleQuote(subnet), shellSingleQuote(uplink)),
-		fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", shellSingleQuote(subnet), shellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s -o %s -j MASQUERADE", utils.ShellSingleQuote(subnet), utils.ShellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", utils.ShellSingleQuote(subnet), utils.ShellSingleQuote(uplink)),
 		"配置 OVS NAT 规则",
 	); err != nil {
 		return fmt.Errorf("配置 OVS NAT 规则失败: %w", err)
 	}
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -j ACCEPT", shellSingleQuote(bridge), shellSingleQuote(uplink)),
-		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -j ACCEPT", shellSingleQuote(bridge), shellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -j ACCEPT", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(uplink)),
+		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -j ACCEPT", utils.ShellSingleQuote(bridge), utils.ShellSingleQuote(uplink)),
 		"配置 OVS 出站转发规则",
 	); err != nil {
 		return fmt.Errorf("配置 OVS 出站转发规则失败: %w", err)
 	}
 	if err := ensureIPTablesRule(
-		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", shellSingleQuote(uplink), shellSingleQuote(bridge)),
-		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", shellSingleQuote(uplink), shellSingleQuote(bridge)),
+		fmt.Sprintf("iptables -C FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(bridge)),
+		fmt.Sprintf("iptables -A FORWARD -i %s -o %s -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", utils.ShellSingleQuote(uplink), utils.ShellSingleQuote(bridge)),
 		"配置 OVS 回程转发规则",
 	); err != nil {
 		return fmt.Errorf("配置 OVS 回程转发规则失败: %w", err)
@@ -348,7 +348,7 @@ while IFS= read -r rule; do
 done <<EOF
 $(iptables -S FORWARD 2>/dev/null)
 EOF
-`, shellSingleQuote(cidr), shellSingleQuote(internalIF), shellSingleQuote(currentUplink))
+`, utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(internalIF), utils.ShellSingleQuote(currentUplink))
 	utils.ExecCommand("bash", "-c", script)
 }
 
@@ -366,7 +366,7 @@ func ensureLocalDNSMasqInputRules(iface string) error {
 		{proto: "udp", port: "53", label: "DNS UDP"},
 		{proto: "tcp", port: "53", label: "DNS TCP"},
 	}
-	quotedIface := shellSingleQuote(iface)
+	quotedIface := utils.ShellSingleQuote(iface)
 	for _, rule := range rules {
 		if err := ensureIPTablesRule(
 			fmt.Sprintf("iptables -C INPUT -i %s -p %s --dport %s -j ACCEPT", quotedIface, rule.proto, rule.port),
@@ -384,7 +384,7 @@ func removeLocalDNSMasqInputRules(iface string) {
 	if iface == "" {
 		return
 	}
-	quotedIface := shellSingleQuote(iface)
+	quotedIface := utils.ShellSingleQuote(iface)
 	for _, rule := range []struct {
 		proto string
 		port  string
@@ -457,7 +457,7 @@ for rule in "udp 67" "udp 53" "tcp 53"; do
   iptables -C INPUT -i "$BRIDGE" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
     iptables -I INPUT 1 -i "$BRIDGE" -p "$proto" --dport "$port" -j ACCEPT
 done
-`, shellSingleQuote(ovsBridgeName()), shellSingleQuote(ovsGatewayIP()+"/24"))
+`, utils.ShellSingleQuote(ovsBridgeName()), utils.ShellSingleQuote(ovsGatewayIP()+"/24"))
 	changed, err := writeFileIfChanged(ovsBridgePrep, []byte(content), 0755)
 	if err != nil {
 		return false, fmt.Errorf("写入 OVS 网桥预启动脚本失败: %w", err)
@@ -968,7 +968,7 @@ func GetVPCLeaseIPForVM(vmName string) string {
 func getFirstVMMAC(vmName string) string {
 	macResult := utils.ExecShell(fmt.Sprintf(
 		"virsh domiflist %s 2>/dev/null | grep -oP '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1",
-		shellSingleQuote(vmName)))
+		utils.ShellSingleQuote(vmName)))
 	if macResult.Error != nil {
 		return ""
 	}
