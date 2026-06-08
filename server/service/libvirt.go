@@ -1253,6 +1253,11 @@ func getVMIP(name string, isRunning bool) string {
 			if ip := getVMIPByActiveScan(name); ip != "" {
 				return ip
 			}
+			// 桥接/直通模式兜底：ARP 不加 CIDR 过滤
+			// VPC CIDR 内未命中时，VM 的实际 IP 可能由上游路由器分配（桥接模式），CIDR 范围外仍可获取
+			if ip := execDomifaddrARP(name, ipRe); ip != "" {
+				return ip
+			}
 		}
 		return ""
 	}
@@ -1595,6 +1600,33 @@ func getVMIPByActiveScan(vmName string) string {
 
 	// 没扫到任何结果，不缓存（下次 SSE 再试）
 	return ""
+}
+
+// execDomifaddrARP 通过 virsh domifaddr --source arp 获取 VM IP（不限制 CIDR）
+// 作为 VPC 桥接模式的兜底，用于 VM 实际 IP 不在 VPC CIDR 内的情况
+func execDomifaddrARP(name string, ipRe *regexp.Regexp) string {
+	result := utils.ExecCommand("virsh", "domifaddr", name, "--source", "arp")
+	if result.Error != nil {
+		return ""
+	}
+	allMatches := ipRe.FindAllStringSubmatch(result.Stdout, -1)
+	if len(allMatches) == 0 {
+		return ""
+	}
+	// 单 IP 直接返回
+	if len(allMatches) == 1 {
+		return allMatches[0][1]
+	}
+	// 多 IP 用 ping 验证存活性
+	for i := len(allMatches) - 1; i >= 0; i-- {
+		ip := allMatches[i][1]
+		pingResult := utils.ExecCommandWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", ip)
+		if pingResult.ExitCode == 0 {
+			return ip
+		}
+	}
+	// 都不通则返回最后一个
+	return allMatches[len(allMatches)-1][1]
 }
 
 func getVMIPFromDomifaddrSource(name, source string, ipRe *regexp.Regexp, cidr string, verifyPing bool) string {
