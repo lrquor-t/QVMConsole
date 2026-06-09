@@ -96,3 +96,35 @@ func SetVMInactiveDomainXML(name, xmlContent string) error {
 
 	return nil
 }
+
+// 匹配自闭合 <controller ... model='pcie-root-port' .../> 标签
+var reSelfClosePCIERootPort = regexp.MustCompile(`\s*<controller[^>]*model=['"]pcie-root-port['"][^>]*/\s*>`)
+
+// 匹配非自闭合 <controller ... model='pcie-root-port'>...</controller> 标签
+var reFullPCIERootPort = regexp.MustCompile(`(?s)\s*<controller[^>]*model=['"]pcie-root-port['"][^>]*>.*?</controller>`)
+
+// injectPCIERootPorts 为 q35 虚拟机 XML 注入正确索引的 pcie-root-port 控制器
+// 会先清除 virt-install 可能生成的不正确的 pcie-root-port，再按正确索引重建
+func injectPCIERootPorts(xmlContent string, portCount int) string {
+	// 仅针对 q35 机器类型
+	if !strings.Contains(xmlContent, "q35") {
+		return xmlContent
+	}
+	if portCount <= 0 {
+		return xmlContent
+	}
+
+	// 清除所有已有的 pcie-root-port 控制器（virt-install 可能生成了错误索引的）
+	cleaned := reSelfClosePCIERootPort.ReplaceAllString(xmlContent, "")
+	cleaned = reFullPCIERootPort.ReplaceAllString(cleaned, "")
+
+	// 构建正确索引的 pcie-root-port 控制器（index 从 1 开始，0 留给 pcie-root）
+	var ports strings.Builder
+	for i := 0; i < portCount; i++ {
+		ports.WriteString(fmt.Sprintf("    <controller type='pci' index='%d' model='pcie-root-port'/>\n", i+1))
+	}
+
+	// 注入到 </devices> 之前
+	result := strings.Replace(cleaned, "  </devices>", ports.String()+"  </devices>", 1)
+	return result
+}

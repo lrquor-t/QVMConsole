@@ -248,17 +248,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	// 机器类型
 	cmdParts = append(cmdParts, fmt.Sprintf("--machine %s", params.MachineType))
 
-	// q35 机型预留额外的 pcie-root-port 热插槽，避免后续无法热添加磁盘
-	if params.MachineType == "q35" {
-		portCount := params.PCIERootPorts
-		if portCount <= 0 {
-			portCount = 4 // 默认预留 4 个
-		}
-		for i := 0; i < portCount; i++ {
-			cmdParts = append(cmdParts, "--controller type=pci,model=pcie-root-port")
-		}
-	}
-
 	// 磁盘总线类型：优先用户指定，否则根据系统类型决定
 	diskBus := params.DiskBus
 	if diskBus == "" {
@@ -355,6 +344,14 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	// 注入 memballoon 配置（非 Windows 启用 freePageReporting）
 	enableFPR := params.OSType != "windows"
 	vmXML := injectMemballoonConfig(xmlOutput, enableFPR)
+
+	// 注入 pcie-root-port 控制器（q35 机型热插拔预留，默认 4 个）
+	pciePortCount := params.PCIERootPorts
+	if pciePortCount <= 0 {
+		pciePortCount = 4
+	}
+	vmXML = injectPCIERootPorts(vmXML, pciePortCount)
+
 	if memoryMeta != nil {
 		vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
 		if err != nil {

@@ -221,15 +221,6 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 		cmdParts = append(cmdParts, "--boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=yes")
 	}
 
-	// q35 机型预留额外的 pcie-root-port 热插槽
-	portCount := params.PCIERootPorts
-	if portCount <= 0 {
-		portCount = 4
-	}
-	for i := 0; i < portCount; i++ {
-		cmdParts = append(cmdParts, "--controller type=pci,model=pcie-root-port")
-	}
-
 	cmdParts = append(cmdParts, "--print-xml")
 
 	installCmd := strings.Join(cmdParts, " ")
@@ -249,6 +240,14 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 
 	enableFPR := templateType != "windows" && templateType != "other"
 	vmXML := injectMemballoonConfig(xmlOutput, enableFPR)
+
+	// 注入 pcie-root-port 控制器（q35 机型热插拔预留，默认 4 个）
+	pciePortCount := params.PCIERootPorts
+	if pciePortCount <= 0 {
+		pciePortCount = 4
+	}
+	vmXML = injectPCIERootPorts(vmXML, pciePortCount)
+
 	if memoryMeta != nil {
 		vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
 		if err != nil {

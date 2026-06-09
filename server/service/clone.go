@@ -389,16 +389,6 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 				"--import --cpu host-passthrough --print-xml",
 			utils.ShellSingleQuote(params.Name), ramMB, vcpuArg, utils.ShellSingleQuote(cloneDisk), params.DiskBus,
 		)
-		// 拼接额外的 pcie-root-port 预留
-		portCount := params.PCIERootPorts
-		if portCount <= 0 {
-			portCount = 4
-		}
-		extraPorts := ""
-		for i := 0; i < portCount; i++ {
-			extraPorts += " --controller type=pci,model=pcie-root-port"
-		}
-		installCmd += extraPorts
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
 			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
@@ -407,6 +397,14 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 
 		// 注入 memballoon 配置（Linux/FnOS 启用 freePageReporting，Other 仅设置 stats）
 		vmXML := injectMemballoonConfig(result.Stdout, !isOther)
+
+		// 注入 pcie-root-port 控制器（q35 机型热插拔预留，默认 4 个）
+		pciePortCount := params.PCIERootPorts
+		if pciePortCount <= 0 {
+			pciePortCount = 4
+		}
+		vmXML = injectPCIERootPorts(vmXML, pciePortCount)
+
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, !isOther)
 			if err != nil {

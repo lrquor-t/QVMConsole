@@ -1124,7 +1124,7 @@ func SetVMPCIERootPorts(vmName string, targetCount int) error {
 
 	// 解析 XML，识别 system 端口（libvirt 自动生成的）和 extra 端口（我们预留的）
 	// system 端口：虚拟机启动时必须的端口（由 libvirt 按设备数量自动生成）
-	// extra 端口：我们在 virt-install 时通过 --controller 额外预留的空端口
+	// extra 端口：我们在创建虚拟机时注入 XML 中额外预留的空端口
 
 	lines := strings.Split(xmlResult.Stdout, "\n")
 
