@@ -25,6 +25,9 @@
 - UEFI 内存快照 NVRAM 兼容处理不新增 apt 依赖，复用已有 `qemu-img`、`virsh` 和 `ovmf`
 - 自定义宿主机存储池和模板 backing 盘的 libvirt / AppArmor 访问规则不新增 apt 依赖，复用系统已有 `apparmor_parser`；未启用 AppArmor 时会自动跳过
 - CPU 亲和性（vCPU pinning）不新增 apt 依赖，复用 `coreutils` 提供的 `nproc` 命令获取系统 CPU 核心数，通过已有的 `virsh vcpupin` 命令实现绑定
+- 宿主机内存检查（创建虚拟机前校验可用内存）不新增 apt 依赖，通过读取 `/proc/meminfo` 的 `MemAvailable` 实现，回退使用 `free` 命令
+- 虚拟机强制删除（僵尸虚拟机清理）不新增 apt 依赖，复用已有 `virsh`、`systemctl` 和 `coreutils` 命令
+- 虚拟机删除磁盘容错（磁盘文件缺失时跳过快照清理）不新增 apt 依赖，通过 `test -f` 命令检查文件存在性
 
 ## 一键安装
 

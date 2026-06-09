@@ -133,6 +133,7 @@ func Setup() *gin.Engine {
 				vm.POST("/:name/interfaces", handler.AddVMInterface)
 				vm.DELETE("/:name/interfaces/:order", handler.RemoveVMInterface)
 				vm.DELETE("/:name", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteVm)
+				vm.POST("/:name/force-delete", middleware.ElasticCloudOnlyMiddleware(), middleware.AdminMiddleware(), handler.ForceDeleteVm)
 				vm.GET("/:name/qcow2-disks", handler.GetVmQcow2Disks)
 
 				// 虚拟机锁定管理

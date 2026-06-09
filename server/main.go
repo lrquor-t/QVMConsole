@@ -345,18 +345,38 @@ func registerTaskHandlers() {
 			DeleteDisks   []string `json:"delete_disks"`
 			TransferDisks []string `json:"transfer_disks"`
 			TransferUser  string   `json:"transfer_user"`
+			Action        string   `json:"action"`
 		}
 		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
 			return "", fmt.Errorf("解析参数失败: %w", err)
 		}
+
+		// 强制删除模式：绕过磁盘和快照检查，处理僵尸虚拟机
+		if params.Action == "force_delete" {
+			progress(10, "开始强制删除虚拟机...")
+			if err := service.ForceDeleteVM(params.Name); err != nil {
+				return "", err
+			}
+			_ = service.DeleteVMCredential(params.Name)
+			_ = model.DeleteVMLock(params.Name)
+			markVMCacheMissingAfterTask(params.Name)
+			if task.CreatedBy != "" && task.CreatedBy != "admin" {
+				go func() {
+					if err := service.RebalanceUserBandwidth(task.CreatedBy); err != nil {
+						fmt.Printf("[警告] 强制删除VM后重新分配用户 %s 带宽失败: %v\n", task.CreatedBy, err)
+					}
+				}()
+			}
+			progress(100, "虚拟机已强制删除")
+			return fmt.Sprintf(`{"vm_name":"%s","action":"force_delete"}`, params.Name), nil
+		}
+
 		progress(10, "开始删除虚拟机...")
 
 		var err error
 		if len(params.DeleteDisks) > 0 || len(params.TransferDisks) > 0 {
-			// 有磁盘选择参数，使用新版删除
 			err = service.DeleteVMWithDisks(params.Name, params.DeleteDisks, params.TransferDisks, params.TransferUser)
 		} else {
-			// 兼容旧版：删除所有磁盘
 			err = service.DeleteVM(params.Name)
 		}
 		if err != nil {

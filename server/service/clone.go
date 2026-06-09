@@ -340,6 +340,12 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 		return nil, err
 	}
 
+	// 克隆前检查宿主机可用内存
+	if err := CheckHostMemory(ramMB); err != nil {
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
+		return nil, err
+	}
+
 	// 检测模板是否使用 UEFI 启动，并保留普通 UEFI / 安全引导的区别。
 	templateBootType := normalizeTemplateBootType(meta.BootType)
 	cloneBootType := ""
@@ -2067,8 +2073,16 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 	if err := EnsureVMNotMigrating(name, "删除虚拟机"); err != nil {
 		return err
 	}
-	if _, err := DeleteAllSnapshots(name, nil); err != nil {
-		return fmt.Errorf("删除虚拟机前清理快照失败: %w", err)
+
+	// 检查虚拟机磁盘文件是否仍然存在，避免因磁盘丢失导致快照清理失败
+	diskFilesExist := vmHasDiskFiles(name)
+
+	if diskFilesExist {
+		if _, err := DeleteAllSnapshots(name, nil); err != nil {
+			return fmt.Errorf("删除虚拟机前清理快照失败: %w", err)
+		}
+	} else {
+		log.Printf("[警告] 虚拟机 %s 的磁盘文件已丢失，跳过快照清理，直接进行 undefine", name)
 	}
 
 	// 强制关机
@@ -2092,12 +2106,14 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 	// 如果没有指定磁盘列表，收集所有磁盘路径用于删除
 	var allDiskPaths []string
 	if deleteDisks == nil && transferDisks == nil {
-		// 兼容模式：收集所有磁盘路径，全部删除
-		disks, err := ListDisks(name)
-		if err == nil {
-			for _, d := range disks {
-				if d.Path != "" && d.DeviceType != "cdrom" {
-					allDiskPaths = append(allDiskPaths, d.Path)
+		if diskFilesExist {
+			// 磁盘文件存在时才收集路径
+			disks, err := ListDisks(name)
+			if err == nil {
+				for _, d := range disks {
+					if d.Path != "" && d.DeviceType != "cdrom" {
+						allDiskPaths = append(allDiskPaths, d.Path)
+					}
 				}
 			}
 		}
@@ -2112,11 +2128,16 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 		// 尝试不带 --nvram
 		result = utils.ExecCommand("virsh", "undefine", name, "--snapshots-metadata")
 		if result.Error != nil {
-			return fmt.Errorf("删除虚拟机失败: %s", result.Stderr)
+			// 如果虚拟机已不存在（domain not found），视为已删除成功
+			if strings.Contains(result.Stderr, "domain not found") || strings.Contains(result.Stderr, "Domain not found") {
+				log.Printf("[警告] 虚拟机 %s 已不存在，清理完成", name)
+			} else {
+				return fmt.Errorf("取消虚拟机定义失败: %s", result.Stderr)
+			}
 		}
 	}
 
-	// 处理磁盘：删除指定的磁盘
+	// 处理磁盘：删除指定的磁盘（磁盘文件不存在的会被 rm -f 静默忽略）
 	if deleteDisks != nil {
 		for _, diskPath := range deleteDisks {
 			if diskPath != "" {
@@ -2124,19 +2145,23 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 			}
 		}
 	} else if len(allDiskPaths) > 0 {
-		// 兼容模式：删除所有磁盘
 		for _, diskPath := range allDiskPaths {
 			utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		}
 	}
 
-	// 转移需要保留的磁盘到用户存储
+	// 转移需要保留的磁盘到用户存储（磁盘不存在的跳过）
 	if len(transferDisks) > 0 && transferUser != "" {
 		diskDir := GetUserDiskDir(transferUser)
-		// 确保目标目录存在
 		utils.ExecCommand("mkdir", "-p", diskDir)
 		for _, diskPath := range transferDisks {
 			if diskPath == "" {
+				continue
+			}
+			// 检查磁盘文件是否存在
+			diskExists := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes", utils.ShellSingleQuote(diskPath)))
+			if strings.TrimSpace(diskExists.Stdout) != "yes" {
+				log.Printf("[警告] 转移磁盘 %s 失败: 文件不存在，已跳过", diskPath)
 				continue
 			}
 			filename := filepath.Base(diskPath)
@@ -2149,13 +2174,10 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 				nameOnly := strings.TrimSuffix(filename, ext)
 				destPath = filepath.Join(diskDir, fmt.Sprintf("%s_%s%s", nameOnly, ts, ext))
 			}
-			// 移动文件
 			mvResult := utils.ExecShell(fmt.Sprintf("mv %s %s", utils.ShellSingleQuote(diskPath), utils.ShellSingleQuote(destPath)))
 			if mvResult.Error != nil {
 				log.Printf("[警告] 转移磁盘 %s 到用户存储失败: %s", diskPath, mvResult.Stderr)
-				// 转移失败不阻断删除流程
 			} else {
-				// 设置文件权限
 				utils.ExecCommand("chown", "libvirt-qemu:kvm", destPath)
 			}
 		}
@@ -2169,6 +2191,87 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 	_ = DeleteVMSchedules(name)
 
 	return nil
+}
+
+// ForceDeleteVM 强制删除僵尸虚拟机，绕过磁盘和快照操作
+// 适用于磁盘文件丢失、libvirt 状态不一致等异常情况
+func ForceDeleteVM(name string) error {
+	log.Printf("[强制删除] 开始强制清理虚拟机 %s", name)
+
+	// 尽量强制关机
+	utils.ExecCommand("virsh", "destroy", name)
+
+	// 清理静态 IP 和端口转发（尽力而为）
+	vmIPs := collectVMIPs(name)
+	_ = UnbindStaticIP(name)
+	for _, ip := range vmIPs {
+		removePortForwardsForIP(ip)
+	}
+
+	// 尝试正常 undefine
+	result := utils.ExecCommand("virsh", "undefine", name, "--nvram", "--snapshots-metadata")
+	if result.Error != nil {
+		result = utils.ExecCommand("virsh", "undefine", name, "--snapshots-metadata")
+		if result.Error != nil {
+			result = utils.ExecCommand("virsh", "undefine", name)
+			if result.Error != nil {
+				// 正常 undefine 全部失败，尝试强制清理 libvirt 配置文件
+				log.Printf("[强制删除] undefine 失败，尝试直接清理 libvirt 配置文件: %s", result.Stderr)
+
+				// 删除 libvirt 域 XML 配置文件
+				xmlPath := fmt.Sprintf("/etc/libvirt/qemu/%s.xml", name)
+				if err := os.Remove(xmlPath); err != nil && !os.IsNotExist(err) {
+					log.Printf("[强制删除] 删除 XML 配置文件失败: %s", err)
+				}
+
+				// 删除自动启动链接
+				autostartLink := fmt.Sprintf("/etc/libvirt/qemu/autostart/%s.xml", name)
+				_ = os.Remove(autostartLink)
+
+				// 删除 VNC 端口记录（如果存在）
+				vncPortFile := fmt.Sprintf("/etc/kvm-console/vnc-ports/%s", name)
+				_ = os.Remove(vncPortFile)
+
+				// 重启 libvirtd 以清理残留状态
+				restartResult := utils.ExecCommand("systemctl", "restart", "libvirtd")
+				if restartResult.Error != nil {
+					log.Printf("[强制删除] 重启 libvirtd 失败: %v", restartResult.Error)
+				}
+				// 等待 libvirtd 重新就绪
+				time.Sleep(3 * time.Second)
+			}
+		}
+	}
+
+	// 清理资源历史记录
+	DeleteVMStatsRecords(name)
+	DeleteVMRuntimeRecord(name)
+	CleanupVMVPCBinding(name)
+	CleanupLightweightVMResources(name)
+	_ = DeleteVMSchedules(name)
+
+	log.Printf("[强制删除] 虚拟机 %s 强制清理完成", name)
+	return nil
+}
+
+// vmHasDiskFiles 检查虚拟机是否还有至少一个存在的磁盘文件
+// 用于判断是否可以安全执行快照和磁盘链相关操作
+func vmHasDiskFiles(name string) bool {
+	disks, err := ListDisks(name)
+	if err != nil {
+		return false
+	}
+	for _, d := range disks {
+		if d.Path == "" || d.DeviceType == "cdrom" {
+			continue
+		}
+		// 检查磁盘文件是否存在
+		checkResult := utils.ExecShell(fmt.Sprintf("test -f %s && echo yes", utils.ShellSingleQuote(d.Path)))
+		if strings.TrimSpace(checkResult.Stdout) == "yes" {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckDiskTransferQuota 检查转移磁盘是否有足够的存储配额

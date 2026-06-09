@@ -597,3 +597,43 @@ func GetVmQcow2Disks(c *gin.Context) {
 		"data":    disks,
 	})
 }
+
+// ForceDeleteVm 强制删除虚拟机（绕过磁盘和快照操作，处理僵尸虚拟机）
+func ForceDeleteVm(c *gin.Context) {
+	if !requireHighRiskVerification(c, "force_delete_vm") {
+		return
+	}
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "虚拟机名称不能为空",
+		})
+		return
+	}
+
+	username, _ := c.Get("username")
+	usernameStr := username.(string)
+
+	params := map[string]interface{}{
+		"name":     name,
+		"action":   "force_delete",
+	}
+
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeDelete, params, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "提交强制删除任务失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "强制删除任务已提交",
+		"data": gin.H{
+			"task_id": task.ID,
+		},
+	})
+}

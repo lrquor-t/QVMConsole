@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"kvm_console/config"
@@ -224,6 +225,12 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	memoryMeta, ramMB, _, err := BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
 	if err != nil {
+		return "", err
+	}
+
+	// 启动前检查宿主机可用内存，预留系统开销
+	if err := CheckHostMemory(ramMB); err != nil {
+		utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(diskPath)))
 		return "", err
 	}
 
@@ -591,4 +598,49 @@ func getNthDiskDevice(vmName string, n int) string {
 		}
 	}
 	return ""
+}
+
+// CheckHostMemory 检查宿主机可用内存是否满足虚拟机创建需求
+// requiredMB: 虚拟机请求的内存大小（MB）
+// 返回 nil 表示内存充足，否则返回详细错误信息
+func CheckHostMemory(requiredMB int) error {
+	// 读取 MemAvailable（KB），比 MemFree 更准确，包含了可回收的缓存
+	result := utils.ExecShell("awk '/MemAvailable:/ {print $2}' /proc/meminfo")
+	if result.Error != nil {
+		// 如果读不到 MemAvailable，回退使用 free 命令
+		result = utils.ExecShell("free -m | awk 'NR==2{print $7}'")
+		if result.Error != nil {
+			return fmt.Errorf("无法获取宿主机内存信息: %w", result.Error)
+		}
+		availMB, err := strconv.Atoi(strings.TrimSpace(result.Stdout))
+		if err != nil {
+			return fmt.Errorf("解析可用内存失败: %w", err)
+		}
+		// 预留 512MB 系统开销 + 10% 缓冲
+		requiredWithBuffer := requiredMB + requiredMB/10 + 512
+		if availMB < requiredWithBuffer {
+			return fmt.Errorf("宿主机内存不足: 需要 %dMB（含系统开销预留），可用 %dMB，请释放部分资源或降低虚拟机内存配置后重试",
+				requiredWithBuffer, availMB)
+		}
+		return nil
+	}
+
+	availKB, err := strconv.ParseInt(strings.TrimSpace(result.Stdout), 10, 64)
+	if err != nil {
+		return fmt.Errorf("解析可用内存失败: %w", err)
+	}
+	availMB := int(availKB / 1024)
+
+	// 预留 512MB 系统开销 + 10% 缓冲，确保不会因 QEMU 进程额外开销导致 OOM
+	bufferMB := requiredMB/10 + 512
+	if bufferMB < 256 {
+		bufferMB = 256 // 最小保留 256MB 缓冲
+	}
+	requiredWithBuffer := requiredMB + bufferMB
+
+	if availMB < requiredWithBuffer {
+		return fmt.Errorf("宿主机内存不足: 需要 %dMB（含 %dMB 系统开销预留），可用 %dMB，请释放部分资源或降低虚拟机内存配置后重试",
+			requiredWithBuffer, bufferMB, availMB)
+	}
+	return nil
 }
