@@ -964,6 +964,7 @@ FnOS 示例：
 - 不执行 Linux SSH 初始化、Windows 应答文件注入、FnOS 首次账号写入等来宾初始化动作
 - `disk_bus`、`video_model`、`cpu_topology_mode` 和 `first_boot_reboot_mode` 可选；为空时优先使用模板元数据中的 `default_config.disk_bus` / `default_config.video_model` / `default_config.cpu_topology_mode` / `default_config.first_boot_reboot_mode`，旧模板则回退为当前默认值
 - `cpu_limit_percent` 可选，`0` 或不传表示无限制，`1-100` 表示按当前 `vCPU` 总能力限速
+- `max_vcpu` 可选，`0` 或不传表示不启用 CPU 热添加；设为宿主机 CPU 核心数可启用热添加，允许后续在不超过该上限的范围内热添加 vCPU
 
 请求体示例：
 

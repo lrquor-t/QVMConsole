@@ -29,6 +29,7 @@ type ResetLinuxPasswordRequest struct {
 // VmEditRequest 虚拟机编辑请求
 type VmEditRequest struct {
 	VCPU            int                             `json:"vcpu"`
+	MaxVCPU         int                             `json:"max_vcpu,omitempty"` // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	Memory          int                             `json:"memory"`            // GB
 	Remark          *string                         `json:"remark"`            // 备注
 	Group           *string                         `json:"group"`             // 分组
@@ -642,7 +643,7 @@ func EditVm(c *gin.Context) {
 		legacyMemoryMB = 0
 	}
 	if req.VCPU > 0 || legacyMemoryMB > 0 {
-		if err := service.EditVMConfig(name, req.VCPU, legacyMemoryMB); err != nil {
+		if err := service.EditVMConfig(name, req.VCPU, req.MaxVCPU, legacyMemoryMB); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"code":    500,
 				"message": "编辑 CPU/内存失败: " + err.Error(),

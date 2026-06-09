@@ -16,6 +16,7 @@ type CreateVMParams struct {
 	Name            string                  `json:"name"`
 	Remark          string                  `json:"remark,omitempty"`
 	VCPU            int                     `json:"vcpu"`
+	MaxVCPU         int                     `json:"max_vcpu,omitempty"` // CPU 热添加上限，0 或 <= vcpu 表示不启用热添加
 	RAM             int                     `json:"ram"`
 	DiskSize        int                     `json:"disk_size"`
 	DiskFormat      string                  `json:"disk_format,omitempty"`
@@ -43,7 +44,7 @@ type CreateVMParams struct {
 	CPULimitPercent int                     `json:"cpu_limit_percent,omitempty"`
 	CPUAffinity     string                  `json:"cpu_affinity,omitempty"` // CPU 亲和性，如 "0,2,4"，空字符串表示不设置
 	VirtType        string                  `json:"virt_type,omitempty"`    // 虚拟化方案: kvm/qemu，默认 kvm
-	Arch            string                  `json:"arch,omitempty"`      // 目标架构: x86_64/aarch64/riscv64
+	Arch            string                  `json:"arch,omitempty"`         // 目标架构: x86_64/aarch64/riscv64
 	ExtraDisks      []ExtraDiskParam        `json:"extra_disks,omitempty"`
 	MemoryDynamic   *VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`
 	SystemDiskIOPS  *DiskIOPSTune           `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
@@ -232,6 +233,9 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	cmdParts = append(cmdParts, fmt.Sprintf("--name '%s'", params.Name))
 	cmdParts = append(cmdParts, fmt.Sprintf("--ram %d", ramMB))
 	cmdParts = append(cmdParts, fmt.Sprintf("--vcpus %d", params.VCPU))
+	if params.MaxVCPU > params.VCPU {
+		cmdParts[len(cmdParts)-1] = fmt.Sprintf("--vcpus %d,maxvcpus=%d", params.VCPU, params.MaxVCPU)
+	}
 
 	// 虚拟化方案
 	cmdParts = append(cmdParts, fmt.Sprintf("--virt-type %s", params.VirtType))
@@ -387,7 +391,8 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if params.OSType == "windows" {
 		vmXML = ApplyWindowsGuestOptimizationsToDomainXML(vmXML)
 	}
-	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, params.OSType, params.VCPU)
+	topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, params.OSType, topoVCPU)
 	vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 	if params.CPUAffinity != "" {
 		affinityCores, err := ParseCPUAffinity(params.CPUAffinity)
@@ -401,7 +406,7 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 				return "", err
 			}
 		}
-		vmXML = ApplyCPUAffinityToDomainXML(vmXML, params.VCPU, affinityCores)
+		vmXML = ApplyCPUAffinityToDomainXML(vmXML, topoVCPU, affinityCores)
 	}
 	normalizedBootType := NormalizeVMBootType(params.BootType)
 	if normalizedBootType != "" {

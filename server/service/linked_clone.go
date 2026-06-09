@@ -21,6 +21,7 @@ type LinkedCloneParams struct {
 	TemplateType        string                  `json:"template_type,omitempty"`
 	CloneMode           string                  `json:"clone_mode,omitempty"` // 克隆模式: linked（链式克隆，默认）/ full（完整克隆）
 	VCPU                int                     `json:"vcpu"`
+	MaxVCPU             int                     `json:"max_vcpu,omitempty"`               // CPU 热添加上限
 	RAM                 int                     `json:"ram"`
 	DiskSize            int                     `json:"disk_size,omitempty"`
 	Network             string                  `json:"network,omitempty"`
@@ -195,11 +196,15 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	}
 
 	progressFn(55, "生成虚拟机定义...")
+	vcpuArg := fmt.Sprintf("--vcpus %d", params.VCPU)
+	if params.MaxVCPU > params.VCPU {
+		vcpuArg = fmt.Sprintf("--vcpus %d,maxvcpus=%d", params.VCPU, params.MaxVCPU)
+	}
 	cmdParts := []string{
 		"virt-install",
 		fmt.Sprintf("--name %s", utils.ShellSingleQuote(params.Name)),
 		fmt.Sprintf("--ram %d", ramMB),
-		fmt.Sprintf("--vcpus %d", params.VCPU),
+		vcpuArg,
 		"--machine q35",
 		fmt.Sprintf("--disk %s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap", utils.ShellSingleQuote(cloneDisk), params.DiskBus),
 		"--osinfo detect=on,require=off",
@@ -280,7 +285,8 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	if templateType == "windows" {
 		vmXML = ApplyWindowsGuestOptimizationsToDomainXML(vmXML)
 	}
-	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, templateType, params.VCPU)
+	topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, templateType, topoVCPU)
 	vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 	if params.CPUAffinity != "" {
 		affinityCores, affErr := ParseCPUAffinity(params.CPUAffinity)
@@ -294,7 +300,7 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 				return nil, affErr
 			}
 		}
-		vmXML = ApplyCPUAffinityToDomainXML(vmXML, params.VCPU, affinityCores)
+		vmXML = ApplyCPUAffinityToDomainXML(vmXML, topoVCPU, affinityCores)
 	}
 	normalizedBootType := NormalizeVMBootType(bootType)
 	if normalizedBootType != "" {

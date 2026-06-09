@@ -424,6 +424,7 @@ func Setup() *gin.Engine {
 				host.GET("/stats", handler.GetHostStats)
 				host.GET("/stats/sse", handler.GetHostStatsSSE)
 				host.GET("/stats/history", handler.GetHostStatsHistory)
+				host.GET("/cpus", handler.GetHostCPUCores)
 				host.GET("/disks", handler.GetHostDisks)
 				host.GET("/kvm-intel-unrestricted-guest", middleware.AdminMiddleware(), handler.GetHostKVMIntelUnrestrictedGuestStatus)
 				host.PUT("/kvm-intel-unrestricted-guest", middleware.AdminMiddleware(), handler.UpdateHostKVMIntelUnrestrictedGuest)

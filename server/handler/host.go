@@ -283,3 +283,21 @@ func sendHostStatsSSE(w http.ResponseWriter) {
 		flusher.Flush()
 	}
 }
+
+// GetHostCPUCores 返回宿主机 CPU 核心总数
+func GetHostCPUCores(c *gin.Context) {
+	cores, err := service.GetSystemCPUCores()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取宿主机 CPU 信息失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"cores": cores,
+		},
+	})
+}

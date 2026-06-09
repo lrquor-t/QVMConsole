@@ -23,6 +23,7 @@ type ImportVMParams struct {
 	Username         string                  `json:"username"`                     // 所属用户
 	CopyDisk         bool                    `json:"copy_disk,omitempty"`          // true=复制磁盘文件，false=移动磁盘文件
 	VCPU             int                     `json:"vcpu"`                         // CPU 核心数
+	MaxVCPU          int                     `json:"max_vcpu,omitempty"`           // CPU 热添加上限
 	RAM              int                     `json:"ram"`                          // 内存（GB）
 	Network          string                  `json:"network,omitempty"`            // 网络
 	InitType         string                  `json:"init_type,omitempty"`          // 初始化类型: linux/windows/other/空（不初始化）
@@ -248,7 +249,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		vmXML := fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <memory unit='KiB'>%d</memory>
-  <vcpu>%d</vcpu>
+%s
   <os firmware='efi'>
     <type arch='x86_64' machine='pc-q35-noble'>hvm</type>
     <firmware>
@@ -292,7 +293,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
     <memballoon model='virtio' freePageReporting='on'><stats period='5'/></memballoon>
   </devices>
 </domain>`,
-			params.Name, ramKiB, params.VCPU, nvramClone, clockOpenTag, format, destDiskPath, BuildOVSInterfaceXML(macAddr, params.NicModel))
+			params.Name, ramKiB, BuildVCPUTag(params.VCPU, params.MaxVCPU), nvramClone, clockOpenTag, format, destDiskPath, BuildOVSInterfaceXML(macAddr, params.NicModel))
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
 			if err != nil {
@@ -322,7 +323,8 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, "windows")
 		vmXML = ApplyWindowsGuestOptimizationsToDomainXML(vmXML)
-		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", params.VCPU)
+		topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", topoVCPU)
 		vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 		if params.CPUAffinity != "" {
 			affinityCores, affErr := ParseCPUAffinity(params.CPUAffinity)
@@ -336,7 +338,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 					return nil, affErr
 				}
 			}
-			vmXML = ApplyCPUAffinityToDomainXML(vmXML, params.VCPU, affinityCores)
+			vmXML = ApplyCPUAffinityToDomainXML(vmXML, topoVCPU, affinityCores)
 		}
 		vmXML, err = ApplyVPCSwitchToDomainXML(vmXML, params.SwitchID)
 		if err != nil {
@@ -381,8 +383,13 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 			bootOpt = "--boot uefi "
 		}
 
+		vcpuArg := fmt.Sprintf("--vcpus %d", params.VCPU)
+		if params.MaxVCPU > params.VCPU {
+			vcpuArg = fmt.Sprintf("--vcpus %d,maxvcpus=%d", params.VCPU, params.MaxVCPU)
+		}
+
 		installCmd := fmt.Sprintf(
-			"virt-install --name '%s' --ram %d --vcpus %d "+
+			"virt-install --name '%s' --ram %d %s "+
 				"--machine %s "+
 				bootOpt+
 				"--disk '%s,format=%s,bus=virtio,discard=unmap,detect_zeroes=unmap' "+
@@ -391,7 +398,7 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 				"--graphics vnc,listen=0.0.0.0 "+
 				"--video virtio "+
 				"--import --cpu host-passthrough --print-xml",
-			params.Name, ramMB, params.VCPU, params.MachineType, destDiskPath, format,
+			params.Name, ramMB, vcpuArg, params.MachineType, destDiskPath, format,
 		)
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
@@ -435,11 +442,12 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, initType)
-		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, initType, params.VCPU)
+		topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, initType, topoVCPU)
 		vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 		if params.CPUAffinity != "" {
 			var affErr error
-			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
+			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, topoVCPU, params.CPUAffinity)
 			if affErr != nil {
 				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr
@@ -586,6 +594,7 @@ type ImportDiskByPathParams struct {
 	DiskSourceType   string                  `json:"disk_source_type,omitempty"` // path/storage（主磁盘）
 	StoragePoolID    string                  `json:"storage_pool_id,omitempty"`
 	VCPU             int                     `json:"vcpu"`
+	MaxVCPU          int                     `json:"max_vcpu,omitempty"`           // CPU 热添加上限
 	RAM              int                     `json:"ram"`
 	InitType         string                  `json:"init_type,omitempty"`
 	Hostname         string                  `json:"hostname,omitempty"`
@@ -846,7 +855,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		vmXML := fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <memory unit='KiB'>%d</memory>
-  <vcpu>%d</vcpu>
+%s
   <os firmware='efi'>
     <type arch='x86_64' machine='pc-q35-noble'>hvm</type>
     <firmware>
@@ -890,7 +899,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
     <memballoon model='virtio' freePageReporting='on'><stats period='5'/></memballoon>
   </devices>
 </domain>`,
-			params.Name, ramKiB, params.VCPU, nvramClone, clockOpenTag, format, destDiskPath, BuildOVSInterfaceXML(macAddr, params.NicModel))
+			params.Name, ramKiB, BuildVCPUTag(params.VCPU, params.MaxVCPU), nvramClone, clockOpenTag, format, destDiskPath, BuildOVSInterfaceXML(macAddr, params.NicModel))
 		if memoryMeta != nil {
 			vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
 			if err != nil {
@@ -920,11 +929,12 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, "windows")
 		vmXML = ApplyWindowsGuestOptimizationsToDomainXML(vmXML)
-		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", params.VCPU)
+		topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", topoVCPU)
 		vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 		if params.CPUAffinity != "" {
 			var affErr error
-			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
+			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, topoVCPU, params.CPUAffinity)
 			if affErr != nil {
 				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr
@@ -971,8 +981,13 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 			bootOpt = "--boot uefi "
 		}
 
+		vcpuArg := fmt.Sprintf("--vcpus %d", params.VCPU)
+		if params.MaxVCPU > params.VCPU {
+			vcpuArg = fmt.Sprintf("--vcpus %d,maxvcpus=%d", params.VCPU, params.MaxVCPU)
+		}
+
 		installCmd := fmt.Sprintf(
-			"virt-install --name '%s' --ram %d --vcpus %d "+
+			"virt-install --name '%s' --ram %d %s "+
 				"--machine %s "+
 				bootOpt+
 				"--disk '%s,format=%s,bus=virtio,discard=unmap,detect_zeroes=unmap' "+
@@ -981,7 +996,7 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 				"--graphics vnc,listen=0.0.0.0 "+
 				"--video virtio "+
 				"--import --cpu host-passthrough --virt-type kvm --print-xml",
-			params.Name, ramMB, params.VCPU, params.MachineType, destDiskPath, format,
+			params.Name, ramMB, vcpuArg, params.MachineType, destDiskPath, format,
 		)
 		result := utils.ExecCommandLongRunning("bash", "-c", installCmd)
 		if result.Error != nil {
@@ -1032,11 +1047,12 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, initType)
-		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, initType, params.VCPU)
+		topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, initType, topoVCPU)
 		vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 		if params.CPUAffinity != "" {
 			var affErr error
-			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
+			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, topoVCPU, params.CPUAffinity)
 			if affErr != nil {
 				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(destDiskPath)))
 				return nil, affErr

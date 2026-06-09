@@ -275,10 +275,18 @@ func SetVMCPUAffinity(name string, coresStr string) error {
 		return err
 	}
 
-	// 同步运行态
+	// 同步运行态：使用在线域的 vCPU 数量，因为持久化配置的 vCPU 可能已被修改但尚未生效
 	stateResult := utils.ExecCommand("virsh", "domstate", name)
 	if stateResult.Error == nil && strings.TrimSpace(stateResult.Stdout) == "running" {
-		if err := applyVMLiveCPUAffinity(name, vcpu, cores); err != nil {
+		// 获取在线域的 vCPU 数量，避免因持久化与在线 vCPU 不一致导致索引越界
+		liveVCPU := vcpu
+		liveResult := utils.ExecCommand("virsh", "dumpxml", name)
+		if liveResult.Error == nil {
+			if parsed := ParseVCPUCountFromDomainXML(liveResult.Stdout); parsed > 0 {
+				liveVCPU = parsed
+			}
+		}
+		if err := applyVMLiveCPUAffinity(name, liveVCPU, cores); err != nil {
 			return fmt.Errorf("已保存持久化 CPU 亲和性，但同步运行态失败: %w", err)
 		}
 	}

@@ -34,7 +34,7 @@
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="CPU 核心" prop="vcpu">
-                  <el-input-number v-model="form.vcpu" :min="1" :max="32" style="width: 100%;" />
+                  <el-input-number v-model="form.vcpu" :min="1" :max="32" style="width: 100%;" :disabled="isEdit && editVmStatus === 'running' && !form.cpu_hotplug_enabled" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
@@ -43,6 +43,20 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item label="CPU 热添加">
+              <div class="memory-basic-switch">
+                <div class="memory-basic-switch-row">
+                  <el-switch v-model="form.cpu_hotplug_enabled" active-text="启用" inactive-text="关闭" @change="handleCPUHotplugChange" />
+                  <template v-if="form.cpu_hotplug_enabled && hostCPUCores > 0">
+                    <span class="memory-dynamic-unit" style="margin-left: 8px;">上限 {{ hostCPUCores }} 核</span>
+                  </template>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  启用后可在宿主机 {{ hostCPUCores > 0 ? hostCPUCores : '?' }} 核范围内随时热添加 vCPU，无需重启。新建时需重启一次后热添加功能生效
+                </div>
+              </div>
+            </el-form-item>
             <el-form-item v-if="isAdmin" label="CPU 限制">
               <div class="memory-basic-switch">
                 <div class="memory-basic-switch-row">
@@ -813,7 +827,7 @@
                 <el-row :gutter="20">
                   <el-col :span="12">
                     <el-form-item label="CPU 核心" prop="vcpu">
-                      <el-input-number v-model="form.vcpu" :min="1" :max="32" style="width: 100%;" />
+                      <el-input-number v-model="form.vcpu" :min="1" :max="32" style="width: 100%;" :disabled="isEdit && editVmStatus === 'running' && !form.cpu_hotplug_enabled" />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
@@ -822,6 +836,20 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
+                <el-form-item label="CPU 热添加">
+                  <div class="memory-basic-switch">
+                    <div class="memory-basic-switch-row">
+                      <el-switch v-model="form.cpu_hotplug_enabled" active-text="启用" inactive-text="关闭" @change="handleCPUHotplugChange" />
+                      <template v-if="form.cpu_hotplug_enabled && hostCPUCores > 0">
+                        <span class="memory-dynamic-unit" style="margin-left: 8px;">上限 {{ hostCPUCores }} 核</span>
+                      </template>
+                    </div>
+                    <div class="form-tip">
+                      <el-icon><InfoFilled /></el-icon>
+                      启用后可在宿主机 {{ hostCPUCores > 0 ? hostCPUCores : '?' }} 核范围内随时热添加 vCPU，无需重启。新建时需重启一次后热添加功能生效
+                    </div>
+                  </div>
+                </el-form-item>
                 <el-form-item v-if="isAdmin" label="CPU 限制">
                   <div class="memory-basic-switch">
                     <div class="memory-basic-switch-row">
@@ -2340,7 +2368,7 @@ import { getUserISOs, selfCreateVm, importVM } from '@/api/storage'
 import { getStorageFiles } from '@/api/storage'
 import { selfCloneVm } from '@/api/user'
 import { getVPCSecurityGroups, getVPCSwitches } from '@/api/vpc'
-import { getCPUAffinityPresets, getSettings } from '@/api/settings'
+import { getCPUAffinityPresets, getSettings, getHostCPUCores } from '@/api/settings'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, ArrowRight } from '@element-plus/icons-vue'
 import FormIcons from '@/components/icons/FormIcons.vue'
@@ -2365,6 +2393,7 @@ const visible = ref(false)
 const registrationMode = ref(false)
 const cpuAffinityPresets = ref([])
 const cpuAffinityPresetsLoaded = ref(false)
+const hostCPUCores = ref(0)
 const registrationContext = reactive({
   dedicated_vpc_switch_id: 0,
   dedicated_vpc_label: ''
@@ -2842,6 +2871,16 @@ const handleDynamicMemoryEnabledChange = () => {
   }
   markMemoryDynamicTouched()
 }
+
+// CPU 热添加开关状态变化
+const handleCPUHotplugChange = () => {
+  // 启用时不做额外处理，提交时 max_vcpu 将设为 hostCPUCores
+  // 关闭时 max_vcpu 为 0（不启用热添加）
+}
+
+const cpuHotplugMaxVCPU = computed(() => {
+  return form.cpu_hotplug_enabled && hostCPUCores.value > 0 ? hostCPUCores.value : 0
+})
 
 const handleMemoryBackendChange = () => {
   applyRecommendedMemoryDynamicValues()
@@ -3385,6 +3424,7 @@ const form = reactive({
   nic_model: 'virtio',
   video_model: 'virtio',
   cpu_topology_mode: 'auto',
+  cpu_hotplug_enabled: false,
   first_boot_reboot_mode: 'normal',
   autostart: false,
   freeze: false,
@@ -4194,6 +4234,15 @@ const open = async (row, mode, options = {}) => {
       }
     } catch {}
   }
+  // 获取宿主机 CPU 核心数（用于 CPU 热添加上限）
+  if (hostCPUCores.value <= 0) {
+    try {
+      const cpuRes = await getHostCPUCores()
+      if (cpuRes.code === 200 && cpuRes.data?.cores) {
+        hostCPUCores.value = cpuRes.data.cores
+      }
+    } catch {}
+  }
   // 获取系统设置中的 ISO 存储位置
   try {
     const settingsRes = await getSettings()
@@ -4654,6 +4703,7 @@ const submitForm = async () => {
             : form.boot_order
           const editPayload = {
             vcpu: form.vcpu,
+            max_vcpu: cpuHotplugMaxVCPU.value,
             memory: form.memory,
             autostart: form.autostart,
             freeze: form.freeze,
@@ -4778,6 +4828,7 @@ const submitForm = async () => {
             remark: form.remark,
             disk_file: form.disk_file,
             vcpu: form.vcpu,
+            max_vcpu: cpuHotplugMaxVCPU.value,
             ram: form.ram,
             switch_id: form.switch_id || 0,
             security_group_id: selectedVPCSwitch.value?.bridge_mode === 'bridge' ? 0 : (form.security_group_id || 0),
@@ -4826,6 +4877,7 @@ const submitForm = async () => {
             template_type: form.template_type,
             clone_mode: form.clone_mode,
             vcpu: form.vcpu,
+            max_vcpu: cpuHotplugMaxVCPU.value,
             ram: form.ram,
             disk_size: form.disk_size,
             switch_id: form.switch_id || 0,
@@ -4885,6 +4937,7 @@ const submitForm = async () => {
               template_type: form.template_type,
               clone_mode: form.clone_mode,
               vcpu: form.vcpu,
+              max_vcpu: cpuHotplugMaxVCPU.value,
               ram: form.ram,
               disk_size: form.disk_size,
               hostname: '', // 批量模式下每台虚拟机由后端自动生成独立主机名
@@ -4929,6 +4982,7 @@ const submitForm = async () => {
             template_type: form.template_type,
             clone_mode: form.clone_mode,
             vcpu: form.vcpu,
+            max_vcpu: cpuHotplugMaxVCPU.value,
             ram: form.ram,
             disk_size: form.disk_size,
             hostname: form.hostname,
@@ -5033,6 +5087,7 @@ const submitForm = async () => {
             name: form.name,
             remark: form.remark,
             vcpu: form.vcpu,
+            max_vcpu: cpuHotplugMaxVCPU.value,
             ram: form.ram,
             disk_size: form.disk_size,
             disk_format: form.disk_format,

@@ -50,6 +50,7 @@ type CloneParams struct {
 	TemplateType          string                  `json:"template_type,omitempty"`          // 模板类型: linux/windows/fnos/other
 	CloneMode             string                  `json:"clone_mode,omitempty"`             // 克隆模式: linked（链式克隆，默认）/ full（完整克隆）
 	VCPU                  int                     `json:"vcpu"`                             // CPU 核心数
+	MaxVCPU               int                     `json:"max_vcpu,omitempty"`               // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	RAM                   int                     `json:"ram"`                              // 内存（GB）
 	DiskSize              int                     `json:"disk_size,omitempty"`              // 磁盘大小（GB，可选）
 	Network               string                  `json:"network,omitempty"`                // 网络（默认 default）
@@ -97,6 +98,7 @@ type BatchCloneParams struct {
 	TemplateType        string                  `json:"template_type,omitempty"` // 模板类型
 	CloneMode           string                  `json:"clone_mode,omitempty"`    // 克隆模式: linked / full
 	VCPU                int                     `json:"vcpu"`
+	MaxVCPU             int                     `json:"max_vcpu,omitempty"`               // CPU 热添加上限
 	RAM                 int                     `json:"ram"`
 	DiskSize            int                     `json:"disk_size,omitempty"`
 	Network             string                  `json:"network,omitempty"`
@@ -371,8 +373,12 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 		if needUEFI {
 			bootOpt = "--boot uefi "
 		}
+		vcpuArg := fmt.Sprintf("--vcpus %d", params.VCPU)
+		if params.MaxVCPU > params.VCPU {
+			vcpuArg = fmt.Sprintf("--vcpus %d,maxvcpus=%d", params.VCPU, params.MaxVCPU)
+		}
 		installCmd := fmt.Sprintf(
-			"virt-install --name %s --ram %d --vcpus %d "+
+			"virt-install --name %s --ram %d %s "+
 				"--machine q35 "+
 				bootOpt+
 				"--disk %s,format=qcow2,bus=%s,discard=unmap,detect_zeroes=unmap "+
@@ -381,7 +387,7 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 				"--graphics vnc,listen=0.0.0.0 "+
 				"--video virtio "+
 				"--import --cpu host-passthrough --print-xml",
-			utils.ShellSingleQuote(params.Name), ramMB, params.VCPU, utils.ShellSingleQuote(cloneDisk), params.DiskBus,
+			utils.ShellSingleQuote(params.Name), ramMB, vcpuArg, utils.ShellSingleQuote(cloneDisk), params.DiskBus,
 		)
 		// 拼接额外的 pcie-root-port 预留
 		portCount := params.PCIERootPorts
@@ -434,10 +440,12 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 			return nil, err
 		}
 		vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, tplType)
+		topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+		vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, tplType, topoVCPU)
 		vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 		if params.CPUAffinity != "" {
 			var affErr error
-			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
+			vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, topoVCPU, params.CPUAffinity)
 			if affErr != nil {
 				utils.ExecShell(fmt.Sprintf("rm -f %s", utils.ShellSingleQuote(cloneDisk)))
 				return nil, affErr
@@ -843,7 +851,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 	vmXML := fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <memory unit='KiB'>%d</memory>
-  <vcpu>%d</vcpu>
+%s
 %s
   <features>
     <acpi/><apic/>
@@ -879,7 +887,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
     <memballoon model='virtio' freePageReporting='on'><stats period='5'/></memballoon>
   </devices>
 </domain>`,
-		params.Name, ramKiB, params.VCPU, osXML, smmXML, clockOpenTag, cloneDisk, diskTargetDev, diskBus, diskControllerXML, BuildOVSInterfaceXML(macAddr, params.NicModel), tpmXML)
+		params.Name, ramKiB, BuildVCPUTag(params.VCPU, params.MaxVCPU), osXML, smmXML, clockOpenTag, cloneDisk, diskTargetDev, diskBus, diskControllerXML, BuildOVSInterfaceXML(macAddr, params.NicModel), tpmXML)
 	var err error
 	if memoryMeta != nil {
 		vmXML, err = ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
@@ -905,11 +913,12 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 	}
 	vmXML = ApplyVMVideoModelToDomainXML(vmXML, params.VideoModel, "windows")
 	vmXML = ApplyWindowsGuestOptimizationsToDomainXML(vmXML)
-	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", params.VCPU)
+	topoVCPU := EffectiveTopologyVCPU(params.VCPU, params.MaxVCPU)
+	vmXML = ApplyCPUTopologyModeToDomainXML(vmXML, params.CPUTopologyMode, "windows", topoVCPU)
 	vmXML = ApplyVMCPULimitToDomainXML(vmXML, params.VCPU, params.CPULimitPercent)
 	if params.CPUAffinity != "" {
 		var affErr error
-		vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, params.VCPU, params.CPUAffinity)
+		vmXML, affErr = ApplyCPUAffinityIfSet(vmXML, topoVCPU, params.CPUAffinity)
 		if affErr != nil {
 			return affErr
 		}
@@ -1549,6 +1558,7 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 				TemplateType:        params.TemplateType,
 				CloneMode:           params.CloneMode,
 				VCPU:                params.VCPU,
+				MaxVCPU:             params.MaxVCPU,
 				RAM:                 params.RAM,
 				DiskSize:            params.DiskSize,
 				Network:             params.Network,

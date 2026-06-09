@@ -289,6 +289,11 @@ func ListVMs(options ...VMListOptions) ([]VmInfo, error) {
 			vm.Autostart = strings.Contains(infoResult.Stdout, "Autostart:      enable")
 		}
 		if xmlResult := utils.ExecCommand("virsh", "dumpxml", name, "--inactive"); xmlResult.Error == nil {
+			// 使用持久化配置的 vCPU 覆盖在线值，确保界面显示的 vCPU 与用户配置一致
+			// (libvirt 不支持在线修改 vCPU 最大值，热添加超限时持久化已更新但在线未变)
+			if configVCPU := ParseVCPUCountFromDomainXML(xmlResult.Stdout); configVCPU > 0 {
+				vm.VCPU = configVCPU
+			}
 			applyMemoryDynamicInfoToVMInfo(&vm, GetVMMemoryDynamicInfo(name, xmlResult.Stdout, vm.Status))
 			vm.CPULimitPercent = ParseVMCPULimitPercentFromDomainXML(xmlResult.Stdout, vm.VCPU)
 			vm.CPUAffinity = ParseCPUAffinityFromDomainXML(xmlResult.Stdout)
@@ -418,6 +423,11 @@ func GetVM(name string) (*VmDetail, error) {
 	xmlResult := utils.ExecCommand("virsh", "dumpxml", name, "--inactive")
 	if xmlResult.Error == nil {
 		xmlStr := xmlResult.Stdout
+		// 使用持久化配置的 vCPU 覆盖在线值，确保界面显示的 vCPU 与用户配置一致
+		// (libvirt 不支持在线修改 vCPU 最大值，热添加超限时持久化已更新但在线未变)
+		if configVCPU := ParseVCPUCountFromDomainXML(xmlStr); configVCPU > 0 {
+			vm.VCPU = configVCPU
+		}
 		vm.OSType = detectVMOSType(vm.Template, xmlStr)
 		vm.BootType = ParseVMBootTypeFromDomainXML(xmlStr)
 		vm.Arch = ParseVMArchFromDomainXML(xmlStr)
@@ -809,7 +819,7 @@ func FixOnReboot(name string) {
 }
 
 // EditVMConfig 编辑虚拟机配置（CPU/内存）
-func EditVMConfig(name string, vcpu, memoryMB int) error {
+func EditVMConfig(name string, vcpu, maxVCPU, memoryMB int) error {
 	if err := EnsureVMNotMigrating(name, "编辑配置"); err != nil {
 		return err
 	}
@@ -823,15 +833,24 @@ func EditVMConfig(name string, vcpu, memoryMB int) error {
 	// 修改 CPU
 	if vcpu > 0 {
 		if state == "running" {
-			// 运行中设置（如果可热插拔）
-			utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--live")
+			// 先获取在线最大 vCPU：libvirt 不支持在线修改最大值，新 vCPU 超过在线最大值时热添加必然失败
+			liveMaxResult := utils.ExecCommand("virsh", "vcpucount", name, "--maximum", "--live")
+			liveMax, _ := strconv.Atoi(strings.TrimSpace(liveMaxResult.Stdout))
+			if liveMax <= 0 {
+				liveMaxResult2 := utils.ExecCommand("virsh", "vcpucount", name, "--maximum")
+				liveMax, _ = strconv.Atoi(strings.TrimSpace(liveMaxResult2.Stdout))
+			}
+			if vcpu <= liveMax {
+				utils.ExecCommand("virsh", "setvcpus", name, strconv.Itoa(vcpu), "--live")
+			}
+			// vcpu > liveMax 时仅更新持久化配置，需重启后生效
 		}
 
 		// 当 domain XML 中存在 CPU topology 时，virsh setvcpus --config --maximum
 		// 会校验 sockets × dies × cores × threads == 目标 vcpu，不匹配则报错。
 		// virsh define 同样会校验。因此当存在 topology 时，必须同时修改 vcpu 和 topology
 		// 后 define 回去；不存在 topology 时仍用 virsh setvcpus 命令。
-		if err := setVMCPUWithTopologySync(name, vcpu); err != nil {
+		if err := setVMCPUWithTopologySync(name, vcpu, maxVCPU); err != nil {
 			return err
 		}
 	}

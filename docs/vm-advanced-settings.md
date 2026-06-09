@@ -205,9 +205,42 @@ QEMU Guest Agent 也采用同样的“配置入口 + 弹窗表单”方式，主
 - 仅在排查启动异常、调试驱动或验证底层引导流程时启用
 - 如果不熟悉 QEMU Monitor，建议不要修改该页面配置
 
+### CPU 拓扑模式
+
+- 可选值：
+  - `auto`（自动）：Windows 来宾自动使用单插槽多核心，Linux 来宾保持 libvirt 默认行为
+  - `single_socket`（单插槽多核心）：将所有 vCPU 暴露为单插槽 `sockets=1, dies=1, threads=1`，cores 等于 vCPU 数量
+  - `host_default`（宿主默认拓扑）：移除显式拓扑，由 libvirt/QEMU 根据 vCPU 数量自动分配
+- 默认值：`auto`
+- 适用场景：
+  - Windows 10/11 建议使用 `auto` 或 `single_socket`，避免将多核识别为多颗物理 CPU
+  - Linux 来宾通常保持 `auto` 即可
+- 生效方式：
+  - 新建 / 导入 / 克隆：创建定义时直接写入
+  - 编辑已有虚拟机：需要在关机状态下修改并重新开机生效
+
+### CPU 拓扑与 vCPU 数量同步
+
+- libvirt 要求 domain XML 中的 `vcpu` 值必须等于 `sockets × dies × cores × threads`
+- 编辑虚拟机 vCPU 数量时，系统会自动同步 CPU 拓扑以保证等式成立：
+  - 如果 XML 中不存在显式拓扑，使用 `virsh setvcpus` 命令设置
+  - 如果 XML 中存在显式拓扑，同时修改 `vcpu` 和 `<topology>` 后通过 `virsh define` 更新持久化配置
+- 同时检查持久化和在线配置中的拓扑信息，避免因配置不一致导致设置失败
+- 如果当前拓扑参数无法整除目标 vCPU 数量，会返回明确的错误提示
+
+### CPU 热添加
+
+- 启用后，系统会将虚拟机的最大 vCPU 设置为宿主机 CPU 核心总数，后续可在不超过该上限的范围内随时热添加 vCPU，无需重启
+- 启用时域 XML 使用 `<vcpu placement='static' current='N'>M</vcpu>` 格式（N=当前，M=最大），CPU 拓扑会按最大值 M 配置以确保一致性
+- 关闭时不设置热添加上限，最大 vCPU 等于当前 vCPU
+- 新建虚拟机启用热添加后，需重启一次后热添加功能生效（因为 libvirt 不支持在线修改 vCPU 最大值）
+- 编辑已有虚拟机时切换热添加状态，会在持久化配置中写入对应的 max_vcpu，重启后生效
+
 ## 实现位置
 
 - 前端组件：`web/src/components/VmForm.vue`
+- CPU 拓扑逻辑：`server/service/vm_cpu_topology.go`
+- CPU 热添加 API：`GET /host/cpus` → `server/handler/host.go`
 - CPU 限制说明：`docs/vm-cpu-limit.md`
 - XML 编辑说明：`docs/vm-edit-xml.md`
 - 相关说明：`docs/vm-start-freeze.md`

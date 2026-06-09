@@ -75,6 +75,14 @@ export function getHostKVMUnrestrictedGuestStatus() {
   })
 }
 
+// 获取宿主机 CPU 核心总数（用于 CPU 热添加上限）
+export function getHostCPUCores() {
+  return request({
+    url: '/host/cpus',
+    method: 'get'
+  })
+}
+
 // 设置宿主机 Intel KVM unrestricted_guest
 export function updateHostKVMUnrestrictedGuest(data) {
   return request({
