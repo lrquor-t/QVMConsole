@@ -224,10 +224,10 @@
               {{ row.cloud_type === 'lightweight' ? '注册VM' : '分配VM' }}
             </el-button>
             <el-button size="small" type="success" v-if="row.status === 'pending_invite'" @click="handleResendInvite(row)">重发邀请</el-button>
-            <el-button size="small" type="danger" v-if="row.role !== 'admin' && row.status === 'active'" @click="handleToggleStatus(row, 'disabled')">封禁</el-button>
-            <el-button size="small" type="success" v-if="row.role !== 'admin' && row.status === 'disabled'" @click="handleToggleStatus(row, 'active')">解封</el-button>
+            <el-button size="small" type="danger" v-if="row.username !== 'admin' && row.username !== userStore.username && row.status === 'active'" @click="handleToggleStatus(row, 'disabled')">封禁</el-button>
+            <el-button size="small" type="success" v-if="row.username !== 'admin' && row.username !== userStore.username && row.status === 'disabled'" @click="handleToggleStatus(row, 'active')">解封</el-button>
             <el-button size="small" type="info" :disabled="row.role === 'admin' || row.cloud_type === 'lightweight' || !(row.quota && (row.quota.is_limited_down || row.quota.is_limited_up))" @click="handleResetTraffic(row)">重置流量</el-button>
-            <el-button size="small" type="danger" :disabled="row.role === 'admin'" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="danger" :disabled="(row.role === 'admin' && row.username === userStore.username) || row.username === 'admin'" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -359,10 +359,10 @@
               {{ row.cloud_type === 'lightweight' ? '注册VM' : '分配VM' }}
             </el-button>
             <el-button size="small" type="success" v-if="row.status === 'pending_invite'" @click="handleResendInvite(row)">重发邀请</el-button>
-            <el-button size="small" type="danger" v-if="row.role !== 'admin' && row.status === 'active'" @click="handleToggleStatus(row, 'disabled')">封禁</el-button>
-            <el-button size="small" type="success" v-if="row.role !== 'admin' && row.status === 'disabled'" @click="handleToggleStatus(row, 'active')">解封</el-button>
+            <el-button size="small" type="danger" v-if="row.username !== 'admin' && row.username !== userStore.username && row.status === 'active'" @click="handleToggleStatus(row, 'disabled')">封禁</el-button>
+            <el-button size="small" type="success" v-if="row.username !== 'admin' && row.username !== userStore.username && row.status === 'disabled'" @click="handleToggleStatus(row, 'active')">解封</el-button>
             <el-button size="small" type="info" :disabled="row.role === 'admin' || row.cloud_type === 'lightweight' || !(row.quota && (row.quota.is_limited_down || row.quota.is_limited_up))" @click="handleResetTraffic(row)">重置流量</el-button>
-            <el-button size="small" type="danger" :disabled="row.role === 'admin'" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="danger" :disabled="(row.role === 'admin' && row.username === userStore.username) || row.username === 'admin'" @click="handleDelete(row)">删除</el-button>
           </div>
         </el-card>
       </div>

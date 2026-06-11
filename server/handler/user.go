@@ -15,29 +15,29 @@ import (
 
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
-	Username                   string                                     `json:"username" binding:"required"`
-	Email                      string                                     `json:"email"`
-	Password                   string                                     `json:"password"` // SMTP 未配置时必填
-	Role                       string                                     `json:"role"`   // admin/user
-	CloudType                  string                                     `json:"cloud_type"` // elastic/lightweight
-	DedicatedVPCSwitchID       uint                                       `json:"dedicated_vpc_switch_id"`
-	MaxCPU                     int                                        `json:"max_cpu"`           // CPU配额
-	MaxMemory                  int                                        `json:"max_memory"`        // 内存配额(GB)
-	MaxDisk                    int                                        `json:"max_disk"`          // 磁盘配额(GB)
-	MaxVM                      int                                        `json:"max_vm"`            // 最大VM数量
-	MaxStorage                 int                                        `json:"max_storage"`       // 存储配额(GB)
-	MaxRuntimeHours            int                                        `json:"max_runtime_hours"` // 总运行时长配额(小时)
-	EnablePortForward          *bool                                      `json:"enable_port_forward"`
-	MaxPortForwards            *int                                       `json:"max_port_forwards"`  // 端口转发数量配额
-	MaxSnapshots               *int                                       `json:"max_snapshots"`      // 快照数量配额
-	MaxBandwidthUp             float64                                    `json:"max_bandwidth_up"`   // 上行带宽(Mbps)
-	MaxBandwidthDown           float64                                    `json:"max_bandwidth_down"` // 下行带宽(Mbps)
-	MaxTrafficDown             float64                                    `json:"max_traffic_down"`   // 下行日流量(GB)
-	MaxTrafficUp               float64                                    `json:"max_traffic_up"`     // 上行日流量(GB)
-	MaxPublicIPs               int                                        `json:"max_public_ips"`     // 公网 IP 数量
-	LightweightVMRegistrations []service.LightweightVMRegistrationRequest `json:"lightweight_vm_registrations"`
-	LightweightExistingVMs     []string                                   `json:"lightweight_existing_vms"`      // 选择已有VM列表
-	LightweightExistingVMQuotas []service.LightweightVMQuotaRequest       `json:"lightweight_existing_vm_quotas"` // 已有VM配额
+	Username                    string                                     `json:"username" binding:"required"`
+	Email                       string                                     `json:"email"`
+	Password                    string                                     `json:"password"`   // SMTP 未配置时必填
+	Role                        string                                     `json:"role"`       // admin/user
+	CloudType                   string                                     `json:"cloud_type"` // elastic/lightweight
+	DedicatedVPCSwitchID        uint                                       `json:"dedicated_vpc_switch_id"`
+	MaxCPU                      int                                        `json:"max_cpu"`           // CPU配额
+	MaxMemory                   int                                        `json:"max_memory"`        // 内存配额(GB)
+	MaxDisk                     int                                        `json:"max_disk"`          // 磁盘配额(GB)
+	MaxVM                       int                                        `json:"max_vm"`            // 最大VM数量
+	MaxStorage                  int                                        `json:"max_storage"`       // 存储配额(GB)
+	MaxRuntimeHours             int                                        `json:"max_runtime_hours"` // 总运行时长配额(小时)
+	EnablePortForward           *bool                                      `json:"enable_port_forward"`
+	MaxPortForwards             *int                                       `json:"max_port_forwards"`  // 端口转发数量配额
+	MaxSnapshots                *int                                       `json:"max_snapshots"`      // 快照数量配额
+	MaxBandwidthUp              float64                                    `json:"max_bandwidth_up"`   // 上行带宽(Mbps)
+	MaxBandwidthDown            float64                                    `json:"max_bandwidth_down"` // 下行带宽(Mbps)
+	MaxTrafficDown              float64                                    `json:"max_traffic_down"`   // 下行日流量(GB)
+	MaxTrafficUp                float64                                    `json:"max_traffic_up"`     // 上行日流量(GB)
+	MaxPublicIPs                int                                        `json:"max_public_ips"`     // 公网 IP 数量
+	LightweightVMRegistrations  []service.LightweightVMRegistrationRequest `json:"lightweight_vm_registrations"`
+	LightweightExistingVMs      []string                                   `json:"lightweight_existing_vms"`       // 选择已有VM列表
+	LightweightExistingVMQuotas []service.LightweightVMQuotaRequest        `json:"lightweight_existing_vm_quotas"` // 已有VM配额
 }
 
 // UpdateQuotaRequest 更新配额请求
@@ -281,7 +281,7 @@ func CreateUser(c *gin.Context) {
 		for _, quota := range req.LightweightExistingVMQuotas {
 			quotaByVM[quota.VMName] = quota
 		}
-		
+
 		// 构建配额请求列表
 		quotas := make([]service.LightweightVMQuotaRequest, 0, len(req.LightweightExistingVMs))
 		for _, vmName := range req.LightweightExistingVMs {
@@ -295,7 +295,7 @@ func CreateUser(c *gin.Context) {
 				})
 			}
 		}
-		
+
 		if err := service.AssignVMsToUserWithQuotas(user.Username, req.LightweightExistingVMs, quotas); err != nil {
 			model.DB.Delete(user)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -599,6 +599,25 @@ func UpdateUserStatus(c *gin.Context) {
 
 	targetStatus := strings.TrimSpace(req.Status)
 	operator, _ := c.Get("username")
+	operatorStr, _ := operator.(string)
+
+	// 不允许修改内置超级管理员的状态
+	if username == "admin" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "不能修改内置超级管理员的状态",
+		})
+		return
+	}
+
+	// 管理员不能修改自己的状态
+	if username == operatorStr {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": "管理员不能修改自己的状态",
+		})
+		return
+	}
 
 	switch targetStatus {
 	case service.UserStatusDisabled:
@@ -647,18 +666,29 @@ func DeleteUser(c *gin.Context) {
 	}
 	username := c.Param("username")
 
-	// 不允许删除 admin 用户
+	// 不允许删除内置超级管理员
 	if username == "admin" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
-			"message": "不能删除管理员用户",
+			"message": "不能删除内置超级管理员用户",
+		})
+		return
+	}
+
+	// 管理员不能删除自己
+	operator, _ := c.Get("username")
+	operatorStr, _ := operator.(string)
+	if username == operatorStr {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": "管理员不能删除自己",
 		})
 		return
 	}
 
 	// 提交异步删除用户任务
 	params := map[string]string{"username": username}
-	operator, _ := c.Get("username")
+	operator, _ = c.Get("username")
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeDeleteUser, params, operator.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

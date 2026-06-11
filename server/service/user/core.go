@@ -12,8 +12,8 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
-	"kvm_console/service/security"
 	clonepkg "kvm_console/service/clone"
+	"kvm_console/service/security"
 	"kvm_console/utils"
 )
 
@@ -230,9 +230,7 @@ func UpdateUserStatus(username, targetStatus string) error {
 	if err := model.DB.Where("username = ?", username).First(&user).Error; err != nil {
 		return fmt.Errorf("用户 %s 不存在", username)
 	}
-	if user.Role == "admin" {
-		return fmt.Errorf("不能修改管理员状态")
-	}
+	// 状态变更权限由 handler 层控制（内置 admin 保护 + 不能操作自己）
 	if user.Status == security.UserStatusPendingInvite {
 		return fmt.Errorf("待激活用户不支持封禁或解封")
 	}
@@ -260,9 +258,7 @@ func DisableUserAccount(username string, progressFn func(int, string)) (*UserSta
 	if err := model.DB.Where("username = ?", username).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("用户 %s 不存在", username)
 	}
-	if user.Role == "admin" {
-		return nil, fmt.Errorf("不能封禁管理员用户")
-	}
+	// 封禁权限由 handler 层控制（内置 admin 保护 + 不能操作自己）
 	if user.Status == security.UserStatusPendingInvite {
 		return nil, fmt.Errorf("待激活用户不支持封禁")
 	}
