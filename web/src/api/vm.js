@@ -25,6 +25,14 @@ export function getVmIP(name) {
   })
 }
 
+// 获取虚拟机 PCIe 热插槽使用信息
+export function getVmPCIEInfo(name) {
+  return request({
+    url: `/vm/${name}/pcie-info`,
+    method: 'get'
+  })
+}
+
 // 创建虚拟机详情 SSE 连接（实时推送）
 export function createVmDetailSSE(name, token) {
   const baseUrl = import.meta.env.VITE_APP_BASE_API || '/api'

@@ -368,7 +368,7 @@
                 </div>
                 <div v-else class="form-tip">
                   <el-icon><InfoFilled /></el-icon>
-                  预留的 pcie-root-port 数量（当前: {{ currentPCIERootPorts }}）。设为 0 表示恢复默认（新建时默认 4 个）
+                  预留的 pcie-root-port 数量（当前: {{ currentPCIERootPorts }}）。设为 0 表示恢复默认（新建时默认 4 个）。PCIe 热插槽数量最大支持 32 个，请输入 1 - 32 范围内的数值。
                 </div>
               </el-form-item>
               <el-form-item label="显示设备">
@@ -1686,7 +1686,7 @@
                 <el-input-number v-model="form.pcie_root_ports" :min="0" :max="32" :step="1" style="width: 160px;" />
                 <div class="form-tip">
                   <el-icon><InfoFilled /></el-icon>
-                  预留的 pcie-root-port 数量，设为 0 使用默认值（4）。足够的插槽可避免后续热添加磁盘时提示"无可用 PCI 插槽"
+                  预留的 pcie-root-port 数量，设为 0 使用默认值（4）。足够的插槽可避免后续热添加磁盘时提示"无可用 PCI 插槽"。PCIe 热插槽数量最大支持 32 个，请输入 1 - 32 范围内的数值。
                 </div>
               </el-form-item>
               <el-form-item v-if="isTemplateSourceMode && isWindowsTemplate" label="首次重启">

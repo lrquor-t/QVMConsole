@@ -11,6 +11,7 @@ type DiskInfo = disk.DiskInfo
 type DiskSimpleInfo = disk.DiskSimpleInfo
 type ExtraDiskParam = disk.ExtraDiskParam
 type IOPSField = disk.IOPSField
+type PCIEInfo = disk.PCIEInfo
 
 var ErrNoPCIESlots = disk.ErrNoPCIESlots
 
@@ -78,6 +79,10 @@ func SetVMPCIERootPorts(vmName string, targetCount int) error {
 
 func GetVMPCIERootPorts(vmName string) (int, error) {
 	return disk.GetVMPCIERootPorts(vmName)
+}
+
+func GetVMPCIEInfo(vmName string) (*PCIEInfo, error) {
+	return disk.GetVMPCIEInfo(vmName)
 }
 
 func CheckVMSnapshotSafety(vmName string) (bool, []string, error) {

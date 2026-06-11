@@ -8,10 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	bw "kvm_console/service/bandwidth"
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/service"
+	bw "kvm_console/service/bandwidth"
 	vm_memory "kvm_console/service/vm/memory"
 	"kvm_console/utils"
 )
@@ -122,6 +122,33 @@ func GetVmDetail(c *gin.Context) {
 		"code":    200,
 		"message": "ok",
 		"data":    vm,
+	})
+}
+
+// GetVmPCIEInfo 获取虚拟机 PCIe 热插槽使用情况
+func GetVmPCIEInfo(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "虚拟机名称不能为空",
+		})
+		return
+	}
+
+	info, err := service.GetVMPCIEInfo(name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取 PCIe 信息失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "ok",
+		"data":    info,
 	})
 }
 

@@ -7,9 +7,86 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/digitalocean/go-libvirt"
 	"kvm_console/service/libvirt_rpc"
+
+	"github.com/digitalocean/go-libvirt"
 )
+
+// PCIEInfo holds detailed PCIe slot usage information for a VM.
+type PCIEInfo struct {
+	TotalPorts int `json:"total_ports"` // Total pcie-root-port count
+	UsedPorts  int `json:"used_ports"`  // Occupied/used ports
+	FreePorts  int `json:"free_ports"`  // Free/available ports
+}
+
+// GetVMPCIEInfo returns detailed PCIe slot usage (total/used/free) for a VM.
+// For running VMs, it queries QEMU monitor for accurate free bus information.
+// For stopped VMs, it parses the inactive XML to count devices on PCIe buses.
+// Returns (nil, nil) for non-PCIe machines (i440fx etc.).
+func GetVMPCIEInfo(vmName string) (*PCIEInfo, error) {
+	// Get total port count from inactive XML
+	xmlStr, err := libvirt_rpc.GetDomainXMLRPC(vmName, libvirt.DomainXMLInactive)
+	if err != nil {
+		return nil, fmt.Errorf("获取虚拟机 XML 失败: %w", err)
+	}
+	if !hasPCIERootController(xmlStr) {
+		// non-PCIe machine
+		return nil, nil
+	}
+
+	totalPorts := 0
+	for _, line := range strings.Split(xmlStr, "\n") {
+		if strings.Contains(line, `<controller type='pci'`) && strings.Contains(line, `model='pcie-root-port'`) {
+			totalPorts++
+		}
+	}
+
+	state, _ := libvirt_rpc.GetDomainStateRPC(vmName)
+	var usedPorts int
+
+	if state == "running" {
+		// For running VMs: use QEMU monitor to find free buses
+		freeBuses := make([]int, 0)
+		infoPCIResult, err := libvirt_rpc.QemuMonitorCommandRPC(vmName, "info pci", libvirt_rpc.DomainQemuMonitorCommandHmp)
+		if err == nil {
+			freeBuses = parseFreePCIERootPortBuses(infoPCIResult)
+		}
+		freePorts := len(freeBuses)
+		usedPorts = totalPorts - freePorts
+		if usedPorts < 0 {
+			usedPorts = 0
+		}
+	} else {
+		// For stopped VMs: count devices with PCI addresses in the XML
+		// (excluding the pcie-root-port controllers themselves)
+		devAddrCount := 0
+		for _, line := range strings.Split(xmlStr, "\n") {
+			trimmed := strings.TrimSpace(line)
+			// Match <address type='pci' ...> but skip controller devices (pcie-root-port, pcie-root, etc.)
+			if strings.Contains(trimmed, `<address type='pci'`) &&
+				!strings.Contains(trimmed, `<controller`) {
+				devAddrCount++
+			}
+		}
+		usedPorts = devAddrCount
+		if usedPorts > totalPorts {
+			usedPorts = totalPorts
+		}
+	}
+
+	freePorts := totalPorts - usedPorts
+	if freePorts < 0 {
+		freePorts = 0
+	}
+
+	return &PCIEInfo{
+		TotalPorts: totalPorts,
+		UsedPorts:  usedPorts,
+		FreePorts:  freePorts,
+	}, nil
+}
+
+const maxPCIERootPorts = 32
 
 // SetVMPCIERootPorts modifies the number of pcie-root-ports reserved for a VM (requires shutdown).
 // targetCount is the desired total number of pcie-root-ports (excluding pcie-root itself).
@@ -77,6 +154,10 @@ func SetVMPCIERootPorts(vmName string, targetCount int) error {
 	currentCount := len(portBlocks)
 	if currentCount == targetCount {
 		return nil // no change needed
+	}
+
+	if targetCount > maxPCIERootPorts {
+		return fmt.Errorf("PCIe 热插槽数量最大支持 %d 个，请输入 1 - %d 范围内的数值", maxPCIERootPorts, maxPCIERootPorts)
 	}
 
 	if targetCount > currentCount {

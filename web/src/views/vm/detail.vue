@@ -289,6 +289,24 @@
                   </span>
                 </div>
                 <div class="info-row">
+                  <span class="info-label">PCIe 热插槽</span>
+                  <span class="info-value">
+                    <template v-if="vmInfo.machine_type === 'q35' || vmInfo.machine_type === 'virt'">
+                      <span class="info-tag tag-primary">{{ vmInfo.pcie_root_ports || 0 }} 槽</span>
+                      <template v-if="vmInfo.pcie_info">
+                        <span class="sub-label" style="margin-left: 6px;">
+                          已用 {{ vmInfo.pcie_info.used_ports }} · 空闲 {{ vmInfo.pcie_info.free_ports }}
+                        </span>
+                        <el-tooltip v-if="vmInfo.pcie_info.free_ports <= 1" content="热插槽即将用尽，建议关机后增加 PCIe 热插槽数量" placement="top" effect="dark">
+                          <el-tag size="small" type="danger" effect="plain" style="margin-left: 4px;">紧张</el-tag>
+                        </el-tooltip>
+                      </template>
+                      <span v-else class="sub-label" style="margin-left: 6px;">加载中...</span>
+                    </template>
+                    <span v-else>i440FX 不支持热插槽</span>
+                  </span>
+                </div>
+                <div class="info-row">
                   <span class="info-label">系统磁盘</span>
                   <span class="info-value mono">
                     {{ vmInfo.disk_size || '-' }}
@@ -673,7 +691,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { createVmDetailSSE, operateVm, resetVmLinuxPassword, lockVm, unlockVm } from '@/api/vm'
+import { createVmDetailSSE, operateVm, resetVmLinuxPassword, lockVm, unlockVm, getVmPCIEInfo } from '@/api/vm'
 import { getDiskList, getVMNetworkStatus } from '@/api/vm'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SnapshotList from '@/components/SnapshotList.vue'
@@ -828,7 +846,9 @@ const vmInfo = reactive({
   vnc_port: '',
   public_ips: [],
   continuous_runtime_seconds: 0,
-  continuous_running_since: ''
+  continuous_running_since: '',
+  pcie_root_ports: 0,
+  pcie_info: null
 })
 
 const startActionText = computed(() => vmInfo.status === 'paused' ? '继续启动' : '开机')
@@ -1182,6 +1202,8 @@ const initSSE = () => {
           })
           // 获取所有网口 IP
           fetchAllInterfaceIPs()
+          // 获取 PCIe 热插槽使用信息
+          loadPCIEInfo()
         }
       }
     } catch (e) {
@@ -1325,6 +1347,19 @@ async function loadDiskIOPSList() {
     diskIopsList.value = []
   } finally {
     diskIopsLoading.value = false
+  }
+}
+
+// 加载 PCIe 热插槽使用信息
+async function loadPCIEInfo() {
+  try {
+    const res = await getVmPCIEInfo(vmName.value)
+    if (res.data) {
+      vmInfo.pcie_info = res.data
+    }
+  } catch (e) {
+    console.error('加载 PCIe 热插槽信息失败', e)
+    vmInfo.pcie_info = null
   }
 }
 

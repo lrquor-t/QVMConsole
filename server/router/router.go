@@ -111,6 +111,7 @@ func Setup() *gin.Engine {
 				vm.GET("/:name/xml", middleware.ElasticCloudOnlyMiddleware(), middleware.AdminMiddleware(), handler.GetVmXML)
 				vm.GET("/:name/ip", handler.GetVmIP)
 				vm.GET("/:name/sse", handler.GetVmDetailSSE)
+				vm.GET("/:name/pcie-info", handler.GetVmPCIEInfo)
 				vm.POST("/:name/operate", handler.OperateVm)
 				vm.PUT("/:name", middleware.ElasticCloudOnlyMiddleware(), handler.EditVm)
 				vm.PUT("/:name/xml", middleware.ElasticCloudOnlyMiddleware(), middleware.AdminMiddleware(), handler.UpdateVmXML)
