@@ -18,8 +18,16 @@ func BindVMToVPC(username, vmName string, switchID, securityGroupID uint) error 
 	}
 	if username == "" && switchID > 0 {
 		var sw model.VPCSwitch
-		if err := model.DB.First(&sw, switchID).Error; err == nil && !sw.IsSystem {
-			username = sw.Username
+		if err := model.DB.First(&sw, switchID).Error; err == nil {
+			if !sw.IsSystem {
+				username = sw.Username
+			} else {
+				// 系统交换机：从已有 VPC 绑定记录中获取用户名
+				var binding model.VPCVMBinding
+				if err := model.DB.Where("vm_name = ?", vmName).First(&binding).Error; err == nil && binding.Username != "" {
+					username = binding.Username
+				}
+			}
 		}
 	}
 	if username == "" {
@@ -109,6 +117,23 @@ func BindVMToVPCAsAdmin(vmName string, switchID, securityGroupID uint) error {
 	switchOwner := sw.Username
 	if sw.IsSystem {
 		switchOwner = HookFindVMOwner(vmName)
+		if switchOwner == "" {
+			// 回退：从已有 VPC 绑定记录中获取用户名
+			var binding model.VPCVMBinding
+			if err := model.DB.Where("vm_name = ?", vmName).First(&binding).Error; err == nil && binding.Username != "" {
+				switchOwner = binding.Username
+			}
+		}
+		if switchOwner == "" && securityGroupID > 0 {
+			// 回退：从指定安全组获取用户名
+			var sg model.VPCSecurityGroup
+			if err := model.DB.First(&sg, securityGroupID).Error; err == nil && sg.Username != "" {
+				switchOwner = sg.Username
+			}
+		}
+	}
+	if switchOwner == "" {
+		return fmt.Errorf("无法识别虚拟机归属用户")
 	}
 	if _, err := EnsureDefaultSecurityGroup(switchOwner); err != nil {
 		return err

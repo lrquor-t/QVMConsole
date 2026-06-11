@@ -110,6 +110,9 @@ func AddVMInterface(vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo,
 func RemoveVMInterface(vmName string, interfaceOrder int) error {
 	return vpcpkg.RemoveVMInterface(vmName, interfaceOrder)
 }
+func UpdateVMInterface(vmName string, interfaceOrder int, req AddVMInterfaceRequest) error {
+	return vpcpkg.UpdateVMInterface(vmName, interfaceOrder, req)
+}
 func AttachExtraNICs(vmName string, extraNics []AddVMInterfaceRequest) {
 	vpcpkg.AttachExtraNICs(vmName, extraNics)
 }

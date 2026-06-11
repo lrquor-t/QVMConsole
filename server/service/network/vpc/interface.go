@@ -29,6 +29,20 @@ func AddVMInterface(vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo,
 	if sw.IsSystem {
 		switchOwner = HookFindVMOwner(vmName)
 		if switchOwner == "" {
+			// 回退：从已有 VPC 绑定记录中获取用户名
+			var binding model.VPCVMBinding
+			if err := model.DB.Where("vm_name = ?", vmName).First(&binding).Error; err == nil && binding.Username != "" {
+				switchOwner = binding.Username
+			}
+		}
+		if switchOwner == "" && req.SecurityGroupID > 0 {
+			// 回退：从指定安全组获取用户名
+			var sg model.VPCSecurityGroup
+			if err := model.DB.First(&sg, req.SecurityGroupID).Error; err == nil && sg.Username != "" {
+				switchOwner = sg.Username
+			}
+		}
+		if switchOwner == "" {
 			return nil, fmt.Errorf("无法识别虚拟机归属用户")
 		}
 	}
@@ -99,7 +113,7 @@ func AddVMInterface(vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo,
 	// 创建 VPC 绑定记录
 	binding := model.VPCVMBinding{
 		VMName:          vmName,
-		Username:        sw.Username,
+		Username:        switchOwner,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: securityGroupID,
 		InterfaceOrder:  nextOrder,
@@ -126,6 +140,123 @@ func AddVMInterface(vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo,
 		Switch:        &sw,
 		SecurityGroup: nil,
 	}, nil
+}
+
+// UpdateVMInterface 更新虚拟机指定网口的 VPC 交换机/安全组绑定（仅管理员）
+func UpdateVMInterface(vmName string, interfaceOrder int, req AddVMInterfaceRequest) error {
+	vmName = strings.TrimSpace(vmName)
+	if vmName == "" {
+		return fmt.Errorf("虚拟机名称不能为空")
+	}
+
+	var binding model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ? AND interface_order = ?", vmName, interfaceOrder).First(&binding).Error; err != nil {
+		return fmt.Errorf("未找到指定的网口绑定")
+	}
+
+	oldSwitchID := binding.SwitchID
+
+	// 验证交换机存在
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, req.SwitchID).Error; err != nil {
+		return fmt.Errorf("交换机不存在")
+	}
+
+	// 系统交换机使用 VM 归属用户的默认安全组
+	switchOwner := sw.Username
+	if sw.IsSystem {
+		switchOwner = HookFindVMOwner(vmName)
+		if switchOwner == "" {
+			return fmt.Errorf("无法识别虚拟机归属用户")
+		}
+	}
+
+	// 安全组处理
+	securityGroupID := req.SecurityGroupID
+	if !HookSwitchUsesDirectBridge(sw) {
+		if securityGroupID == 0 {
+			if _, err := EnsureDefaultSecurityGroup(switchOwner); err != nil {
+				return err
+			}
+			var group model.VPCSecurityGroup
+			if err := model.DB.Where("username = ? AND is_default = ?", switchOwner, true).First(&group).Error; err != nil {
+				return fmt.Errorf("未找到用户 %s 的默认安全组", switchOwner)
+			}
+			securityGroupID = group.ID
+		} else {
+			var group model.VPCSecurityGroup
+			if err := model.DB.First(&group, securityGroupID).Error; err != nil {
+				return fmt.Errorf("安全组不存在")
+			}
+			if !sw.IsSystem && group.Username != sw.Username {
+				return fmt.Errorf("安全组必须属于交换机用户 %s", sw.Username)
+			}
+		}
+	}
+
+	// 网卡型号
+	nicModel := strings.TrimSpace(req.NicModel)
+	if nicModel == "" {
+		nicModel = binding.NicModel
+	}
+
+	// 更新绑定记录
+	binding.Username = sw.Username
+	binding.SwitchID = req.SwitchID
+	binding.SecurityGroupID = securityGroupID
+	binding.NicModel = nicModel
+	if err := model.DB.Save(&binding).Error; err != nil {
+		return fmt.Errorf("更新网口绑定记录失败: %w", err)
+	}
+
+	// 如果交换机改变了，需要更新 VM 的 XML 配置（仅主网口 interface_order==0 支持）
+	if oldSwitchID != req.SwitchID {
+		vmState := strings.TrimSpace(utils.ExecCommand("virsh", "domstate", vmName).Stdout)
+		if vmState != "running" {
+			// 关机态：更新 inactive XML，确保下次开机时使用正确配置
+			if interfaceOrder == 0 {
+				if HookSwitchUsesDirectBridge(sw) {
+					if err := ensureVMBridgeInterfaceConfig(vmName, HookBridgeNameForSwitch(sw), sw.BridgeVLANID); err != nil {
+						logger.App.Warn("更新桥接直通 XML 失败", "vm", vmName, "error", err)
+					}
+				} else {
+					if err := ensureVMVPCInterfaceConfig(vmName, sw.VLANID); err != nil {
+						logger.App.Warn("更新 VPC VLAN XML 失败", "vm", vmName, "error", err)
+					}
+				}
+			} else {
+				// TODO: 非主网口需要 detach-device + attach-device 或完整 XML 重写
+				logger.App.Warn("非主网口交换机变更后需重启虚拟机生效", "vm", vmName, "order", interfaceOrder)
+			}
+		} else {
+			// 运行态：尝试热更新 VLAN tag
+			vnetIF := getVMVnetIFByOrder(vmName, interfaceOrder)
+			if vnetIF != "" && !HookSwitchUsesDirectBridge(sw) && sw.VLANID > 0 {
+				targetTag := strconv.Itoa(sw.VLANID)
+				_ = utils.ExecCommand("ovs-vsctl", "set", "Port", vnetIF, "tag="+targetTag)
+			}
+		}
+		// 清理旧交换机 DHCP 租约
+		if mac := HookGetVMMACByOrder(vmName, interfaceOrder); mac != "" {
+			HookCleanOVSDHCPLease(mac, "")
+		}
+	}
+
+	// 刷新交换机带宽和 ACL
+	if err := ApplyVPCSwitchBandwidth(sw); err != nil {
+		logger.App.Warn("刷新交换机带宽失败", "switch", sw.Name, "error", err)
+	}
+	if oldSwitchID != req.SwitchID {
+		var oldSw model.VPCSwitch
+		if model.DB.First(&oldSw, oldSwitchID).Error == nil {
+			_ = ApplyVPCSwitchBandwidth(oldSw)
+		}
+	}
+	if !HookSwitchUsesDirectBridge(sw) {
+		_ = ApplyVPCACLRules()
+	}
+
+	return nil
 }
 
 // RemoveVMInterface 删除虚拟机的指定网口（仅管理员）

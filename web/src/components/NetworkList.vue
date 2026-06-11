@@ -181,16 +181,11 @@
         </div>
       </el-tab-pane>
 
-      <!-- VPC 与安全组 -->
-      <el-tab-pane label="VPC / 安全组" name="vpc">
-        <div class="vpc-panel" v-loading="vpcLoading">
-          <el-descriptions :column="2" border size="small" class="vpc-summary">
-            <el-descriptions-item label="当前交换机">{{ vpcInfo?.switch?.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="交换机网络">{{ currentSwitchNetworkText }}</el-descriptions-item>
-            <el-descriptions-item label="当前安全组">{{ currentSwitchIsBridge ? '桥接直通不使用安全组' : (vpcInfo?.security_group?.name || '-') }}</el-descriptions-item>
-            <el-descriptions-item label="绑定用户">{{ vpcInfo?.binding?.username || '-' }}</el-descriptions-item>
-          </el-descriptions>
-          <el-descriptions v-if="isLightweight || isLightweightVM" :column="2" border size="small" class="quota-summary lightweight-summary">
+      <!-- 网口管理 -->
+      <el-tab-pane label="网口管理" name="interfaces">
+        <div class="multi-nic-panel" v-loading="vpcLoading || multiNicLoading">
+          <!-- 轻量云配额摘要 -->
+          <el-descriptions v-if="isLightweight || isLightweightVM" :column="2" border size="small" class="quota-summary lightweight-summary" style="margin-bottom: 14px;">
             <el-descriptions-item label="VM 网卡实时下行">{{ lightweightQuota?.current_net_rx_rate || '0 B/s' }}</el-descriptions-item>
             <el-descriptions-item label="VM 网卡实时上行">{{ lightweightQuota?.current_net_tx_rate || '0 B/s' }}</el-descriptions-item>
             <el-descriptions-item label="本月 VM 下行">{{ lightweightQuota?.used_traffic_down_gb || '-' }} / {{ trafficQuotaText(lightweightQuota?.traffic_down_gb) }}</el-descriptions-item>
@@ -216,6 +211,7 @@
               </el-tag>
             </el-descriptions-item>
           </el-descriptions>
+
           <el-alert
             v-if="vpcRuntimeNotice"
             class="vpc-runtime-notice"
@@ -224,64 +220,9 @@
             show-icon
             :closable="false"
           />
-          <el-form v-if="!isLightweight" label-width="120px" class="vpc-form">
-            <el-row :gutter="16">
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="VPC 交换机">
-                  <el-select v-model="vpcForm.switch_id" style="width: 100%;" filterable placeholder="选择交换机">
-                      <el-option
-                        v-for="item in vpcSwitches"
-                        :key="item.id"
-                        :label="switchOptionLabel(item)"
-                        :value="item.id"
-                      />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="安全组">
-                  <el-select v-model="vpcForm.security_group_id" style="width: 100%;" filterable placeholder="选择安全组" :disabled="selectedVPCSwitchIsBridge">
-                    <el-option
-                      v-for="item in filteredVPCSecurityGroups"
-                      :key="item.id"
-                      :label="groupOptionLabel(item)"
-                      :value="item.id"
-                    />
-                  </el-select>
-                  <div v-if="selectedVPCSwitchIsBridge" class="form-hint">桥接直通由上级路由器分配 IP，不使用内部 DHCP、NAT、端口转发和安全组。</div>
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <div class="vpc-actions">
-              <el-button icon="Refresh" @click="fetchVPCBinding" :loading="vpcLoading">刷新</el-button>
-              <el-button type="primary" icon="DocumentChecked" @click="submitVPCBinding" :loading="vpcSubmitting">保存 VPC 绑定</el-button>
-              <el-button type="success" plain icon="Switch" :disabled="!vpcInfo?.binding || selectedVPCSwitchIsBridge" @click="submitSecurityGroupOnly" :loading="vpcSubmitting">仅切换安全组</el-button>
-            </div>
-          </el-form>
-          <div v-if="!isLightweight && !currentSwitchIsBridge" class="vpc-static-ip">
-            <div class="vpc-static-ip-header">
-              <h4>静态 IP</h4>
-              <el-button type="primary" size="small" plain :disabled="!vpcInfo?.binding || staticIPDisabled" @click="handleBindIP">绑定 IP</el-button>
-            </div>
-            <el-alert
-              v-if="vpcInfo?.binding"
-              class="vpc-static-ip-tip"
-              type="info"
-              show-icon
-              :closable="false"
-              :title="currentSwitchIsBridge ? '桥接直通交换机不使用面板 DHCP，静态 IP 请在虚拟机系统或上级路由器中配置。' : 'VPC 静态 IP 会绑定到当前交换机的 DHCP，运行中的虚拟机可能需要重新获取 DHCP 或重启后生效。'"
-            />
-            <el-table :data="currentVmBindings" border size="small" v-loading="ipLoading">
-              <el-table-column prop="ip" label="IP 地址" />
-              <el-table-column prop="mac" label="MAC 地址" />
-              <el-table-column label="操作" width="80">
-                <template #default="{ row }">
-                  <el-button type="danger" size="small" @click="handleUnbindIP(row)">解绑</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-          <div v-if="(isLightweight || isLightweightVM) && !currentSwitchIsBridge" class="lightweight-security">
+
+          <!-- 轻量云专属安全组规则 -->
+          <div v-if="(isLightweight || isLightweightVM) && !currentSwitchIsBridge" class="lightweight-security" style="margin-top: 14px;">
             <div class="vpc-static-ip-header">
               <h4>专属安全组规则</h4>
               <el-button type="primary" size="small" plain :disabled="!vpcInfo?.security_group?.id" @click="openSecurityRuleDialog">添加规则</el-button>
@@ -311,126 +252,92 @@
             </el-table>
           </div>
 
-          <!-- 网口列表（多网口） -->
-          <div v-if="!isLightweight" class="vpc-interface-list">
+          <!-- 网口列表 -->
+          <div class="vpc-interface-list" style="margin-top: 14px;">
             <div class="vpc-static-ip-header">
               <h4>网口列表</h4>
-              <el-button v-if="isAdmin" type="primary" size="small" plain icon="Plus" @click="handleAddNicFromVpc">添加网口</el-button>
+              <div style="display: flex; gap: 8px;">
+                <el-button v-if="isAdmin" type="primary" size="small" plain icon="Plus" @click="handleAddNic">添加网口</el-button>
+                <el-button size="small" icon="Refresh" @click="refreshInterfaces" :loading="multiNicLoading">刷新</el-button>
+              </div>
             </div>
             <el-alert
-              v-if="(vpcInfo?.bindings?.length || 0) > 1"
+              v-if="(multiNicInterfaces.length || 0) > 1"
               class="vpc-static-ip-tip"
               type="info"
               show-icon
               :closable="false"
               title="此虚拟机配置了多个网口，每个网口可接入不同的 VPC 交换机。运行中热插拔需要虚拟机操作系统支持。"
             />
-            <el-table :data="vpcInterfaceTableData" border size="small" v-loading="vpcLoading">
+            <el-table :data="multiNicInterfaces" border size="small" v-loading="multiNicLoading">
               <el-table-column label="序号" width="60" align="center">
-                <template #default="{ row }">{{ row.interface_order }}</template>
+                <template #default="{ row }">
+                  {{ row.binding?.interface_order ?? 0 }}
+                  <el-tag v-if="(row.binding?.interface_order ?? 0) === 0" type="info" size="small" style="margin-left: 4px;">主</el-tag>
+                </template>
               </el-table-column>
               <el-table-column label="网卡型号" width="100">
-                <template #default="{ row }">{{ row.nic_model || 'virtio' }}</template>
+                <template #default="{ row }">{{ row.binding?.nic_model || 'virtio' }}</template>
               </el-table-column>
               <el-table-column label="VPC 交换机" min-width="160">
                 <template #default="{ row }">
                   <span v-if="row.switch">
                     {{ row.switch.name }}
                     <el-tag size="small" :type="row.switch.bridge_mode === 'bridge' ? 'warning' : 'info'">
-                      {{ row.switch.bridge_mode === 'bridge' ? '桥接' : (row.switch.cidr || '-') }}
+                      {{ row.switch.bridge_mode === 'bridge' ? '桥接直通' : (row.switch.cidr || '-') }}
                     </el-tag>
                   </span>
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column label="IP 地址" min-width="130">
+              <el-table-column label="安全组" min-width="150">
                 <template #default="{ row }">
-                  <code v-if="row.ip" class="credential-code">{{ row.ip }}</code>
-                  <span v-else-if="row.switch?.bridge_mode === 'bridge'" class="form-hint">上级分配</span>
+                  <span v-if="row.security_group">{{ row.security_group.name }}{{ row.security_group.is_default ? '（默认）' : '' }}</span>
+                  <span v-else-if="row.switch?.bridge_mode === 'bridge'" class="form-hint">桥接直通不使用安全组</span>
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column label="MAC" min-width="130">
+              <el-table-column v-if="isAdmin" label="操作" width="150" align="center">
                 <template #default="{ row }">
-                  <code v-if="row.mac" class="credential-code">{{ row.mac }}</code>
-                  <span v-else>-</span>
-                </template>
-              </el-table-column>
-              <el-table-column v-if="isAdmin" label="操作" width="80" align="center">
-                <template #default="{ row }">
+                  <el-button type="primary" size="small" link @click="handleEditInterface(row)">编辑</el-button>
                   <el-popconfirm
-                    v-if="row.interface_order !== 0"
-                    title="确定要删除此网口吗？"
+                    :title="(row.binding?.interface_order ?? 0) === 0 ? '删除主网口后，虚拟机网络将不可用。确定要删除吗？' : '确定要删除此网口吗？删除后虚拟机内对应网卡将不可用。'"
                     placement="top"
-                    @confirm="handleRemoveNicFromVpc(row)"
+                    @confirm="handleRemoveNic(row)"
                   >
                     <template #reference>
                       <el-button type="danger" size="small" :loading="multiNicSubmitting">删除</el-button>
                     </template>
                   </el-popconfirm>
-                  <el-tag v-else type="info" size="small">主网口</el-tag>
                 </template>
               </el-table-column>
             </el-table>
           </div>
-        </div>
-      </el-tab-pane>
 
-      <!-- 多网口管理（仅管理员） -->
-      <el-tab-pane v-if="isAdmin" label="多网口管理" name="multi_nic">
-        <div class="multi-nic-panel" v-loading="multiNicLoading">
-          <el-alert
-            type="info"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 14px;"
-            title="多网口允许为虚拟机添加额外的网络接口，每个接口可接入不同的 VPC 交换机。运行中热插拔需要虚拟机操作系统支持。"
-          />
-          <div class="multi-nic-toolbar">
-            <el-button type="primary" size="small" icon="Plus" @click="handleAddNic">添加网口</el-button>
-            <el-button size="small" icon="Refresh" @click="fetchMultiNicInterfaces" :loading="multiNicLoading">刷新</el-button>
+          <!-- 静态 IP（VPC 模式下）-->
+          <div v-if="!isLightweight && !currentSwitchIsBridge" class="vpc-static-ip" style="margin-top: 14px;">
+            <div class="vpc-static-ip-header">
+              <h4>静态 IP</h4>
+              <el-button type="primary" size="small" plain :disabled="!vpcInfo?.binding || staticIPDisabled" @click="handleBindIP">绑定 IP</el-button>
+            </div>
+            <el-alert
+              v-if="vpcInfo?.binding"
+              class="vpc-static-ip-tip"
+              type="info"
+              show-icon
+              :closable="false"
+              :title="currentSwitchIsBridge ? '桥接直通交换机不使用面板 DHCP，静态 IP 请在虚拟机系统或上级路由器中配置。' : 'VPC 静态 IP 会绑定到当前交换机的 DHCP，运行中的虚拟机可能需要重新获取 DHCP 或重启后生效。'"
+            />
+            <el-table :data="currentVmBindings" border size="small" v-loading="ipLoading">
+              <el-table-column prop="ip" label="IP 地址" />
+              <el-table-column prop="mac" label="MAC 地址" />
+              <el-table-column label="操作" width="80">
+                <template #default="{ row }">
+                  <el-button type="danger" size="small" @click="handleUnbindIP(row)">解绑</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
-          <el-table :data="multiNicInterfaces" border size="small">
-            <el-table-column label="序号" width="60" align="center">
-              <template #default="{ row }">{{ row.binding?.interface_order ?? 0 }}</template>
-            </el-table-column>
-            <el-table-column label="网卡型号" width="120">
-              <template #default="{ row }">{{ row.binding?.nic_model || 'virtio' }}</template>
-            </el-table-column>
-            <el-table-column label="VPC 交换机" min-width="180">
-              <template #default="{ row }">
-                <span v-if="row.switch">
-                  {{ row.switch.name }}
-                  <el-tag size="small" :type="row.switch.bridge_mode === 'bridge' ? 'warning' : 'info'">
-                    {{ row.switch.bridge_mode === 'bridge' ? '桥接直通' : (row.switch.cidr || '-') }}
-                  </el-tag>
-                </span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="安全组" min-width="150">
-              <template #default="{ row }">
-                <span v-if="row.security_group">{{ row.security_group.name }}{{ row.security_group.is_default ? '（默认）' : '' }}</span>
-                <span v-else-if="row.switch?.bridge_mode === 'bridge'" class="form-hint">桥接直通不使用安全组</span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="120" align="center">
-              <template #default="{ row }">
-                <el-popconfirm
-                  v-if="row.binding?.interface_order !== 0"
-                  title="确定要删除此网口吗？删除后虚拟机内对应网卡将不可用。"
-                  placement="top"
-                  @confirm="handleRemoveNic(row)"
-                >
-                  <template #reference>
-                    <el-button type="danger" size="small" :loading="multiNicSubmitting">删除</el-button>
-                  </template>
-                </el-popconfirm>
-                <el-tag v-else type="info" size="small">主网口</el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
         </div>
       </el-tab-pane>
 
@@ -809,6 +716,54 @@
         <el-button type="primary" @click="submitAddNic" :loading="multiNicSubmitting">确定添加</el-button>
       </template>
     </el-dialog>
+
+    <!-- 编辑网口对话框（仅管理员） -->
+    <el-dialog title="编辑网口" v-model="editNicVisible" width="500px" append-to-body>
+      <el-form :model="editNicForm" label-width="110px">
+        <el-form-item label="网卡型号">
+          <el-select v-model="editNicForm.nic_model" style="width: 100%;">
+            <el-option label="VirtIO（推荐）" value="virtio" />
+            <el-option label="e1000e (Intel)" value="e1000e" />
+            <el-option label="rtl8139" value="rtl8139" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="VPC 交换机">
+          <el-select v-model="editNicForm.switch_id" placeholder="选择交换机" style="width: 100%;" filterable @change="onEditNicSwitchChange">
+            <el-option
+              v-for="item in vpcSwitches"
+              :key="item.id"
+              :label="switchOptionLabel(item)"
+              :value="item.id"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ item.name }}</span>
+                <el-tag size="small" :type="item.bridge_mode === 'bridge' ? 'warning' : 'info'">
+                  {{ item.bridge_mode === 'bridge' ? `${item.bridge_name || '桥接'}${item.bridge_vlan_id > 0 ? ' / VLAN ' + item.bridge_vlan_id : ''}` : item.cidr }}
+                </el-tag>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="editNicSelectedSwitch?.bridge_mode === 'bridge'" class="form-hint">
+            桥接直通由上级路由器分配 IP，不使用内部 DHCP 和安全组
+          </div>
+        </el-form-item>
+        <el-form-item v-if="editNicSelectedSwitch?.bridge_mode !== 'bridge'" label="安全组">
+          <el-select v-model="editNicForm.security_group_id" placeholder="选择安全组（可选）" style="width: 100%;" filterable>
+            <el-option
+              v-for="item in editNicSecurityGroups"
+              :key="item.id"
+              :label="item.is_default ? `${item.name}（默认）` : item.name"
+              :value="item.id"
+            />
+          </el-select>
+          <div class="form-hint">不选则使用该交换机用户默认安全组</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editNicVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitEditNic" :loading="multiNicSubmitting">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -843,7 +798,8 @@ import {
   switchVMSecurityGroup,
   listVMInterfaces,
   addVMInterface,
-  removeVMInterface
+  removeVMInterface,
+  updateVMInterface
 } from '@/api/vpc'
 import { getSelfQuota } from '@/api/user'
 import { cancelTask } from '@/api/task'
@@ -915,46 +871,23 @@ const addNicForm = reactive({
   switch_id: null,
   security_group_id: null
 })
+// 编辑网口对话框
+const editNicVisible = ref(false)
+const editNicEditingOrder = ref(-1)
+const editNicForm = reactive({
+  nic_model: 'virtio',
+  switch_id: null,
+  security_group_id: null
+})
+const editNicSelectedSwitch = computed(() => vpcSwitches.value.find(item => item.id === editNicForm.switch_id) || null)
+const editNicSecurityGroups = computed(() => {
+  if (!editNicSelectedSwitch.value?.username) return vpcSecurityGroups.value
+  return vpcSecurityGroups.value.filter(item => item.username === editNicSelectedSwitch.value.username)
+})
 const addNicSelectedSwitch = computed(() => vpcSwitches.value.find(item => item.id === addNicForm.switch_id) || null)
 const addNicSecurityGroups = computed(() => {
   if (!addNicSelectedSwitch.value?.username) return vpcSecurityGroups.value
   return vpcSecurityGroups.value.filter(item => item.username === addNicSelectedSwitch.value.username)
-})
-
-// VPC 标签页网口表格数据（绑定 + 运行时信息，按 MAC 匹配）
-const vpcInterfaceTableData = computed(() => {
-  const bindings = vpcInfo.value?.bindings || []
-  if (bindings.length === 0) return []
-  
-  // 从运行时数据获取接口信息
-  const runtimeIfaces = runtimeStatus.value?.interfaces || []
-  const switches = vpcInfo.value?.switches || []
-  const groups = vpcInfo.value?.groups || []
-  
-  return bindings.map(b => {
-    const sw = switches.find(s => s.id === b.switch_id) || null
-    const sg = groups.find(g => g.id === b.security_group_id) || null
-    // 按 MAC 匹配运行时接口（通过对比 MAC 地址）
-    let runtimeIface = null
-    if (b.nic_model) {
-      // 尝试按顺序匹配（XML 顺序应与 binding 顺序一致）
-      runtimeIface = runtimeIfaces.length > b.interface_order 
-        ? runtimeIfaces[b.interface_order] 
-        : null
-    }
-    // 如果顺序匹配的接口没有 IP 或数据不匹配，遍历所有运行时接口查找匹配
-    if (!runtimeIface || !runtimeIface.mac) {
-      runtimeIface = runtimeIfaces[b.interface_order] || runtimeIfaces[0] || null
-    }
-    
-    return {
-      ...b,
-      switch: sw,
-      security_group: sg,
-      ip: runtimeIface?.ip || '',
-      mac: runtimeIface?.mac || ''
-    }
-  })
 })
 
 const securityRuleForm = reactive({
@@ -1161,7 +1094,7 @@ const portForwardIntroStorageKey = computed(() => {
 
 const resolveDefaultTab = () => {
   if (portForwardTabVisible.value) return 'forward'
-  if (isLightweight.value || isLightweightVM.value) return 'vpc'
+  if (isLightweight.value || isLightweightVM.value) return 'interfaces'
   if (!currentSwitchIsBridge.value) return 'staticip'
   return 'bandwidth'
 }
@@ -1548,13 +1481,8 @@ watch(activeTab, (tab) => {
   if (tab === 'diagnostics' && isAdmin.value) {
     fetchNetworkDiagnostics()
   }
-  if (tab === 'multi_nic' && isAdmin.value) {
-    fetchMultiNicInterfaces()
-  }
-  if (tab === 'vpc') {
-    // 切换到 VPC 标签页时刷新运行时状态和绑定信息
-    fetchRuntimeStatus()
-    fetchVPCBinding()
+  if (tab === 'interfaces') {
+    refreshInterfaces()
   }
 })
 
@@ -1736,8 +1664,8 @@ const submitAddNic = async () => {
 
 const handleRemoveNic = async (row) => {
   const order = row.binding?.interface_order
-  if (order == null || order === 0) {
-    ElMessage.warning('不能删除主网口')
+  if (order == null) {
+    ElMessage.warning('无效的网口序号')
     return
   }
   multiNicSubmitting.value = true
@@ -1754,13 +1682,100 @@ const handleRemoveNic = async (row) => {
   }
 }
 
-// VPC 标签页中的网口操作
-const handleAddNicFromVpc = () => {
-  handleAddNic()
+const refreshInterfaces = async () => {
+  multiNicLoading.value = true
+  try {
+    if (isAdmin.value) {
+      await fetchMultiNicInterfaces()
+    } else {
+      // 非管理员从 vpcInfo 构建网口数据
+      await fetchVPCBinding()
+      buildInterfacesFromVpcInfo()
+    }
+    await fetchRuntimeStatus()
+  } finally {
+    multiNicLoading.value = false
+  }
 }
 
-const handleRemoveNicFromVpc = async (row) => {
-  await handleRemoveNic({ binding: row })
+// 非管理员从 vpcInfo 构建网口列表
+const buildInterfacesFromVpcInfo = () => {
+  const bindings = vpcInfo.value?.bindings || []
+  if (bindings.length === 0) {
+    multiNicInterfaces.value = []
+    return
+  }
+  const switches = vpcInfo.value?.switches || []
+  const groups = vpcInfo.value?.groups || []
+  multiNicInterfaces.value = bindings.map(b => ({
+    binding: b,
+    switch: switches.find(s => s.id === b.switch_id) || null,
+    security_group: groups.find(g => g.id === b.security_group_id) || null
+  }))
+}
+
+// 编辑网口
+const handleEditInterface = async (row) => {
+  // 确保交换机和安全组列表已加载
+  if (vpcSwitches.value.length === 0) {
+    try {
+      const switchRes = await getVPCSwitches()
+      vpcSwitches.value = switchRes.data || []
+    } catch (err) {
+      console.error(err)
+    }
+  }
+  if (vpcSecurityGroups.value.length === 0) {
+    try {
+      const groupRes = await getVPCSecurityGroups()
+      vpcSecurityGroups.value = groupRes.data || []
+    } catch (err) {
+      console.error(err)
+    }
+  }
+  const order = row.binding?.interface_order ?? 0
+  editNicEditingOrder.value = order
+  editNicForm.nic_model = row.binding?.nic_model || 'virtio'
+  editNicForm.switch_id = row.binding?.switch_id || row.switch?.id || null
+  editNicForm.security_group_id = row.binding?.security_group_id || row.security_group?.id || null
+  editNicVisible.value = true
+}
+
+const onEditNicSwitchChange = () => {
+  // 当切换交换机时，自动选择默认安全组
+  if (editNicSelectedSwitch.value?.bridge_mode === 'bridge') {
+    editNicForm.security_group_id = null
+    return
+  }
+  // 保持当前安全组不变，如果当前安全组不属于新交换机用户则清空
+  const currentGroup = vpcSecurityGroups.value.find(item => item.id === editNicForm.security_group_id)
+  if (currentGroup && editNicSelectedSwitch.value?.username && currentGroup.username !== editNicSelectedSwitch.value.username) {
+    editNicForm.security_group_id = null
+  }
+}
+
+const submitEditNic = async () => {
+  if (!editNicForm.switch_id) {
+    ElMessage.warning('请选择 VPC 交换机')
+    return
+  }
+  multiNicSubmitting.value = true
+  try {
+    await updateVMInterface(props.vmName, editNicEditingOrder.value, {
+      nic_model: editNicForm.nic_model,
+      switch_id: editNicForm.switch_id,
+      security_group_id: editNicForm.security_group_id || 0
+    })
+    ElMessage.success('网口已更新')
+    editNicVisible.value = false
+    await fetchMultiNicInterfaces()
+    await fetchVPCBinding()
+    fetchRuntimeStatus()
+  } catch (err) {
+    console.error(err)
+  } finally {
+    multiNicSubmitting.value = false
+  }
 }
 
 const ipSourceText = (source) => {

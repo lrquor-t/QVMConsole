@@ -84,3 +84,7 @@ export function addVMInterface(name, data) {
 export function removeVMInterface(name, order) {
   return request({ url: `/vm/${name}/interfaces/${order}`, method: 'delete' })
 }
+
+export function updateVMInterface(name, order, data) {
+  return request({ url: `/vm/${name}/interfaces/${order}`, method: 'put', data })
+}

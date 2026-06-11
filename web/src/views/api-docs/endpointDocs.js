@@ -215,6 +215,13 @@ export const endpointGroups = [
       ep('GET', '/vm/:name/disk-migration/options', '获取本机硬盘迁移选项', { pathParams: ['name'], notes: [admin, '返回当前冷热迁移模式、可迁移硬盘和本机目标存储。'] }),
       ep('POST', '/vm/:name/disk/:dev/migrate', '提交本机硬盘迁移任务', { pathParams: ['name', 'dev'], body: 'JSON: target_storage_pool_id', notes: [admin, '运行中 VM 自动执行硬盘热迁移，关机 VM 自动执行冷迁移；成功后删除源硬盘文件。'], highRisk: 'migrate_vm_disk' }),
       ep('PUT', '/vm/:name/security-group', '切换 VM 安全组', { pathParams: ['name'], body: 'JSON: security_group_id', notes: [vmAccess] }),
+
+      // 多网口管理
+      ep('GET', '/vm/:name/interfaces', '列出 VM 所有网口', { pathParams: ['name'], notes: [admin] }),
+      ep('POST', '/vm/:name/interfaces', '新增 VM 网口', { pathParams: ['name'], body: 'JSON: switch_id, security_group_id, nic_model', notes: [admin] }),
+      ep('PUT', '/vm/:name/interfaces/:order', '更新 VM 指定网口', { pathParams: ['name', 'order'], body: 'JSON: switch_id, security_group_id, nic_model', notes: [admin] }),
+      ep('DELETE', '/vm/:name/interfaces/:order', '删除 VM 指定网口', { pathParams: ['name', 'order'], notes: [admin] }),
+
       ep('DELETE', '/vm/:name', '删除虚拟机', { pathParams: ['name'], body: 'JSON: delete_disks, transfer_disks, transfer_user', notes: [elastic, vmAccess], highRisk: 'delete_vm' }),
       ep('GET', '/vm/:name/qcow2-disks', '获取 VM qcow2 磁盘列表', { pathParams: ['name'], notes: [vmAccess] }),
 

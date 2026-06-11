@@ -317,3 +317,28 @@ func RemoveVMInterface(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "网口已删除"})
 }
+
+// UpdateVMInterface 更新虚拟机指定网口的 VPC 绑定
+func UpdateVMInterface(c *gin.Context) {
+	_, role := currentUserAndRole(c)
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可管理多网口"})
+		return
+	}
+	orderStr := c.Param("order")
+	order, err := strconv.Atoi(orderStr)
+	if err != nil || order < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "网口序号无效"})
+		return
+	}
+	var req service.AddVMInterfaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := service.UpdateVMInterface(c.Param("name"), order, req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "网口已更新"})
+}

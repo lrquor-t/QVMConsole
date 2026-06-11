@@ -131,6 +131,7 @@ func Setup() *gin.Engine {
 				// 多网口管理（仅管理员）
 				vm.GET("/:name/interfaces", handler.ListVMInterfaces)
 				vm.POST("/:name/interfaces", handler.AddVMInterface)
+				vm.PUT("/:name/interfaces/:order", handler.UpdateVMInterface)
 				vm.DELETE("/:name/interfaces/:order", handler.RemoveVMInterface)
 				vm.DELETE("/:name", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteVm)
 				vm.POST("/:name/force-delete", middleware.ElasticCloudOnlyMiddleware(), middleware.AdminMiddleware(), handler.ForceDeleteVm)
@@ -489,7 +490,7 @@ func setupStaticFileServing(r *gin.Engine) {
 		// 也尝试相对于工作目录查找
 		webDistDir = "web-dist"
 		if _, err := os.Stat(webDistDir); os.IsNotExist(err) {
-		logger.App.Info("未找到 web-dist 目录，跳过前端静态文件服务（开发环境请使用 vite dev）")
+			logger.App.Info("未找到 web-dist 目录，跳过前端静态文件服务（开发环境请使用 vite dev）")
 			return
 		}
 	}
