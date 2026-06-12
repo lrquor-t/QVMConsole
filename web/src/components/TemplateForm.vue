@@ -131,7 +131,7 @@ const categoryPlaceholder = computed(() => form.type === 'windows'
   : '默认归入 Ubuntu，可选择 Debian')
 const categoryTip = computed(() => form.type === 'windows'
   ? 'Windows 模板按版本分类展示，2012 R2 会保留 BIOS/SATA 等默认配置用于克隆'
-  : 'Debian 模板会复用 Linux SSH 初始化流程，当前仅支持 Ubuntu / Debian')
+  : 'Linux 模板按发行版分类展示')
 
 watch(() => form.type, (type) => {
   if (type === 'windows') {

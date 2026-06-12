@@ -484,7 +484,7 @@ const publishCategoryPlaceholder = computed(() => publishForm.value.type === 'wi
   : '默认归入 Ubuntu，可选择 Debian')
 const publishCategoryTip = computed(() => publishForm.value.type === 'windows'
   ? 'Windows 模板按版本分类展示，2012 R2 会保留模板默认硬件配置用于克隆'
-  : 'Debian 模板会复用 Linux SSH 初始化流程，当前仅支持 Ubuntu / Debian')
+  : 'Linux 模板按发行版分类展示')
 
 const fetchData = async () => {
   loading.value = true
