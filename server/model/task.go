@@ -48,6 +48,8 @@ const (
 	TaskTypeStorageFormat                   = "storage_format"                     // 格式化并挂载宿主机硬盘
 	TaskTypeStorageCreatePartition          = "storage_create_partition"           // 在宿主机硬盘上创建分区
 	TaskTypeStorageDeletePartitions         = "storage_delete_partitions"          // 删除宿主机硬盘上所有分区
+	TaskTypeStorageCreateLVMVolume          = "storage_create_lvm_volume"          // 创建 LVM 存储卷
+	TaskTypeStorageDeleteLVMVolume          = "storage_delete_lvm_volume"          // 删除 LVM 存储卷
 	TaskTypeNetworkCapture                  = "network_capture"                    // VM 网络抓包诊断
 	TaskTypePortForwardHTTPProbe            = "port_forward_http_probe_manual"     // 手动执行端口转发 HTTP 探测
 	TaskTypeVMScheduleAction                = "vm_schedule_action"                 // 虚拟机定时任务动作执行

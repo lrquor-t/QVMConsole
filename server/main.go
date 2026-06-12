@@ -411,6 +411,38 @@ func registerTaskHandlers() {
 		return fmt.Sprintf(`{"storage_pool_id":"%s"}`, params.ID), nil
 	})
 
+	// 创建 LVM 存储卷任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageCreateLVMVolume, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			Params string `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		var req service.LVMVolumeRequest
+		if err := json.Unmarshal([]byte(params.Params), &req); err != nil {
+			return "", fmt.Errorf("解析 LVM 存储卷参数失败: %w", err)
+		}
+		if err := service.CreateLVMVolume(ctx, req, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"vg_name":"%s","lv_name":"%s"}`, req.VGName, req.LVName), nil
+	})
+
+	// 删除 LVM 存储卷任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageDeleteLVMVolume, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			VGName string `json:"vg_name"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.DeleteLVMVolume(ctx, params.VGName, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"vg_name":"%s"}`, params.VGName), nil
+	})
+
 	// 删除虚拟机任务
 	taskqueue.RegisterHandler(model.TaskTypeDelete, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params struct {

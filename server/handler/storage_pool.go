@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -157,6 +159,81 @@ func DeleteStoragePartitions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "删除分区任务已提交",
+		"data":    gin.H{"task_id": task.ID},
+	})
+}
+
+// GetAvailablePVTargets 获取可供 LVM 使用的磁盘列表
+func GetAvailablePVTargets(c *gin.Context) {
+	pools, err := service.GetAvailablePVTargets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取可用磁盘列表失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": pools})
+}
+
+// CreateStorageVolume 提交创建 LVM 存储卷任务
+func CreateStorageVolume(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_storage_volume") {
+		return
+	}
+	var req service.LVMVolumeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+
+	paramsJSON, _ := json.Marshal(req)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageCreateLVMVolume, gin.H{"params": string(paramsJSON)}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "提交创建存储卷任务失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "创建 LVM 存储卷任务已提交",
+		"data":    gin.H{"task_id": task.ID},
+	})
+}
+
+// DeleteStorageVolume 提交删除 LVM 存储卷任务
+func DeleteStorageVolume(c *gin.Context) {
+	if !requireHighRiskVerification(c, "delete_storage_volume") {
+		return
+	}
+	var req struct {
+		VGName string `json:"vg_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.VGName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "卷组名称不能为空"})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageDeleteLVMVolume, gin.H{"vg_name": req.VGName}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "提交删除存储卷任务失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "删除 LVM 存储卷任务已提交",
 		"data":    gin.H{"task_id": task.ID},
 	})
 }

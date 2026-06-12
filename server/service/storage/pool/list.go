@@ -11,7 +11,7 @@ import (
 	"kvm_console/utils"
 )
 
-// ListStoragePools 列出宿主机所有块设备，并合并管理员存储池配置。
+// ListStoragePools 列出宿主机所有块设备，并合并管理员存储池配置及 LVM 层级。
 func ListStoragePools() ([]HostStoragePoolInfo, error) {
 	devices, err := readLSBLKDevices()
 	if err != nil {
@@ -21,7 +21,15 @@ func ListStoragePools() ([]HostStoragePoolInfo, error) {
 	dfUsage := readDFUsage()
 	aliases := readDeviceAliasMap()
 	configs := loadHostStoragePoolConfigs()
-	return buildStoragePoolTree(devices, mounts, dfUsage, aliases, configs), nil
+	pools := buildStoragePoolTree(devices, mounts, dfUsage, aliases, configs)
+
+	// 注入 LVM VG 层级
+	vgs, lvs, _, err := ListVGs()
+	if err == nil && len(vgs) > 0 {
+		pools = injectLVMTree(pools, vgs, lvs, mounts, dfUsage, configs)
+	}
+
+	return pools, nil
 }
 
 // GetStoragePool 获取单个宿主机存储池设备。
@@ -48,6 +56,10 @@ func ListVMStorageTargets(isAdmin bool) ([]VMStorageTarget, error) {
 			return
 		}
 		if !isAdmin && !pool.Enabled {
+			return
+		}
+		// 过滤掉可用空间为 0 的存储目标（对用户无意义）
+		if pool.Available <= 0 {
 			return
 		}
 		targets = append(targets, VMStorageTarget{

@@ -13,6 +13,7 @@
           <el-switch v-model="showAvailableOnly" size="small" />
           <span>仅显示可用磁盘</span>
         </div>
+        <el-button type="success" :icon="Plus" @click="openCreateVolume">创建存储卷</el-button>
         <el-button type="primary" :icon="Refresh" @click="fetchData" :loading="loading">刷新</el-button>
       </div>
     </div>
@@ -110,8 +111,10 @@
               />
               <div class="disk-group-info">
                 <div class="disk-group-name-row">
-                  <el-icon class="disk-icon" :size="20"><Box /></el-icon>
+                  <el-icon v-if="disk.type === 'vg' || disk.is_lvm_vg" class="disk-icon vg-icon" :size="20"><Connection /></el-icon>
+                  <el-icon v-else class="disk-icon" :size="20"><Box /></el-icon>
                   <span class="disk-group-name">{{ disk.display_name }}</span>
+                  <el-tag v-if="disk.type === 'vg' || disk.is_lvm_vg" size="small" type="warning" effect="plain">VG</el-tag>
                   <el-tag v-if="disk.is_default" size="small" type="success" effect="plain">默认</el-tag>
                   <el-tag v-if="disk.enabled" size="small" type="primary" effect="plain">已启用</el-tag>
                 </div>
@@ -119,7 +122,15 @@
                   <span class="mono-text">{{ disk.device_path }}</span>
                   <span class="meta-sep">·</span>
                   <span>{{ typeLabel(disk.type) }}</span>
-                  <template v-if="disk.model">
+                  <template v-if="disk.pv_count > 0">
+                    <span class="meta-sep">·</span>
+                    <span>{{ disk.pv_count }} 个物理卷</span>
+                  </template>
+                  <template v-if="disk.lv_count > 0">
+                    <span class="meta-sep">·</span>
+                    <span>{{ disk.lv_count }} 个逻辑卷</span>
+                  </template>
+                  <template v-if="disk.model && disk.type !== 'vg' && !disk.is_lvm_vg">
                     <span class="meta-sep">·</span>
                     <span>{{ disk.model }}</span>
                   </template>
@@ -131,11 +142,16 @@
               </div>
             </div>
             <div class="disk-group-actions">
-              <el-button size="small" plain @click="openConfig(disk)">配置</el-button>
-              <el-button size="small" plain type="primary" :disabled="!disk.can_use_for_vm || disk.is_default" @click="handleSetDefault(disk)">设为默认</el-button>
-              <el-button size="small" plain type="warning" :disabled="!disk.can_format" @click="openFormat(disk)">格式化挂载</el-button>
-              <el-button size="small" plain type="success" :disabled="!disk.can_format && !disk.configured" @click="openCreatePartition(disk)">创建分区</el-button>
-              <el-button size="small" plain type="danger" :disabled="(!disk.children || disk.children.length === 0) && (!disk.mountpoints || disk.mountpoints.length === 0) || disk.system_disk || disk.readonly" @click="openDeletePartitions(disk)">清除磁盘</el-button>
+              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg">
+                <el-button size="small" plain @click="openConfig(disk)">配置</el-button>
+                <el-button size="small" plain type="primary" :disabled="!disk.can_use_for_vm || disk.is_default" @click="handleSetDefault(disk)">设为默认</el-button>
+                <el-button size="small" plain type="warning" :disabled="!disk.can_format" @click="openFormat(disk)">格式化挂载</el-button>
+                <el-button size="small" plain type="success" :disabled="!disk.can_format && !disk.configured" @click="openCreatePartition(disk)">创建分区</el-button>
+                <el-button size="small" plain type="danger" :disabled="(!disk.children || disk.children.length === 0) && (!disk.mountpoints || disk.mountpoints.length === 0) || disk.system_disk || disk.readonly" @click="openDeletePartitions(disk)">清除磁盘</el-button>
+              </template>
+              <template v-if="disk.type === 'vg' || disk.is_lvm_vg">
+                <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">删除存储卷</el-button>
+              </template>
             </div>
           </div>
         </template>
@@ -150,6 +166,101 @@
         />
 
         <div v-show="!isDiskCollapsed(disk.id)">
+          <!-- LVM VG 卡片：分区域展示 PV 和 LV -->
+          <template v-if="disk.type === 'vg' || disk.is_lvm_vg">
+            <!-- PV 列表 -->
+            <div v-if="hasPVChildren(disk)" class="vg-section">
+              <div class="vg-section-title">
+                <el-icon :size="14"><Box /></el-icon>
+                <span>物理卷 (PV)</span>
+              </div>
+              <div
+                v-for="part in flattenChildren(disk.children)"
+                :key="part.id"
+                v-show="part.type === 'pv'"
+                class="partition-item"
+                :style="{ paddingLeft: (20 + part.depth * 24) + 'px' }"
+              >
+                <div class="partition-main">
+                  <div class="partition-name-row">
+                    <el-icon v-if="part.depth > 0" class="sub-device-icon" :size="14"><Connection /></el-icon>
+                    <span class="partition-name">{{ part.display_name }}</span>
+                    <el-tag v-if="part.type === 'pv'" size="small" type="warning" effect="plain">PV</el-tag>
+                    <el-tag size="small" type="info" effect="plain">{{ part.status_reason || '已加入卷组' }}</el-tag>
+                  </div>
+                  <div class="partition-meta">
+                    <span class="mono-text">{{ part.device_path }}</span>
+                    <template v-if="part.size > 0">
+                      <span class="meta-sep">·</span>
+                      <span>{{ formatBytes(part.size) }}</span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- LV 列表 -->
+            <div v-if="hasLVChildren(disk)" class="vg-section">
+              <div class="vg-section-title">
+                <el-icon :size="14"><Files /></el-icon>
+                <span>逻辑卷 (LV)</span>
+              </div>
+              <div
+                v-for="part in flattenChildren(disk.children)"
+                :key="part.id"
+                v-show="part.type === 'lv'"
+                class="partition-item"
+                :style="{ paddingLeft: (20 + part.depth * 24) + 'px' }"
+              >
+                <div class="partition-main">
+                  <div class="partition-name-row">
+                    <el-icon v-if="part.depth > 0" class="sub-device-icon" :size="14"><Connection /></el-icon>
+                    <span class="partition-name">{{ part.display_name }}</span>
+                    <el-tag v-if="part.type === 'lv'" size="small" type="success" effect="plain">LV</el-tag>
+                    <el-tag v-if="part.lv_type" size="small" type="warning" effect="plain">{{ part.lv_type }}</el-tag>
+                    <el-tag v-if="part.is_default" size="small" type="success" effect="plain">默认</el-tag>
+                    <el-tag v-if="part.enabled" size="small" type="primary" effect="plain">已启用</el-tag>
+                    <el-tag v-if="part.can_use_for_vm" size="small" type="success" effect="plain">可用于虚拟机</el-tag>
+                    <el-tooltip v-else-if="part.status_reason" :content="part.status_reason" placement="top">
+                      <el-tag size="small" type="danger" effect="plain">{{ part.status_reason }}</el-tag>
+                    </el-tooltip>
+                  </div>
+                  <div class="partition-meta">
+                    <span class="mono-text">{{ part.device_path }}</span>
+                    <span class="meta-sep">·</span>
+                    <span>{{ part.fstype || '未知文件系统' }}</span>
+                    <template v-if="part.mountpoints?.length">
+                      <span class="meta-sep">·</span>
+                      <span class="mono-text">{{ part.mountpoints.join(', ') }}</span>
+                    </template>
+                  </div>
+                </div>
+                <div class="partition-capacity" v-if="part.size > 0">
+                  <el-progress
+                    :percentage="part.use_percent || 0"
+                    :stroke-width="8"
+                    :color="progressColor(part.use_percent)"
+                    :show-text="false"
+                  />
+                  <div class="partition-capacity-text">
+                    <span :class="{ 'text-success': part.available > 0 }">{{ formatBytes(part.available) }} 可用</span>
+                    <span class="capacity-sep">/</span>
+                    <span>{{ formatBytes(part.size) }} 总计</span>
+                  </div>
+                </div>
+                <div class="partition-actions" v-if="part.type === 'lv'">
+                  <el-button size="small" plain @click="openConfig(part)">配置</el-button>
+                  <el-button size="small" plain type="primary" :disabled="!part.can_use_for_vm || part.is_default" @click="handleSetDefault(part)">设为默认</el-button>
+                  <el-button size="small" plain type="warning" :disabled="!part.can_format" @click="openFormat(part)">格式化挂载</el-button>
+                </div>
+              </div>
+            </div>
+
+            <el-empty v-if="!hasPVChildren(disk) && !hasLVChildren(disk)" description="无卷信息" :image-size="60" />
+          </template>
+
+          <!-- 非 VG 卡片：原有分区列表 -->
+          <template v-else>
           <div v-if="disk.children && disk.children.length > 0" class="partition-list">
           <div
             v-for="part in flattenChildren(disk.children)"
@@ -200,6 +311,7 @@
           </div>
           </div>
           <el-empty v-if="!disk.children || disk.children.length === 0" description="无分区信息" :image-size="60" />
+          </template>
         </div>
       </el-card>
       <el-empty v-if="!loading && filteredTableData.length === 0" :description="tableData.length > 0 ? '当前没有符合条件的可用磁盘，可关闭「仅显示可用磁盘」查看全部' : '未发现存储设备'" />
@@ -314,14 +426,195 @@
         <el-button type="danger" :disabled="!deletePartitionsConfirmed" :loading="deletingPartitions" @click="submitDeletePartitions">提交任务</el-button>
       </template>
     </el-dialog>
+
+    <!-- 创建存储卷对话框 -->
+    <el-dialog title="创建存储卷" v-model="createVolumeVisible" width="680px" :close-on-click-modal="false" append-to-body>
+      <!-- 第一步：选择存储卷类型 -->
+      <template v-if="volumeStep === 'type'">
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 20px;">
+          <template #title>选择一种存储卷类型。LVM 存储卷支持将多个磁盘合并为一个逻辑卷组，实现容量聚合和灵活管理。</template>
+        </el-alert>
+        <el-radio-group v-model="volumeType" size="large" style="width: 100%;">
+          <el-row :gutter="12">
+            <el-col :span="12">
+              <el-card shadow="hover" class="volume-type-card" :class="{ selected: volumeType === 'lvm' }" @click="volumeType = 'lvm'">
+                <div style="text-align: center; padding: 10px;">
+                  <el-icon :size="36" color="#E6A23C"><Connection /></el-icon>
+                  <h3 style="margin: 10px 0 4px;">LVM 存储卷</h3>
+                  <p style="color: #999; font-size: 12px; margin: 0;">支持条带、镜像、多磁盘合并</p>
+                </div>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card shadow="hover" class="volume-type-card disabled-card" style="opacity: 0.4; cursor: not-allowed;">
+                <div style="text-align: center; padding: 10px;">
+                  <el-icon :size="36" color="#909399"><Box /></el-icon>
+                  <h3 style="margin: 10px 0 4px;">Btrfs 存储池</h3>
+                  <p style="color: #999; font-size: 12px; margin: 0;">即将推出</p>
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
+        </el-radio-group>
+        <div style="text-align: right; margin-top: 20px;">
+          <el-button @click="createVolumeVisible = false">取消</el-button>
+          <el-button type="primary" @click="volumeStep = 'config'" :disabled="!volumeType">下一步：配置卷</el-button>
+        </div>
+      </template>
+
+      <!-- 第二步：LVM 配置表单 -->
+      <template v-if="volumeStep === 'config' && volumeType === 'lvm'">
+        <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>此操作会将选中的磁盘初始化为 LVM 物理卷，并创建卷组和逻辑卷。磁盘上的所有数据将被清除。</template>
+        </el-alert>
+
+        <el-form :model="lvmForm" label-width="110px" label-position="top">
+          <!-- 选择物理卷 -->
+          <el-form-item label="物理卷 (PV) 选择">
+            <div style="width: 100%;">
+              <el-alert v-if="pvTargets.length === 0" type="info" :closable="false">
+                未找到可用的磁盘设备。请确保有未挂载、非系统盘的磁盘。
+              </el-alert>
+              <el-checkbox-group v-model="lvmForm.device_ids" v-else>
+                <el-card v-for="disk in pvTargets" :key="disk.id" shadow="never" class="pv-disk-item" style="margin-bottom: 8px;">
+                  <el-checkbox :value="disk.id" style="width: 100%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                      <span style="font-weight: 500;">{{ disk.display_name }}</span>
+                      <span style="color: #999; font-size: 12px;">{{ disk.device_path }} · {{ formatBytes(disk.size) }}</span>
+                    </div>
+                  </el-checkbox>
+                </el-card>
+              </el-checkbox-group>
+            </div>
+          </el-form-item>
+
+          <!-- 卷组配置 -->
+          <el-divider content-position="left">卷组 (VG) 配置</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="卷组名称">
+                <el-input v-model="lvmForm.vg_name" placeholder="例如: vg-storage" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="PE 大小">
+                <el-select v-model="lvmForm.pe_size" style="width: 100%;">
+                  <el-option label="4M（默认，推荐）" value="4M" />
+                  <el-option label="8M" value="8M" />
+                  <el-option label="16M" value="16M" />
+                  <el-option label="32M" value="32M" />
+                  <el-option label="64M" value="64M" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <!-- 逻辑卷配置 -->
+          <el-divider content-position="left">逻辑卷 (LV) 配置</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="逻辑卷名称">
+                <el-input v-model="lvmForm.lv_name" placeholder="例如: lv-data" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="逻辑卷大小">
+                <el-input v-model="lvmForm.lv_size" placeholder="10G / 50%VG / 100%FREE" />
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  支持绝对值 (10G/500M) 或百分比 (50%VG/100%FREE)
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="LV 类型">
+                <el-select v-model="lvmForm.lv_type" style="width: 100%;" @change="onLVTypeChange">
+                  <el-option label="线性 (linear) — 顺序写入" value="linear" />
+                  <el-option label="条带 (striped) — 并行写入，高性能" value="striped" />
+                  <el-option label="镜像 (mirrored) — 数据冗余" value="mirrored" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item v-if="lvmForm.lv_type === 'striped'" label="条带数">
+                <el-input-number v-model="lvmForm.stripes" :min="2" :max="16" style="width: 100%;" />
+              </el-form-item>
+              <el-form-item v-if="lvmForm.lv_type === 'mirrored'" label="镜像数">
+                <el-input-number v-model="lvmForm.mirrors" :min="1" :max="3" style="width: 100%;" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <!-- 文件系统与挂载 -->
+          <el-divider content-position="left">文件系统与挂载</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="8">
+              <el-form-item label="文件系统">
+                <el-select v-model="lvmForm.fs_type" style="width: 100%;">
+                  <el-option label="ext4（推荐）" value="ext4" />
+                  <el-option label="xfs" value="xfs" />
+                  <el-option label="btrfs" value="btrfs" />
+                  <el-option label="不格式化" value="none" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="10">
+              <el-form-item label="挂载路径">
+                <el-input v-model="lvmForm.mount_path" placeholder="留空则自动生成 /var/lib/kvm-storage/..." />
+              </el-form-item>
+            </el-col>
+            <el-col :span="6">
+              <el-form-item label="开机自动挂载">
+                <el-switch v-model="lvmForm.add_fstab" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+
+        <div class="confirm-line" style="margin-top: 16px;">
+          <el-checkbox v-model="volumeConfirmed">我确认要创建 LVM 存储卷，选中的磁盘数据将被清除</el-checkbox>
+        </div>
+
+        <div style="text-align: right; margin-top: 20px;">
+          <el-button @click="volumeStep = 'type'">上一步</el-button>
+          <el-button @click="createVolumeVisible = false">取消</el-button>
+          <el-button type="primary" :disabled="!volumeConfirmed || !lvmForm.vg_name || !lvmForm.lv_name || !lvmForm.lv_size || lvmForm.device_ids.length === 0" :loading="creatingVolume" @click="submitCreateVolume">提交任务</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 删除存储卷确认对话框 -->
+    <el-dialog title="删除存储卷" v-model="deleteVolumeVisible" width="520px" :close-on-click-modal="false" append-to-body>
+      <el-alert type="error" :closable="false" show-icon style="margin-bottom: 16px;">
+        <template #title>
+          此操作将删除卷组「{{ deletingVolumeDisk?.name }}」及其所有逻辑卷和物理卷，数据将不可恢复！
+        </template>
+      </el-alert>
+      <el-descriptions :column="1" border size="small">
+        <el-descriptions-item label="卷组名称">{{ deletingVolumeDisk?.name }}</el-descriptions-item>
+        <el-descriptions-item label="总容量">{{ formatBytes(deletingVolumeDisk?.size) }}</el-descriptions-item>
+        <el-descriptions-item label="逻辑卷数">{{ deletingVolumeDisk?.lv_count || 0 }} 个</el-descriptions-item>
+        <el-descriptions-item label="物理卷数">{{ deletingVolumeDisk?.pv_count || 0 }} 个</el-descriptions-item>
+      </el-descriptions>
+      <div class="confirm-line" style="margin-top: 16px;">
+        <el-checkbox v-model="deleteVolumeConfirmed">我确认要删除该卷组及其所有逻辑卷和物理卷</el-checkbox>
+      </div>
+      <template #footer>
+        <el-button @click="deleteVolumeVisible = false">取消</el-button>
+        <el-button type="danger" :disabled="!deleteVolumeConfirmed" :loading="deletingVolume" @click="submitDeleteVolume">提交任务</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown } from '@element-plus/icons-vue'
-import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions } from '@/api/infra'
+import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
+import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume } from '@/api/infra'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -350,6 +643,28 @@ const partitionForm = reactive({
 const deletePartitionsVisible = ref(false)
 const deletingPartitions = ref(false)
 const deletePartitionsConfirmed = ref(false)
+
+// 创建存储卷相关状态
+const createVolumeVisible = ref(false)
+const creatingVolume = ref(false)
+const volumeStep = ref('type') // 'type' | 'config'
+const volumeType = ref('lvm')
+const volumeConfirmed = ref(false)
+const pvTargets = ref([])
+const pvTargetsLoading = ref(false)
+const lvmForm = reactive({
+  device_ids: [],
+  vg_name: '',
+  pe_size: '4M',
+  lv_name: '',
+  lv_size: '',
+  lv_type: 'linear',
+  stripes: 2,
+  mirrors: 1,
+  fs_type: 'ext4',
+  mount_path: '',
+  add_fstab: true,
+})
 
 // 清除磁盘弹窗的动态文案
 const hasDeleteChildren = computed(() => currentRow.value?.children?.length > 0)
@@ -512,6 +827,95 @@ const submitDeletePartitions = async () => {
   }
 }
 
+// ===== 创建 LVM 存储卷 =====
+const openCreateVolume = async () => {
+  volumeStep.value = 'type'
+  volumeType.value = 'lvm'
+  volumeConfirmed.value = false
+  createVolumeVisible.value = true
+
+  // 预加载可用 PV 列表
+  pvTargetsLoading.value = true
+  try {
+    const res = await getAvailablePVTargets()
+    pvTargets.value = res.data || []
+  } catch (err) {
+    console.error(err)
+    pvTargets.value = []
+  } finally {
+    pvTargetsLoading.value = false
+  }
+}
+
+const onLVTypeChange = (type) => {
+  if (type === 'striped') {
+    lvmForm.stripes = lvmForm.stripes || 2
+  }
+  if (type === 'mirrored') {
+    lvmForm.mirrors = lvmForm.mirrors || 1
+  }
+}
+
+const submitCreateVolume = async () => {
+  creatingVolume.value = true
+  try {
+    await createLVMVolume({
+      device_ids: lvmForm.device_ids,
+      vg_name: lvmForm.vg_name,
+      pe_size: lvmForm.pe_size,
+      lv_name: lvmForm.lv_name,
+      lv_size: lvmForm.lv_size,
+      lv_type: lvmForm.lv_type,
+      stripes: lvmForm.stripes,
+      mirrors: lvmForm.mirrors,
+      fs_type: lvmForm.fs_type,
+      mount_path: lvmForm.mount_path,
+      add_fstab: lvmForm.add_fstab,
+    })
+    ElMessage.success('创建 LVM 存储卷任务已提交，请在任务中心查看进度')
+    createVolumeVisible.value = false
+    // 重置表单
+    lvmForm.device_ids = []
+    lvmForm.vg_name = ''
+    lvmForm.lv_name = ''
+    lvmForm.lv_size = ''
+    lvmForm.lv_type = 'linear'
+    lvmForm.stripes = 2
+    lvmForm.mirrors = 1
+    lvmForm.fs_type = 'ext4'
+    lvmForm.mount_path = ''
+    lvmForm.add_fstab = true
+  } finally {
+    creatingVolume.value = false
+  }
+}
+
+// ===== 删除 LVM 存储卷 =====
+const deleteVolumeVisible = ref(false)
+const deletingVolume = ref(false)
+const deleteVolumeConfirmed = ref(false)
+const deletingVolumeDisk = ref(null)
+
+const openDeleteVolume = (disk) => {
+  deletingVolumeDisk.value = disk
+  deleteVolumeConfirmed.value = false
+  deleteVolumeVisible.value = true
+}
+
+const submitDeleteVolume = async () => {
+  const vgName = deletingVolumeDisk.value?.name
+  if (!vgName) return
+  deletingVolume.value = true
+  try {
+    await deleteLVMVolume(vgName)
+    ElMessage.success('删除 LVM 存储卷任务已提交，请在任务中心查看进度')
+    deleteVolumeVisible.value = false
+    fetchData()
+  } finally {
+    deletingVolume.value = false
+  }
+}
+
 const formatBytes = (bytes) => {
   if (!bytes || bytes <= 0) return '0'
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
@@ -531,7 +935,7 @@ const progressColor = (pct = 0) => {
 }
 
 const typeLabel = (type) => {
-  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱' }
+  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱', vg: '卷组', lv: '逻辑卷', pv: '物理卷' }
   return map[type] || type || '-'
 }
 
@@ -607,6 +1011,16 @@ const flattenChildren = (nodes, depth = 0) => {
     }
   }
   return result
+}
+
+const hasPVChildren = (disk) => {
+  if (!disk.children || disk.children.length === 0) return false
+  return disk.children.some(c => c.type === 'pv')
+}
+
+const hasLVChildren = (disk) => {
+  if (!disk.children || disk.children.length === 0) return false
+  return disk.children.some(c => c.type === 'lv')
 }
 
 const PALETTE = ['#409EFF', '#67C23A', '#E6A23C', '#9C6ADE', '#F56C6C', '#00B8D4']
@@ -1315,5 +1729,56 @@ onUnmounted(() => {
   .disk-group-meta {
     font-size: 12px;
   }
+}
+
+/* ===== LVM VG 卡片样式 ===== */
+.vg-icon {
+  color: #E6A23C;
+}
+
+.vg-section {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 8px 0;
+}
+
+.vg-section:first-child {
+  border-top: none;
+}
+
+.vg-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== 创建存储卷对话框样式 ===== */
+.volume-type-card {
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.volume-type-card:hover {
+  border-color: var(--el-color-primary-light-5);
+}
+
+.volume-type-card.selected {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+
+.pv-disk-item {
+  border: 1px solid var(--el-border-color-light);
+  margin-bottom: 4px;
+}
+
+.pv-disk-item :deep(.el-card__body) {
+  padding: 8px 12px;
 }
 </style>

@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,43 @@ func FormatAndMountStoragePool(ctx context.Context, id string, fstype string, pr
 
 	if fstype == "" {
 		fstype = "ext4"
+	}
+
+	// 若设备已挂载则先卸载（格式化要求设备未被使用）
+	// ⚠️ 绝对不能用 umount -l：lazy unmount 只从 VFS 分离，内核仍持有块设备引用，
+	//    导致后续 mkfs 报 "apparently in use by the system"。
+	mounted, mountpoints := findMountsForDevice(devicePath)
+	if mounted {
+		progress(5, "正在卸载当前挂载...")
+		allMPs := dedupeStrings(mountpoints)
+		var lastErr error
+		for _, mp := range allMPs {
+			// 1) 正常卸载
+			res := utils.ExecCommandContextWithTimeout(ctx, "umount", 1*time.Minute, mp)
+			if res.Error == nil {
+				continue
+			}
+			// 2) 杀占用进程后重试
+			utils.ExecCommandQuiet("fuser", "-km", mp)
+			time.Sleep(200 * time.Millisecond)
+			res = utils.ExecCommandContextWithTimeout(ctx, "umount", 1*time.Minute, mp)
+			if res.Error == nil {
+				continue
+			}
+			// 3) 按设备路径卸载
+			res = utils.ExecCommandContextWithTimeout(ctx, "umount", 1*time.Minute, devicePath)
+			if res.Error != nil {
+				lastErr = fmt.Errorf("卸载 %s 失败: %s", mp, res.Stderr)
+			}
+		}
+		if lastErr != nil {
+			return lastErr
+		}
+		// 验证卸载成功
+		stillMounted, _ := findMountsForDevice(devicePath)
+		if stillMounted {
+			return fmt.Errorf("无法卸载设备 %s，仍有挂载点残留", devicePath)
+		}
 	}
 
 	progress(10, "正在清理旧文件系统标记...")
@@ -113,6 +151,44 @@ func ensureVMStorageDir(dir string) error {
 	}
 	utils.ExecCommand("chown", "libvirt-qemu:kvm", dir)
 	return nil
+}
+
+// findMountsForDevice 查询指定设备的所有挂载点（运行时查询，不依赖存储的状态）。
+func findMountsForDevice(devicePath string) (bool, []string) {
+	result := utils.ExecCommandQuiet("findmnt", "--source", devicePath, "-J", "-b", "-o", "TARGET")
+	if result.Error != nil || result.Stdout == "" {
+		return false, nil
+	}
+	var out struct {
+		Filesystems []struct {
+			Target string `json:"target"`
+		} `json:"filesystems"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &out); err != nil || len(out.Filesystems) == 0 {
+		return false, nil
+	}
+	var mounts []string
+	for _, fs := range out.Filesystems {
+		if strings.TrimSpace(fs.Target) != "" {
+			mounts = append(mounts, strings.TrimSpace(fs.Target))
+		}
+	}
+	return len(mounts) > 0, mounts
+}
+
+// dedupeStrings 字符串切片去重（保持顺序）。
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 func ensureFstabEntry(uuid, mountPath, fstype string) error {

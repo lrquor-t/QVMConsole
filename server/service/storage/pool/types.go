@@ -41,6 +41,12 @@ type HostStoragePoolInfo struct {
 	ExistingDataWarning string                `json:"existing_data_warning,omitempty"`
 	StatusReason        string                `json:"status_reason"`
 	Children            []HostStoragePoolInfo `json:"children,omitempty"`
+	// LVM 扩展字段
+	VGName  string `json:"vg_name,omitempty"`   // 所属卷组名（LV/PV 节点）
+	LVType  string `json:"lv_type,omitempty"`   // LV 类型：linear/striped/mirrored
+	PVCount int    `json:"pv_count,omitempty"`  // VG 节点的 PV 数量
+	LVCount int    `json:"lv_count,omitempty"`  // VG 节点的 LV 数量
+	IsLVMVG bool   `json:"is_lvm_vg,omitempty"` // 标记为 LVM VG 合成节点
 }
 
 // VMStorageTarget 是创建虚拟机时可选择的落盘位置。

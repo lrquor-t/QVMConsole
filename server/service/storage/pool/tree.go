@@ -124,8 +124,8 @@ func canFormatStorageNode(node HostStoragePoolInfo) (bool, string) {
 	if node.Readonly {
 		return false, "设备为只读状态"
 	}
-	if node.Type != "disk" && node.Type != "part" {
-		return false, "只支持格式化整块硬盘或分区"
+	if node.Type != "disk" && node.Type != "part" && node.Type != "lv" {
+		return false, "只支持格式化整块硬盘、分区或逻辑卷"
 	}
 	if node.Type == "loop" || node.Type == "rom" || node.Removable {
 		return false, "不支持格式化 loop、光驱或可移动设备"
@@ -167,8 +167,11 @@ func canFormatStorageNode(node HostStoragePoolInfo) (bool, string) {
 		}
 		return false, reason + strings.Join(parts, "/") + "，无法格式化"
 	}
-	if len(node.Mountpoints) > 0 || hasMountedChild(node) {
-		return false, "设备或其分区当前已挂载"
+	// LV 允许在线格式化（格式化流程内部会先卸载再格式化再挂载）
+	if node.Type != "lv" {
+		if len(node.Mountpoints) > 0 || hasMountedChild(node) {
+			return false, "设备或其分区当前已挂载"
+		}
 	}
 	if node.SystemDisk {
 		return false, "系统关键磁盘禁止格式化"
@@ -303,4 +306,250 @@ func isPathUnderMount(pathValue, mountPath string) bool {
 		return filepath.IsAbs(pathValue)
 	}
 	return pathValue == mountPath || strings.HasPrefix(pathValue, mountPath+string(os.PathSeparator))
+}
+
+// ── LVM 层级注入 ──
+
+// injectLVMTree 将 VG/LV 层级信息注入存储池树，并移除冗余的 dm-X 节点。
+func injectLVMTree(pools []HostStoragePoolInfo, vgs []VGInfo, lvs []LVInfo,
+	mounts map[string]findmntInfo, dfUsage map[string]mountUsage, configs map[string]model.HostStoragePool) []HostStoragePoolInfo {
+
+	// 构建 VG 名 → LV 列表映射
+	vgLVMap := make(map[string][]LVInfo)
+	for _, lv := range lvs {
+		parts := strings.SplitN(lv.FullName, "/", 2)
+		if len(parts) == 2 {
+			vgLVMap[parts[0]] = append(vgLVMap[parts[0]], lv)
+		}
+	}
+
+	// 构建 VG 名 → PV 设备路径映射
+	vgPVMap := make(map[string][]string)
+	for _, vg := range vgs {
+		vgPVMap[vg.Name] = vg.PVNames
+	}
+
+	// 收集 LV 设备路径（用于后续从树中移除）
+	// 同时添加 /dev/mapper/ 格式的路径，因为 lsblk 可能使用 mapper 格式
+	lvDevicePaths := make(map[string]bool)
+	for _, lv := range lvs {
+		if lv.DevicePath != "" {
+			lvDevicePaths[lv.DevicePath] = true
+		}
+		// 添加 /dev/mapper/VG-LV 格式（VG/LV 名称中的“-”转义为“--”）
+		parts := strings.SplitN(lv.FullName, "/", 2)
+		if len(parts) == 2 {
+			mapperName := strings.ReplaceAll(parts[0], "-", "--") + "-" + strings.ReplaceAll(parts[1], "-", "--")
+			lvDevicePaths["/dev/mapper/"+mapperName] = true
+		}
+	}
+
+	// 标记 PV 设备路径 → VG 名 映射
+	pvToVG := make(map[string]string)
+	for _, vg := range vgs {
+		for _, pvPath := range vg.PVNames {
+			pvToVG[pvPath] = vg.Name
+		}
+	}
+
+	// 从树中移除 LV 的 dm-X 节点并更新其父节点信息
+	filteredPools := removeLVNodesFromTree(pools, lvDevicePaths)
+
+	// 标记 PV 节点
+	markPVNodes(filteredPools, pvToVG)
+
+	// 为每个 VG 创建合成节点
+	for _, vg := range vgs {
+		vgID := normalizeStorageDeviceID("vg-" + vg.Name)
+		vgNode := HostStoragePoolInfo{
+			ID:          vgID,
+			Name:        vg.Name,
+			DisplayName: "VG: " + vg.Name,
+			DevicePath:  "/dev/" + vg.Name,
+			Type:        "vg",
+			Size:        vg.Size,
+			Available:   vg.Free,
+			Used:        vg.Size - vg.Free,
+			IsLVMVG:     true,
+			PVCount:     vg.PVCount,
+			LVCount:     vg.LVCount,
+		}
+		if vg.Size > 0 {
+			vgNode.UsePercent = int(float64(vgNode.Used) / float64(vg.Size) * 100)
+		}
+
+		// 添加 LV 子节点
+		if vgLVs, ok := vgLVMap[vg.Name]; ok {
+			for _, lv := range vgLVs {
+				lvNode := buildLVNode(lv, vg.Name, mounts, dfUsage, configs)
+				vgNode.Children = append(vgNode.Children, lvNode)
+			}
+		}
+
+		// 添加 PV 子节点（作为引用节点，不可操作）
+		if pvPaths, ok := vgPVMap[vg.Name]; ok {
+			for _, pvPath := range pvPaths {
+				pvNode := buildPVReferenceNode(pvPath, vg.Name, filteredPools)
+				if pvNode != nil {
+					vgNode.Children = append(vgNode.Children, *pvNode)
+				}
+			}
+		}
+
+		// VG 节点本身不能作为 VM 存储目标（只有 LV 可以）
+		vgNode.CanUseForVM = false
+		vgNode.SystemDisk = isSystemStorageNode(vgNode)
+
+		filteredPools = append(filteredPools, vgNode)
+	}
+
+	return filteredPools
+}
+
+// buildLVNode 构建 LV 子节点。
+func buildLVNode(lv LVInfo, vgName string, mounts map[string]findmntInfo,
+	dfUsage map[string]mountUsage, configs map[string]model.HostStoragePool) HostStoragePoolInfo {
+
+	id := normalizeStorageDeviceID(vgName + "-" + lv.Name)
+	cfg, configured := configs[id]
+
+	// 回退：如果主 ID 未找到配置，尝试使用 mapper 格式的 ID 查找
+	// （用户可能通过 lsblk 树的 dm 节点配置了该存储池）
+	if !configured {
+		mapperName := strings.ReplaceAll(vgName, "-", "--") + "-" + strings.ReplaceAll(lv.Name, "-", "--")
+		mapperID := normalizeStorageDeviceID("/dev/mapper/" + mapperName)
+		if mapperCfg, ok := configs[mapperID]; ok {
+			cfg = mapperCfg
+			configured = true
+		}
+	}
+
+	node := HostStoragePoolInfo{
+		ID:          id,
+		Name:        lv.Name,
+		DisplayName: lv.Name,
+		DevicePath:  lv.DevicePath,
+		Type:        "lv",
+		Size:        lv.Size,
+		FSType:      lv.FSType,
+		VGName:      vgName,
+		LVType:      lv.LVType,
+		MountPath:   lv.MountPath,
+		Children:    nil,
+		Configured:  configured,
+	}
+
+	if configured {
+		node.DisplayName = cfg.DisplayName
+		node.Enabled = cfg.Enabled
+		node.IsDefault = cfg.IsDefault
+		node.MountPath = cfg.MountPath
+	}
+
+	// 设置挂载点（必须在 applyUsage 之前，否则无法查找使用量）
+	mountPathForVM := lv.MountPath
+	// 回退：如果运行时扫描未检测到挂载点，但 DB 配置中有 mount_path，使用配置值
+	if mountPathForVM == "" && configured && cfg.MountPath != "" {
+		mountPathForVM = cfg.MountPath
+	}
+	if mountPathForVM != "" {
+		node.Mountpoints = []string{mountPathForVM}
+		node.MountPath = mountPathForVM
+		node.VMDir = filepath.Join(mountPathForVM, "vm-disks")
+	}
+
+	// 应用使用量（在挂载点设置之后）
+	applyUsage(&node, mounts, dfUsage)
+
+	node.CanUseForVM = node.MountPath != "" && len(node.Mountpoints) > 0
+	node.SystemDisk = isSystemStorageNode(node)
+	node.CanFormat, node.StatusReason = canFormatStorageNode(node)
+
+	return node
+}
+
+// buildPVReferenceNode 构建 PV 引用子节点。
+func buildPVReferenceNode(pvPath, vgName string, pools []HostStoragePoolInfo) *HostStoragePoolInfo {
+	// 在现有树中查找该 PV 对应的节点以获取大小等信息
+	for _, pool := range pools {
+		if found := findNodeByDevicePath(pool, pvPath); found != nil {
+			pvNode := HostStoragePoolInfo{
+				ID:           normalizeStorageDeviceID("pv-" + vgName + "-" + filepath.Base(pvPath)),
+				Name:         filepath.Base(pvPath),
+				DisplayName:  filepath.Base(pvPath),
+				DevicePath:   pvPath,
+				Type:         "pv",
+				Size:         found.Size,
+				VGName:       vgName,
+				Readonly:     true, // PV 节点不允许单独操作
+				StatusReason: "已加入卷组 " + vgName,
+			}
+			return &pvNode
+		}
+	}
+	// 如果没找到，创建一个最小节点
+	return &HostStoragePoolInfo{
+		ID:           normalizeStorageDeviceID("pv-" + vgName + "-" + filepath.Base(pvPath)),
+		Name:         filepath.Base(pvPath),
+		DisplayName:  filepath.Base(pvPath),
+		DevicePath:   pvPath,
+		Type:         "pv",
+		VGName:       vgName,
+		Readonly:     true,
+		StatusReason: "已加入卷组 " + vgName,
+	}
+}
+
+// removeLVNodesFromTree 从树中移除属于 LVM LV 的 dm-X 节点。
+func removeLVNodesFromTree(pools []HostStoragePoolInfo, lvDevicePaths map[string]bool) []HostStoragePoolInfo {
+	result := make([]HostStoragePoolInfo, 0, len(pools))
+	for _, pool := range pools {
+		if lvDevicePaths[pool.DevicePath] {
+			continue // 跳过 LV 设备
+		}
+		// 递归处理子节点
+		pool.Children = removeLVNodesFromTree(pool.Children, lvDevicePaths)
+		result = append(result, pool)
+	}
+	return result
+}
+
+// markPVNodes 标记属于 VG 的 PV 节点。
+func markPVNodes(pools []HostStoragePoolInfo, pvToVG map[string]string) {
+	for i := range pools {
+		if vgName, ok := pvToVG[pools[i].DevicePath]; ok {
+			pools[i].VGName = vgName
+			pools[i].Readonly = true
+			pools[i].CanFormat = false
+			pools[i].CanUseForVM = false
+			pools[i].StatusReason = "已加入卷组 " + vgName
+		}
+		markPVNodes(pools[i].Children, pvToVG)
+	}
+}
+
+// findNodeByDevicePath 递归查找设备路径对应的节点。
+func findNodeByDevicePath(pool HostStoragePoolInfo, devicePath string) *HostStoragePoolInfo {
+	if pool.DevicePath == devicePath {
+		return &pool
+	}
+	for _, child := range pool.Children {
+		if found := findNodeByDevicePath(child, devicePath); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// hasAnyMountedChild 检查节点是否有已挂载的子节点。
+func hasAnyMountedChild(node HostStoragePoolInfo) bool {
+	if len(node.Mountpoints) > 0 {
+		return true
+	}
+	for _, child := range node.Children {
+		if len(child.Mountpoints) > 0 || hasAnyMountedChild(child) {
+			return true
+		}
+	}
+	return false
 }

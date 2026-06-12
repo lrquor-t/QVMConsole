@@ -142,7 +142,7 @@
                   <el-option label="SATA" value="sata" />
                   <el-option label="IDE" value="ide" />
                 </el-select>
-                <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;">
                   <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id" />
                 </el-select>
                 <span style="line-height: 32px; color: #909399;">GB</span>
@@ -978,7 +978,7 @@
               </div>
               <div class="form-section-card-body">
                 <el-form-item label="虚拟机硬盘">
-                  <el-select v-model="form.storage_pool_id" placeholder="使用默认存储位置" clearable filterable style="width: 100%;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                  <el-select v-model="form.storage_pool_id" placeholder="使用默认存储位置" clearable filterable style="width: 100%;">
                     <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <span>{{ target.display_name }}</span>
@@ -1092,7 +1092,7 @@
                         <el-option label="SATA" value="sata" />
                         <el-option label="IDE" value="ide" />
                       </el-select>
-                      <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                      <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;">
                         <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id" />
                       </el-select>
                       <span style="line-height: 32px; color: #909399;">GB</span>
@@ -1137,7 +1137,7 @@
                         <el-option label="SATA" value="sata" />
                         <el-option label="IDE" value="ide" />
                       </el-select>
-                      <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                      <el-select v-model="disk.storage_pool_id" placeholder="默认存储" clearable filterable style="width: 180px;">
                         <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id" />
                       </el-select>
                       <span style="line-height: 32px; color: #909399;">GB</span>
@@ -1166,7 +1166,7 @@
                 </div>
                 <div class="form-section-card-body">
                   <el-form-item label="虚拟机硬盘">
-                    <el-select v-model="form.storage_pool_id" placeholder="使用默认存储位置" clearable filterable style="width: 100%;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                    <el-select v-model="form.storage_pool_id" placeholder="使用默认存储位置" clearable filterable style="width: 100%;">
                       <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id">
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                           <span>{{ target.display_name }}</span>
@@ -1279,7 +1279,7 @@
                         <el-option v-for="file in diskFileList" :key="file.name" :label="file.name" :value="file.name" />
                       </el-select>
                       <div style="display: flex; gap: 6px;">
-                        <el-select v-model="disk.storage_pool_id" placeholder="目标存储位置" clearable filterable size="small" style="flex: 1;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+                        <el-select v-model="disk.storage_pool_id" placeholder="目标存储位置" clearable filterable size="small" style="flex: 1;">
                           <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id" />
                         </el-select>
                         <el-select v-model="disk.bus" size="small" style="width: 100px;">
@@ -1851,7 +1851,7 @@
           <div class="form-tip"><el-icon><InfoFilled /></el-icon>支持 qcow2、raw、vmdk 等格式，非 qcow2 自动转换</div>
         </el-form-item>
         <el-form-item label="目标存储">
-          <el-select v-model="attachDiskStoragePoolId" placeholder="使用默认存储位置" clearable filterable style="width: 100%;" v-loading="storageTargetsLoading" @focus="loadStorageTargets">
+          <el-select v-model="attachDiskStoragePoolId" placeholder="使用默认存储位置" clearable filterable style="width: 100%;">
             <el-option v-for="target in storageTargets" :key="target.id" :label="storageTargetLabel(target)" :value="target.id" />
           </el-select>
         </el-form-item>

@@ -355,6 +355,9 @@ func Setup() *gin.Engine {
 				storagePool.POST("/:id/format-mount", middleware.AdminMiddleware(), handler.FormatMountStoragePool)
 				storagePool.POST("/:id/create-partition", middleware.AdminMiddleware(), handler.CreateStoragePartition)
 				storagePool.POST("/:id/delete-partitions", middleware.AdminMiddleware(), handler.DeleteStoragePartitions)
+				storagePool.GET("/pv-targets", middleware.AdminMiddleware(), handler.GetAvailablePVTargets)
+				storagePool.POST("/create-volume", middleware.AdminMiddleware(), handler.CreateStorageVolume)
+				storagePool.POST("/delete-volume", middleware.AdminMiddleware(), handler.DeleteStorageVolume)
 			}
 
 			// ==================== 节点管理（管理员） ====================

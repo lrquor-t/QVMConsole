@@ -76,3 +76,29 @@ export function getAllISOs() {
     method: 'get'
   })
 }
+
+// 获取可供 LVM 使用的磁盘列表
+export function getAvailablePVTargets() {
+  return request({
+    url: '/storage-pool/pv-targets',
+    method: 'get'
+  })
+}
+
+// 创建 LVM 存储卷
+export function createLVMVolume(data) {
+  return request({
+    url: '/storage-pool/create-volume',
+    method: 'post',
+    data
+  })
+}
+
+// 删除 LVM 存储卷
+export function deleteLVMVolume(vgName) {
+  return request({
+    url: '/storage-pool/delete-volume',
+    method: 'post',
+    data: { vg_name: vgName }
+  })
+}

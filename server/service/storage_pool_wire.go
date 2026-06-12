@@ -12,6 +12,10 @@ type HostStoragePoolInfo = pool.HostStoragePoolInfo
 type VMStorageTarget = pool.VMStorageTarget
 type UpdateHostStoragePoolConfigRequest = pool.UpdateHostStoragePoolConfigRequest
 type ISOFileInfo = pool.ISOFileInfo
+type LVMVolumeRequest = pool.LVMVolumeRequest
+type VGInfo = pool.VGInfo
+type LVInfo = pool.LVInfo
+type PVInfo = pool.PVInfo
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -63,6 +67,26 @@ func DeleteAllPartitionsOnDisk(ctx context.Context, deviceID string, progress fu
 // GetAllISOs delegates to pool.GetAllISOs
 func GetAllISOs() ([]ISOFileInfo, error) {
 	return pool.GetAllISOs()
+}
+
+// CreateLVMVolume delegates to pool.CreateLVMVolume
+func CreateLVMVolume(ctx context.Context, req LVMVolumeRequest, progress func(int, string)) error {
+	return pool.CreateLVMVolume(ctx, req, progress)
+}
+
+// GetAvailablePVTargets delegates to pool.GetAvailablePVTargets
+func GetAvailablePVTargets() ([]HostStoragePoolInfo, error) {
+	return pool.GetAvailablePVTargets()
+}
+
+// ListVGs delegates to pool.ListVGs
+func ListVGs() ([]VGInfo, []LVInfo, []PVInfo, error) {
+	return pool.ListVGs()
+}
+
+// DeleteLVMVolume delegates to pool.DeleteLVMVolume
+func DeleteLVMVolume(ctx context.Context, vgName string, progress func(int, string)) error {
+	return pool.DeleteLVMVolume(ctx, vgName, progress)
 }
 
 // ── Unexported delegates (used internally by service root package) ──
