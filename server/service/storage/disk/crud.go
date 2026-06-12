@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/digitalocean/go-libvirt"
 	"kvm_console/logger"
 	"kvm_console/service/libvirt_rpc"
 	"kvm_console/utils"
+
+	"github.com/digitalocean/go-libvirt"
 )
 
 // DiskInfo holds information about a virtual machine disk.
@@ -254,10 +255,38 @@ func SetDiskBus(vmName, device, newBus string) error {
 	}
 
 	// compute new device name: keep letter suffix, replace prefix
-	_ = device[:2] // oldPrefix: vd/sd/hd
+	_ = device[:2]       // oldPrefix: vd/sd/hd
 	letter := device[2:] // a/b/c...
 	newPrefix := GetDevPrefix(newBus)
 	newDev := newPrefix + letter
+
+	// check if the new device name conflicts with existing disks (e.g. CDROMs on sata bus)
+	existingDisks, listErr := ListDisks(vmName)
+	if listErr == nil {
+		usedDevs := make(map[string]bool)
+		for _, d := range existingDisks {
+			// skip the device being changed (it will be renamed)
+			if d.Device == device {
+				continue
+			}
+			usedDevs[d.Device] = true
+		}
+		if usedDevs[newDev] {
+			// find next available letter
+			found := false
+			for _, l := range "bcdefghijklmnopqrstuvwxyz" {
+				candidate := newPrefix + string(l)
+				if !usedDevs[candidate] {
+					newDev = candidate
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("没有可用的设备名（所有 %s* 均已被占用）", newPrefix)
+			}
+		}
+	}
 
 	// parse and modify XML
 	xmlStr := xmlResult
