@@ -183,6 +183,20 @@ export const endpointGroups = [
       ep('POST', '/settings/smtp/test', '发送 SMTP 测试邮件', {
         body: 'JSON: email',
         notes: [admin]
+      }),
+      ep('GET', '/settings/log/status', '获取日志状态', {
+        response: 'data: total_size, total_size_human, files[{name,size,mod_time,is_today,category}], categories',
+        notes: [admin, '返回日志目录下所有日志文件列表及磁盘总占用大小']
+      }),
+      ep('POST', '/settings/log/delete', '删除日志文件', {
+        body: 'JSON: files[] 文件名列表',
+        response: 'data: deleted[], failed[]',
+        notes: [admin, '仅允许删除 .log 和 .log.gz 文件，自动校验路径安全']
+      }),
+      ep('POST', '/settings/log/export', '导出日志文件', {
+        body: 'JSON: files[] 文件名列表',
+        response: 'application/zip 二进制流',
+        notes: [admin, '将选中的日志文件打包为 ZIP 压缩包下载']
       })
     ]
   },

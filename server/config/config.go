@@ -138,14 +138,15 @@ type Config struct {
 	// 是否使用 go-libvirt RPC（默认 true，关闭后降级为 virsh 命令行）
 	UseGoLibvirt bool `json:"use_go_libvirt"`
 	// 日志配置
-	LogDir       string `json:"log_dir"`
-	LogLevel     string `json:"log_level"`
-	LogMaxDays   int    `json:"log_max_days"`
-	LogCompress  bool   `json:"log_compress"`
+	LogDir          string `json:"log_dir"`
+	LogLevel        string `json:"log_level"`
+	LogMaxDays      int    `json:"log_max_days"`
+	LogCompress     bool   `json:"log_compress"`
 	LogConsole      bool   `json:"log_console"`
 	LogConsoleTypes string `json:"log_console_types"` // 终端输出的日志类型，逗号分隔：app,request,cmd,libvirt
 	LogConsoleLevel string `json:"log_console_level"` // 终端输出的日志级别（可独立于文件级别）
 	LogMaxSizeMB    int    `json:"log_max_size_mb"`
+	LogMaxBackups   int    `json:"log_max_backups"` // 日志最大归档备份数（0=不限制）
 }
 
 // GlobalConfig 全局配置实例
@@ -223,9 +224,9 @@ func Init() {
 		PortForwardHTTPProbeIntervalMinutes:   getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_INTERVAL_MINUTES", 60),
 		PortForwardHTTPProbeTimeoutSeconds:    getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_TIMEOUT_SECONDS", 3),
 		BatchCloneMaxConcurrency:              getEnvInt("KVM_BATCH_CLONE_MAX_CONCURRENCY", 10),
-		RateLimitPublicPerMin:                getEnvInt("KVM_RATE_LIMIT_PUBLIC", 20),
-		RateLimitAuthPerMin:                  getEnvInt("KVM_RATE_LIMIT_AUTH", 0),
-		UseGoLibvirt:                         getEnvBool("KVM_USE_GO_LIBVIRT", true),
+		RateLimitPublicPerMin:                 getEnvInt("KVM_RATE_LIMIT_PUBLIC", 20),
+		RateLimitAuthPerMin:                   getEnvInt("KVM_RATE_LIMIT_AUTH", 0),
+		UseGoLibvirt:                          getEnvBool("KVM_USE_GO_LIBVIRT", true),
 		LogDir:                                getEnv("KVM_LOG_DIR", "./log"),
 		LogLevel:                              getEnv("KVM_LOG_LEVEL", "info"),
 		LogMaxDays:                            getEnvInt("KVM_LOG_MAX_DAYS", 7),
@@ -234,6 +235,7 @@ func Init() {
 		LogConsoleTypes:                       getEnv("KVM_LOG_CONSOLE_TYPES", "app,cmd,libvirt"),
 		LogConsoleLevel:                       getEnv("KVM_LOG_CONSOLE_LEVEL", ""),
 		LogMaxSizeMB:                          getEnvInt("KVM_LOG_MAX_SIZE_MB", 100),
+		LogMaxBackups:                         getEnvInt("KVM_LOG_MAX_BACKUPS", 0),
 	}
 	if GlobalConfig.VMCredentialSecret == "" {
 		GlobalConfig.VMCredentialSecret = GlobalConfig.JWTSecret
@@ -376,6 +378,7 @@ var PersistableKeys = []string{
 	"log_console_types",
 	"log_console_level",
 	"log_max_size_mb",
+	"log_max_backups",
 }
 
 // keyToEnvVar 配置项到环境变量的映射
@@ -444,6 +447,7 @@ var keyToEnvVar = map[string]string{
 	"log_console_types":                         "KVM_LOG_CONSOLE_TYPES",
 	"log_console_level":                         "KVM_LOG_CONSOLE_LEVEL",
 	"log_max_size_mb":                           "KVM_LOG_MAX_SIZE_MB",
+	"log_max_backups":                           "KVM_LOG_MAX_BACKUPS",
 }
 
 // LoadFromDB 从数据库加载持久化的设置覆盖当前配置
@@ -655,6 +659,10 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			if v, err := strconv.Atoi(value); err == nil {
 				c.LogMaxSizeMB = v
 			}
+		case "log_max_backups":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.LogMaxBackups = v
+			}
 		}
 	}
 }
@@ -726,6 +734,7 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"log_console_types":                         c.LogConsoleTypes,
 		"log_console_level":                         c.LogConsoleLevel,
 		"log_max_size_mb":                           strconv.Itoa(c.LogMaxSizeMB),
+		"log_max_backups":                           strconv.Itoa(c.LogMaxBackups),
 	}
 }
 

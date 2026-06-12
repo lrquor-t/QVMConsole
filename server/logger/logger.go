@@ -30,13 +30,24 @@ var (
 
 // Init 初始化日志系统
 func Init(logDir string, level string, maxDays int, compress bool, console bool, maxSizeMB int) {
-	InitWithConsoleConfig(logDir, level, maxDays, compress, console, "", "", maxSizeMB)
+	InitWithConsoleConfig(logDir, level, maxDays, compress, console, "", "", maxSizeMB, 0)
+}
+
+// LogDir 返回日志目录路径（由 config 传入）
+var logDirPath string
+
+// GetLogDir 获取日志目录路径
+func GetLogDir() string {
+	return logDirPath
 }
 
 // InitWithConsoleConfig 初始化日志系统（支持终端输出类型和级别配置）
 // consoleTypes: 逗号分隔的终端输出类型（app,request,cmd,libvirt），为空表示全部
 // consoleLevel: 终端独立日志级别，为空则跟随文件级别
-func InitWithConsoleConfig(logDir string, level string, maxDays int, compress bool, console bool, consoleTypes string, consoleLevel string, maxSizeMB int) {
+func InitWithConsoleConfig(logDir string, level string, maxDays int, compress bool, console bool, consoleTypes string, consoleLevel string, maxSizeMB int, maxBackups int) {
+	// 记录日志目录路径
+	logDirPath = logDir
+
 	// 自动创建日志目录
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		panic("failed to create log directory: " + err.Error())
@@ -55,10 +66,10 @@ func InitWithConsoleConfig(logDir string, level string, maxDays int, compress bo
 	consoleTypeSet := parseConsoleTypes(consoleTypes)
 
 	// 创建 lumberjack Writer
-	appWriter = newLumberjackWriter(filepath.Join(logDir, "app.log"), maxSizeMB, maxDays, compress)
-	requestWriter = newLumberjackWriter(filepath.Join(logDir, "request.log"), maxSizeMB, maxDays, compress)
-	cmdWriter = newLumberjackWriter(filepath.Join(logDir, "cmd.log"), maxSizeMB, maxDays, compress)
-	libvirtWriter = newLumberjackWriter(filepath.Join(logDir, "libvirt.log"), maxSizeMB, maxDays, compress)
+	appWriter = newLumberjackWriter(filepath.Join(logDir, "app.log"), maxSizeMB, maxDays, compress, maxBackups)
+	requestWriter = newLumberjackWriter(filepath.Join(logDir, "request.log"), maxSizeMB, maxDays, compress, maxBackups)
+	cmdWriter = newLumberjackWriter(filepath.Join(logDir, "cmd.log"), maxSizeMB, maxDays, compress, maxBackups)
+	libvirtWriter = newLumberjackWriter(filepath.Join(logDir, "libvirt.log"), maxSizeMB, maxDays, compress, maxBackups)
 
 	allWriters = []*lumberjack.Logger{appWriter, requestWriter, cmdWriter, libvirtWriter}
 
@@ -73,11 +84,11 @@ func InitWithConsoleConfig(logDir string, level string, maxDays int, compress bo
 }
 
 // newLumberjackWriter 创建一个配置好的 lumberjack Writer
-func newLumberjackWriter(filename string, maxSizeMB int, maxAge int, compress bool) *lumberjack.Logger {
+func newLumberjackWriter(filename string, maxSizeMB int, maxAge int, compress bool, maxBackups int) *lumberjack.Logger {
 	return &lumberjack.Logger{
 		Filename:   filename,
 		MaxSize:    maxSizeMB,
-		MaxBackups: 0, // 不限制备份数，靠 MaxAge 控制
+		MaxBackups: maxBackups,
 		MaxAge:     maxAge,
 		Compress:   compress,
 		LocalTime:  true,

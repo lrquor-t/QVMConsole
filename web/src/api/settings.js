@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import axios from 'axios'
 
 function withStageToken(token) {
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -152,4 +153,40 @@ export function saveCPUAffinityPresets(data) {
     method: 'put',
     data
   })
+}
+
+// 获取日志状态（文件列表、磁盘占用）
+export function getLogStatus() {
+  return request({
+    url: '/settings/log/status',
+    method: 'get'
+  })
+}
+
+// 删除日志文件
+export function deleteLogs(data) {
+  return request({
+    url: '/settings/log/delete',
+    method: 'post',
+    data
+  })
+}
+
+// 导出日志文件（返回 blob，使用原始 axios 实例避免 JSON 拦截器干扰）
+export async function exportLogs(data) {
+  const baseURL = import.meta.env.VITE_APP_BASE_API || '/api'
+  const { useUserStore } = await import('@/store/user')
+  const userStore = useUserStore()
+  const headers = {}
+  if (userStore.token) {
+    headers.Authorization = `Bearer ${userStore.token}`
+  }
+  const response = await axios({
+    url: baseURL + '/settings/log/export',
+    method: 'post',
+    data,
+    responseType: 'blob',
+    headers
+  })
+  return response.data
 }

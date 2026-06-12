@@ -834,6 +834,87 @@
           </div>
         </el-form-item>
           </el-tab-pane>
+
+          <el-tab-pane label="日志管理" name="log">
+            <el-divider content-position="left">
+              <el-icon style="margin-right: 4px;"><FolderOpened /></el-icon>
+              日志归档设置
+            </el-divider>
+
+            <el-form-item label="日志最大备份数">
+              <el-input-number v-model="form.log_max_backups" :min="0" :max="10000" style="width: 300px;" />
+              <div class="form-tip">
+                <el-icon><InfoFilled /></el-icon>
+                设置日志文件的最大归档数量，0 表示不限制（仅靠保留天数控制）。超过限制后最旧的归档将被自动删除 | 环境变量: KVM_LOG_MAX_BACKUPS
+              </div>
+            </el-form-item>
+
+            <el-divider content-position="left">
+              <el-icon style="margin-right: 4px;"><Odometer /></el-icon>
+              日志磁盘占用
+            </el-divider>
+
+            <el-form-item label="总占用大小">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <el-tag type="warning" size="large" effect="plain">{{ logStatus.total_size_human || '加载中...' }}</el-tag>
+                <el-button size="small" :loading="logStatusLoading" @click="fetchLogStatus">
+                  <el-icon><Refresh /></el-icon>
+                  刷新
+                </el-button>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="日志文件列表">
+              <div v-loading="logStatusLoading" style="width: 100%; max-height: 300px; overflow-y: auto; border: 1px solid var(--el-border-color-light); border-radius: 6px; padding: 8px;">
+                <el-empty v-if="!logStatusLoading && logStatus.files.length === 0" description="暂无日志文件" :image-size="60" />
+                <el-table
+                  v-else
+                  :data="logStatus.files"
+                  size="small"
+                  style="width: 100%;"
+                  @selection-change="handleLogSelectionChange"
+                  ref="logTableRef"
+                >
+                  <el-table-column type="selection" width="40" />
+                  <el-table-column prop="name" label="文件名" min-width="240">
+                    <template #default="{ row }">
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        <span>{{ row.name }}</span>
+                        <el-tag v-if="row.is_today" type="success" size="small" effect="plain">今日日志</el-tag>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="category" label="类型" width="80">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="categoryTagType(row.category)" effect="plain">{{ row.category }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="大小" width="100">
+                    <template #default="{ row }">
+                      {{ formatFileSize(row.size) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="mod_time" label="修改时间" width="170" />
+                </el-table>
+              </div>
+            </el-form-item>
+
+            <el-form-item>
+              <div style="display: flex; gap: 12px;">
+                <el-button type="danger" :loading="logDeleting" @click="handleDeleteLogs" :disabled="selectedLogFiles.length === 0">
+                  <el-icon style="margin-right: 4px;"><Delete /></el-icon>
+                  一键删除
+                </el-button>
+                <el-button type="primary" :loading="logExporting" @click="showExportDialog" :disabled="selectedLogFiles.length === 0">
+                  <el-icon style="margin-right: 4px;"><Download /></el-icon>
+                  一键导出
+                </el-button>
+                <el-button @click="handleSelectAllLogs">
+                  {{ selectedLogFiles.length === logStatus.files.length ? '取消全选' : '全选' }}
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-tab-pane>
         </el-tabs>
 
         <el-form-item>
@@ -895,13 +976,61 @@
         <el-button type="primary" @click="kvmUnrestrictedGuestHelpVisible = false">我知道了</el-button>
       </template>
     </el-dialog>
+
+    <!-- 日志导出选择对话框 -->
+    <el-dialog v-model="exportDialogVisible" title="选择要导出的日志文件" width="700px" append-to-body>
+      <div style="margin-bottom: 12px; color: var(--el-text-color-secondary); font-size: 13px;">
+        已选中 {{ exportSelectedFiles.length }} 个文件，将打包为单个 ZIP 文件导出
+      </div>
+      <el-table
+        :data="exportFileList"
+        size="small"
+        style="width: 100%;"
+        max-height="400"
+        @selection-change="handleExportSelectionChange"
+        ref="exportTableRef"
+      >
+        <el-table-column type="selection" width="40" />
+        <el-table-column prop="name" label="文件名" min-width="240">
+          <template #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>{{ row.name }}</span>
+              <el-tag v-if="row.is_today" type="success" size="small" effect="plain">今日日志</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="category" label="类型" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="categoryTagType(row.category)" effect="plain">{{ row.category }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小" width="100">
+          <template #default="{ row }">
+            {{ formatFileSize(row.size) }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <el-button @click="handleSelectAllExportLogs">
+            {{ exportSelectedFiles.length === exportFileList.length ? '取消全选' : '全选' }}
+          </el-button>
+          <div style="display: flex; gap: 8px;">
+            <el-button @click="exportDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="logExporting" :disabled="exportSelectedFiles.length === 0" @click="handleExportLogs">
+              导出为 ZIP
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, reactive, onMounted } from 'vue'
-import { Check, Connection, CopyDocument, Cpu, Delete, FirstAidKit, FolderOpened, InfoFilled, Message, Odometer, Plus, Refresh, Warning } from '@element-plus/icons-vue'
-import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings } from '@/api/settings'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
+import { Check, Connection, CopyDocument, Cpu, Delete, Download, FirstAidKit, FolderOpened, InfoFilled, Message, Odometer, Plus, Refresh, Warning } from '@element-plus/icons-vue'
+import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings, getLogStatus, deleteLogs, exportLogs } from '@/api/settings'
 import { getAllISOs } from '@/api/infra'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setSiteTitle } from '@/utils/site'
@@ -1004,10 +1133,28 @@ const form = reactive({
   smtp_test_email: '',
   jwt_secret_rotate_hours: 24,
   jwt_secret_last_rotated: '',
+  log_max_backups: 0,
 })
 
 // ISO 列表
 const isoList = ref([])
+
+// 日志管理状态
+const logStatus = reactive({
+  total_size: 0,
+  total_size_human: '0 B',
+  files: [],
+  categories: []
+})
+const logStatusLoading = ref(false)
+const logDeleting = ref(false)
+const logExporting = ref(false)
+const selectedLogFiles = ref([])
+const logTableRef = ref(null)
+const exportDialogVisible = ref(false)
+const exportFileList = ref([])
+const exportSelectedFiles = ref([])
+const exportTableRef = ref(null)
 
 const ksmProfileOptions = computed(() => ksmStatus.value?.profiles?.length ? ksmStatus.value.profiles : fallbackKSMProfiles)
 const zramProfileOptions = computed(() => zramStatus.value?.profiles?.length ? zramStatus.value.profiles : fallbackZRAMProfiles)
@@ -1435,7 +1582,8 @@ const buildPayload = () => ({
   smtp_from_address: form.smtp_from_address,
   smtp_security: form.smtp_security,
   smtp_timeout_seconds: form.smtp_timeout_seconds,
-  jwt_secret_rotate_hours: form.jwt_secret_rotate_hours
+  jwt_secret_rotate_hours: form.jwt_secret_rotate_hours,
+  log_max_backups: form.log_max_backups
 })
 
 const handleTestSMTP = async () => {
@@ -1506,6 +1654,148 @@ const saveAffinityPresets = async () => {
     affinityPresetsSaving.value = false
   }
 }
+
+// ==================== 日志管理 ====================
+
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const k = 1024
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i]
+}
+
+const categoryTagType = (cat) => {
+  const types = { app: '', request: 'success', cmd: 'warning', libvirt: 'danger' }
+  return types[cat] || ''
+}
+
+const fetchLogStatus = async () => {
+  logStatusLoading.value = true
+  try {
+    const res = await getLogStatus()
+    if (res.code === 200 && res.data) {
+      logStatus.total_size = res.data.total_size || 0
+      logStatus.total_size_human = res.data.total_size_human || '0 B'
+      logStatus.files = res.data.files || []
+      logStatus.categories = res.data.categories || []
+    }
+  } catch (err) {
+    console.error('获取日志状态失败', err)
+    ElMessage.error('获取日志状态失败')
+  } finally {
+    logStatusLoading.value = false
+  }
+}
+
+const handleLogSelectionChange = (selection) => {
+  selectedLogFiles.value = selection
+}
+
+const handleSelectAllLogs = () => {
+  if (!logTableRef.value) return
+  if (selectedLogFiles.value.length === logStatus.files.length) {
+    logTableRef.value.clearSelection()
+  } else {
+    logStatus.files.forEach(row => {
+      logTableRef.value.toggleRowSelection(row, true)
+    })
+  }
+}
+
+const handleDeleteLogs = async () => {
+  if (selectedLogFiles.value.length === 0) {
+    ElMessage.warning('请先选择要删除的日志文件')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedLogFiles.value.length} 个日志文件吗？此操作不可恢复。`,
+      '删除日志',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  logDeleting.value = true
+  try {
+    const filesToDelete = selectedLogFiles.value.map(f => f.name)
+    const res = await deleteLogs({ files: filesToDelete })
+    ElMessage.success(res.message || '日志文件已删除')
+    await fetchLogStatus()
+  } catch (err) {
+    console.error('删除日志失败', err)
+  } finally {
+    logDeleting.value = false
+  }
+}
+
+const showExportDialog = () => {
+  exportFileList.value = [...logStatus.files]
+  exportSelectedFiles.value = [...selectedLogFiles.value]
+  exportDialogVisible.value = true
+  // 在 nextTick 后恢复选中状态
+  setTimeout(() => {
+    if (exportTableRef.value) {
+      exportSelectedFiles.value.forEach(row => {
+        exportTableRef.value.toggleRowSelection(row, true)
+      })
+    }
+  }, 50)
+}
+
+const handleExportSelectionChange = (selection) => {
+  exportSelectedFiles.value = selection
+}
+
+const handleSelectAllExportLogs = () => {
+  if (!exportTableRef.value) return
+  if (exportSelectedFiles.value.length === exportFileList.value.length) {
+    exportTableRef.value.clearSelection()
+  } else {
+    exportFileList.value.forEach(row => {
+      exportTableRef.value.toggleRowSelection(row, true)
+    })
+  }
+}
+
+const handleExportLogs = async () => {
+  if (exportSelectedFiles.value.length === 0) {
+    ElMessage.warning('请选择要导出的日志文件')
+    return
+  }
+
+  logExporting.value = true
+  try {
+    const filesToExport = exportSelectedFiles.value.map(f => f.name)
+    const blob = await exportLogs({ files: filesToExport })
+    // 创建下载链接
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const now = new Date()
+    const dateStr = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    a.href = url
+    a.download = `qvmconsole-logs-${dateStr}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('日志导出成功')
+    exportDialogVisible.value = false
+  } catch (err) {
+    console.error('导出日志失败', err)
+  } finally {
+    logExporting.value = false
+  }
+}
+
+// 切换到日志管理标签页时自动加载日志状态
+watch(activeTab, (tab) => {
+  if (tab === 'log' && logStatus.files.length === 0) {
+    fetchLogStatus()
+  }
+})
 
 onMounted(fetchData)
 </script>

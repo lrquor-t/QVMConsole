@@ -49,6 +49,7 @@ func main() {
 		config.GlobalConfig.LogConsoleTypes,
 		config.GlobalConfig.LogConsoleLevel,
 		config.GlobalConfig.LogMaxSizeMB,
+		config.GlobalConfig.LogMaxBackups,
 	)
 	defer logger.Close()
 

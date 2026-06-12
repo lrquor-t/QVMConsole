@@ -95,6 +95,9 @@ func Setup() *gin.Engine {
 			settings.POST("/smtp/test", handler.TestSMTP)
 			settings.PUT("/cpu-affinity-presets", handler.SaveCPUAffinityPresets)
 			settings.POST("/jwt-secret/rotate", handler.RotateJWTSecret)
+			settings.GET("/log/status", handler.GetLogStatus)
+			settings.POST("/log/delete", handler.DeleteLogs)
+			settings.POST("/log/export", handler.ExportLogs)
 		}
 
 		// ==================== 需要认证的路由 ====================

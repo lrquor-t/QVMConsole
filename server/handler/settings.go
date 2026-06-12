@@ -1,9 +1,15 @@
 package handler
 
 import (
+	"archive/zip"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -71,8 +77,10 @@ type SettingsResponse struct {
 	// 批量克隆最大同时克隆数量
 	BatchCloneMaxConcurrency int `json:"batch_clone_max_concurrency"`
 	// JWT 密钥自动轮换间隔（小时，0=禁用）
-	JWTSecretRotateHours  int    `json:"jwt_secret_rotate_hours"`
-	JWTSecretLastRotated  string `json:"jwt_secret_last_rotated"`
+	JWTSecretRotateHours int    `json:"jwt_secret_rotate_hours"`
+	JWTSecretLastRotated string `json:"jwt_secret_last_rotated"`
+	// 日志管理
+	LogMaxBackups int `json:"log_max_backups"`
 }
 
 // UpdateSettingsRequest 更新设置请求
@@ -130,6 +138,8 @@ type UpdateSettingsRequest struct {
 	BatchCloneMaxConcurrency *int `json:"batch_clone_max_concurrency"`
 	// JWT 密钥轮换间隔
 	JWTSecretRotateHours *int `json:"jwt_secret_rotate_hours"`
+	// 日志最大备份数
+	LogMaxBackups *int `json:"log_max_backups"`
 }
 
 type TestSMTPRequest struct {
@@ -234,6 +244,7 @@ func GetSettings(c *gin.Context) {
 			BatchCloneMaxConcurrency:              cfg.BatchCloneMaxConcurrency,
 			JWTSecretRotateHours:                  cfg.JWTSecretRotateHours,
 			JWTSecretLastRotated:                  jwtLastRotated,
+			LogMaxBackups:                         cfg.LogMaxBackups,
 		},
 	})
 }
@@ -518,6 +529,13 @@ func UpdateSettings(c *gin.Context) {
 		}
 		cfg.JWTSecretRotateHours = *req.JWTSecretRotateHours
 	}
+	if req.LogMaxBackups != nil {
+		if *req.LogMaxBackups < 0 || *req.LogMaxBackups > 10000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "日志最大备份数需在 0 - 10000 之间"})
+			return
+		}
+		cfg.LogMaxBackups = *req.LogMaxBackups
+	}
 
 	if cfg.AutoPortStart >= cfg.AutoPortEnd {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口起始值必须小于结束值"})
@@ -701,4 +719,259 @@ func GetUserStorageISOPath(c *gin.Context) {
 			"iso_path": isoPath,
 		},
 	})
+}
+
+// ==================== 日志管理 ====================
+
+// LogFileInfo 日志文件信息
+type LogFileInfo struct {
+	Name     string `json:"name"`     // 文件名
+	Size     int64  `json:"size"`     // 文件大小（字节）
+	ModTime  string `json:"mod_time"` // 修改时间
+	IsToday  bool   `json:"is_today"` // 是否为今日日志（未归档）
+	Category string `json:"category"` // 日志类型：app, request, cmd, libvirt
+}
+
+// LogStatusResponse 日志状态响应
+type LogStatusResponse struct {
+	TotalSize      int64         `json:"total_size"`       // 总占用磁盘大小（字节）
+	TotalSizeHuman string        `json:"total_size_human"` // 人类可读的总大小
+	Files          []LogFileInfo `json:"files"`            // 日志文件列表
+	Categories     []string      `json:"categories"`       // 日志类别列表
+}
+
+// GetLogStatus 获取日志状态（文件列表、磁盘占用）
+func GetLogStatus(c *gin.Context) {
+	logDir := logger.GetLogDir()
+	if logDir == "" {
+		logDir = config.GlobalConfig.LogDir
+	}
+
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    200,
+			"message": "ok",
+			"data": LogStatusResponse{
+				TotalSize:      0,
+				TotalSizeHuman: "0 B",
+				Files:          []LogFileInfo{},
+				Categories:     []string{"app", "request", "cmd", "libvirt"},
+			},
+		})
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	var files []LogFileInfo
+	var totalSize int64
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// 仅处理日志相关文件
+		if !strings.HasSuffix(name, ".log") && !strings.HasSuffix(name, ".log.gz") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		size := info.Size()
+		totalSize += size
+		modTime := info.ModTime().Format("2006-01-02 15:04:05")
+
+		// 判断是否为今日日志（未归档的当前文件）
+		// 当前日志文件格式如: app.log, request.log, cmd.log, libvirt.log
+		isToday := false
+		category := ""
+
+		// 检查是否为当前日志文件（无时间戳后缀）
+		for _, cat := range []string{"app", "request", "cmd", "libvirt"} {
+			if name == cat+".log" {
+				isToday = true
+				category = cat
+				break
+			}
+		}
+
+		// 如果不是当前文件，从文件名中提取类别
+		if category == "" {
+			for _, cat := range []string{"app", "request", "cmd", "libvirt"} {
+				if strings.HasPrefix(name, cat+"-") || strings.HasPrefix(name, cat+".") {
+					category = cat
+					break
+				}
+			}
+			// 检查归档文件是否也是今天的（修改时间在今天）
+			if strings.Contains(info.ModTime().Format("2006-01-02"), today) {
+				isToday = true
+			}
+		}
+
+		files = append(files, LogFileInfo{
+			Name:     name,
+			Size:     size,
+			ModTime:  modTime,
+			IsToday:  isToday,
+			Category: category,
+		})
+	}
+
+	// 按修改时间倒序排序
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime > files[j].ModTime
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "ok",
+		"data": LogStatusResponse{
+			TotalSize:      totalSize,
+			TotalSizeHuman: formatBytes(totalSize),
+			Files:          files,
+			Categories:     []string{"app", "request", "cmd", "libvirt"},
+		},
+	})
+}
+
+// DeleteLogsRequest 删除日志请求
+type DeleteLogsRequest struct {
+	Files []string `json:"files" binding:"required"` // 要删除的文件名列表
+}
+
+// DeleteLogs 删除指定日志文件
+func DeleteLogs(c *gin.Context) {
+	var req DeleteLogsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	if len(req.Files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请选择要删除的日志文件"})
+		return
+	}
+
+	logDir := logger.GetLogDir()
+	if logDir == "" {
+		logDir = config.GlobalConfig.LogDir
+	}
+
+	var deleted []string
+	var failed []string
+
+	for _, filename := range req.Files {
+		// 安全校验：确保文件名不包含路径穿越
+		baseName := filepath.Base(filename)
+		if baseName != filename {
+			failed = append(failed, filename)
+			continue
+		}
+		// 只允许删除日志文件
+		if !strings.HasSuffix(baseName, ".log") && !strings.HasSuffix(baseName, ".log.gz") {
+			failed = append(failed, filename)
+			continue
+		}
+
+		fullPath := filepath.Join(logDir, baseName)
+		if err := os.Remove(fullPath); err != nil {
+			failed = append(failed, filename)
+			logger.App.Warn("删除日志文件失败", "file", filename, "error", err)
+		} else {
+			deleted = append(deleted, filename)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": fmt.Sprintf("成功删除 %d 个文件", len(deleted)),
+		"data": gin.H{
+			"deleted": deleted,
+			"failed":  failed,
+		},
+	})
+}
+
+// ExportLogsRequest 导出日志请求
+type ExportLogsRequest struct {
+	Files []string `json:"files" binding:"required"` // 要导出的文件名列表
+}
+
+// ExportLogs 导出选中的日志文件为 ZIP 压缩包
+func ExportLogs(c *gin.Context) {
+	var req ExportLogsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	if len(req.Files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请选择要导出的日志文件"})
+		return
+	}
+
+	logDir := logger.GetLogDir()
+	if logDir == "" {
+		logDir = config.GlobalConfig.LogDir
+	}
+
+	// 生成导出文件名
+	exportName := fmt.Sprintf("qvmconsole-logs-%s.zip", time.Now().Format("20060102-150405"))
+
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, exportName))
+
+	zipWriter := zip.NewWriter(c.Writer)
+	defer zipWriter.Close()
+
+	for _, filename := range req.Files {
+		// 安全校验
+		baseName := filepath.Base(filename)
+		if baseName != filename {
+			continue
+		}
+		if !strings.HasSuffix(baseName, ".log") && !strings.HasSuffix(baseName, ".log.gz") {
+			continue
+		}
+
+		fullPath := filepath.Join(logDir, baseName)
+		file, err := os.Open(fullPath)
+		if err != nil {
+			logger.App.Warn("导出日志文件失败：无法打开", "file", filename, "error", err)
+			continue
+		}
+
+		// 在 ZIP 中使用清理后的文件名（去掉路径）
+		zipEntry, err := zipWriter.Create(baseName)
+		if err != nil {
+			file.Close()
+			logger.App.Warn("导出日志文件失败：无法创建 ZIP 条目", "file", filename, "error", err)
+			continue
+		}
+
+		_, err = io.Copy(zipEntry, file)
+		file.Close()
+		if err != nil {
+			logger.App.Warn("导出日志文件失败：写入 ZIP 错误", "file", filename, "error", err)
+		}
+	}
+}
+
+// formatBytes 将字节数转换为人类可读格式
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
