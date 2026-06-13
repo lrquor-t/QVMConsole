@@ -4,6 +4,7 @@ export const DEFAULT_WINDOWS_TEMPLATE_CATEGORY = 'WindowsServer2022'
 export const LINUX_TEMPLATE_CATEGORY_OPTIONS = [
   'Ubuntu',
   'Debian',
+  'CentOS',
 ]
 
 export const WINDOWS_TEMPLATE_CATEGORY_OPTIONS = [

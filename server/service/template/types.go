@@ -36,6 +36,7 @@ var (
 	linuxTemplateCategories = []string{
 		defaultLinuxTemplateCategory,
 		"Debian",
+		"CentOS",
 	}
 
 	windowsTemplateCategories = []string{

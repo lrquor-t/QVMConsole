@@ -39,8 +39,8 @@ func prepareLinuxNoCloudInit(params *CloneParams, cloneDisk string) error {
 
 	args := []string{
 		"-a", cloneDisk,
-		// 0. 确保 cloud-init 和 growpart 已安装（无网络环境下安装会静默失败，不影响后续流程）
-		"--install", "cloud-init,cloud-guest-utils",
+		// 0. 确保 cloud-init 和 growpart 已安装（跨发行版，无网络环境下安装会静默失败，不影响后续流程）
+		"--run-command", "if command -v dnf >/dev/null 2>&1; then dnf install -y cloud-init cloud-utils-growpart 2>/dev/null || true; elif command -v apt-get >/dev/null 2>&1; then apt-get update -qq 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init cloud-guest-utils 2>/dev/null || true; elif command -v yum >/dev/null 2>&1; then yum install -y cloud-init cloud-utils-growpart 2>/dev/null || true; fi",
 		// 1. 清理 machine-id（重置实例身份）
 		"--run-command", "truncate -s 0 /etc/machine-id 2>/dev/null || rm -f /etc/machine-id",
 		"--run-command", "rm -f /var/lib/dbus/machine-id 2>/dev/null || true",

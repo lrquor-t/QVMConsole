@@ -481,7 +481,7 @@ const publishCategoryOptions = computed(() => publishForm.value.type === 'window
   : LINUX_TEMPLATE_CATEGORY_OPTIONS)
 const publishCategoryPlaceholder = computed(() => publishForm.value.type === 'windows'
   ? '默认归入 WindowsServer2022，可选择 Windows10 / WindowsServer2012R2'
-  : '默认归入 Ubuntu，可选择 Debian')
+  : '默认归入 Ubuntu，可选择 Debian、CentOS')
 const publishCategoryTip = computed(() => publishForm.value.type === 'windows'
   ? 'Windows 模板按版本分类展示，2012 R2 会保留模板默认硬件配置用于克隆'
   : 'Linux 模板按发行版分类展示')

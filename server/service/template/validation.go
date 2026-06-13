@@ -28,7 +28,7 @@ func ValidateTemplateCategory(templateType, category string) error {
 		if normalizedType == "windows" {
 			return fmt.Errorf("Windows 模板分类仅支持 WindowsServer2022、Windows10 或 WindowsServer2012R2")
 		}
-		return fmt.Errorf("Linux 模板分类仅支持 Ubuntu 或 Debian")
+		return fmt.Errorf("Linux 模板分类仅支持 Ubuntu、Debian 或 CentOS")
 	}
 	return nil
 }
