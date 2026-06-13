@@ -59,8 +59,9 @@ var (
 	HookOvsUplink        func() string
 	HookEnsureOVSNetwork func() error
 
-	HookEnsureOVSBridgeExists func(bridge string) error
-	HookEnsureOVSBridgeDirect func(bridge, uplink string, migrateHostIP bool, hostAddrs, hostGW, hostMetric string) error
+	HookEnsureOVSBridgeExists      func(bridge string) error
+	HookEnsureOVSBridgeDirect      func(bridge, uplink string, migrateHostIP bool, hostAddrs, hostGW, hostMetric string) error
+	HookGetOVSBridgePhysicalUplink func(bridge string) string
 
 	HookBridgeNameForSwitch    func(sw model.VPCSwitch) string
 	HookSwitchUsesDirectBridge func(sw model.VPCSwitch) bool

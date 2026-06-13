@@ -21,12 +21,27 @@ func EnsureVPCSwitchRuntime(sw model.VPCSwitch) error {
 		sw.BridgeMode = BridgeModeNAT
 	}
 	if HookSwitchUsesDirectBridge(sw) {
+		bridgeName := HookBridgeNameForSwitch(sw)
 		var bridge model.NetworkBridge
-		if err := model.DB.Where("name = ?", HookBridgeNameForSwitch(sw)).First(&bridge).Error; err != nil {
-			return fmt.Errorf("桥接网桥 %s 不存在", HookBridgeNameForSwitch(sw))
-		}
-		if err := HookEnsureOVSBridgeDirect(bridge.Name, bridge.UplinkIF, bridge.MigrateHostIP, bridge.HostAddrs, bridge.HostGateway, bridge.HostMetric); err != nil {
-			return err
+		if err := model.DB.Where("name = ?", bridgeName).First(&bridge).Error; err != nil {
+			// 数据库中没有记录，回退到 OVS 系统层检查
+			if HookEnsureOVSBridgeExists != nil {
+				if err := HookEnsureOVSBridgeExists(bridgeName); err != nil {
+					return fmt.Errorf("桥接网桥 %s 不存在", bridgeName)
+				}
+			}
+			// 网桥存在但数据库无记录，从系统层发现上联信息
+			uplink := ""
+			if HookGetOVSBridgePhysicalUplink != nil {
+				uplink = HookGetOVSBridgePhysicalUplink(bridgeName)
+			}
+			if err := HookEnsureOVSBridgeDirect(bridgeName, uplink, false, "", "", ""); err != nil {
+				return err
+			}
+		} else {
+			if err := HookEnsureOVSBridgeDirect(bridge.Name, bridge.UplinkIF, bridge.MigrateHostIP, bridge.HostAddrs, bridge.HostGateway, bridge.HostMetric); err != nil {
+				return err
+			}
 		}
 		return ApplyVPCSwitchBandwidth(sw)
 	}

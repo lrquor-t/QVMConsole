@@ -91,7 +91,7 @@ func ListNetworkBridges() ([]NetworkBridgeInfo, error) {
 		if seen[ovsBr] {
 			continue
 		}
-		uplink := detectOVSBridgePhysicalUplink(ovsBr)
+		uplink := DetectOVSBridgePhysicalUplink(ovsBr)
 		if uplink == "" {
 			// 跳过没有物理网卡上联的残留网桥（端口设备已不存在）
 			continue
@@ -125,9 +125,9 @@ func readOVSBridgeList() []string {
 	return strings.Fields(strings.TrimSpace(result.Stdout))
 }
 
-// detectOVSBridgePhysicalUplink finds the physical NIC attached to the given OVS bridge.
+// DetectOVSBridgePhysicalUplink finds the physical NIC attached to the given OVS bridge.
 // It reverses readOVSPortBridgeMap to find the first physical port on the bridge.
-func detectOVSBridgePhysicalUplink(bridge string) string {
+func DetectOVSBridgePhysicalUplink(bridge string) string {
 	ports := readOVSPortBridgeMap()
 	for port, br := range ports {
 		if br == bridge && isPhysicalInterface(port) {

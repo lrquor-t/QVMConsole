@@ -246,6 +246,7 @@ func init() {
 		cfg := bridge.HostIPConfig{Addrs: hostAddrs, Gateway: hostGW, Metric: hostMetric}
 		return EnsureOVSBridgeDirect(bridgeName, uplink, migrateHostIP, cfg)
 	}
+	vpcpkg.HookGetOVSBridgePhysicalUplink = bridge.DetectOVSBridgePhysicalUplink
 	vpcpkg.HookBridgeNameForSwitch = BridgeNameForSwitch
 	vpcpkg.HookSwitchUsesDirectBridge = SwitchUsesDirectBridge
 	vpcpkg.HookBridgeModeForSwitch = BridgeModeForSwitch

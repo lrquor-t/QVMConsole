@@ -167,7 +167,14 @@ func resolveVPCSwitchBridge(role, requested string) (string, string, error) {
 	}
 	var bridge model.NetworkBridge
 	if err := model.DB.Where("name = ? AND mode = ?", requested, BridgeModeDirect).First(&bridge).Error; err != nil {
-		return "", "", fmt.Errorf("桥接网桥不存在")
+		// 数据库中没有记录，回退到 OVS 系统层检查
+		if HookEnsureOVSBridgeExists != nil {
+			if err := HookEnsureOVSBridgeExists(requested); err != nil {
+				return "", "", fmt.Errorf("桥接网桥不存在")
+			}
+		}
+		// 网桥在 OVS 中存在但数据库无记录，允许继续创建
+		return requested, BridgeModeDirect, nil
 	}
 	return bridge.Name, BridgeModeDirect, nil
 }
