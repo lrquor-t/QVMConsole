@@ -69,9 +69,10 @@ func prepareLinuxNoCloudInit(params *CloneParams, cloneDisk string) error {
 	}
 
 	// 7. 离线修改密码（通过 virt-customize --password，直接修改 /etc/shadow，无需 cloud-init）
+	// root 密码始终设置；templateUser 若不是 root 则也设置（避免对 root 重复设置导致 virt-customize 报错）
 	if params.Password != "" {
 		args = append(args, "--password", "root:password:"+params.Password)
-		if templateUser != "" {
+		if templateUser != "" && templateUser != "root" {
 			args = append(args, "--password", templateUser+":password:"+params.Password)
 		}
 	}
@@ -91,7 +92,8 @@ func prepareLinuxNoCloudInit(params *CloneParams, cloneDisk string) error {
 		)
 		args = append(args, "--run-command", renameCmd)
 		// 重命名后再对新用户名设置一次密码（确保生效）
-		if params.Password != "" {
+		// 若新用户名为 root 则跳过（root 密码已在前面设置）
+		if params.Password != "" && params.User != "root" {
 			args = append(args, "--password", params.User+":password:"+params.Password)
 		}
 	}
