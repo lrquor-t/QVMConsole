@@ -71,6 +71,7 @@ func buildReinstallCloneParams(params *ReinstallParams, diskBus string, template
 		Name:                 params.Name,
 		Template:             params.Template,
 		TemplateType:         params.TemplateType,
+		TemplateCategory:     templateMeta.Category,
 		DiskSize:             params.DiskSize,
 		Hostname:             strings.TrimSpace(params.Hostname),
 		User:                 strings.TrimSpace(params.User),
@@ -226,7 +227,7 @@ func ReinstallVM(ctx context.Context, params *ReinstallParams, progressFn func(i
 		if err := D.PrepareWindowsSystemDiskExpansion(ctx, systemDisk.Path, progressFn); err != nil {
 			return err
 		}
-		injectWindowsCloudbaseInitFiles(params.Name, systemDisk.Path, progressFn)
+		injectWindowsCloudbaseInitFiles(params.Name, systemDisk.Path, cloneParams.TemplateCategory, progressFn)
 		// 创建 Config Drive ISO，并更新 VM XML 挂载为 CD-ROM
 		isoPath, isoErr := createWindowsConfigDriveISO(
 			params.Name, cloneParams.Hostname, cloneParams.Password)

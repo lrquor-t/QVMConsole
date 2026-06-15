@@ -109,6 +109,10 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 		tplType = "linux"
 	}
 	params.TemplateType = tplType
+	// 填充模板二级分类（用于 Windows 版本差异化初始化）
+	if params.TemplateCategory == "" && meta != nil {
+		params.TemplateCategory = meta.Category
+	}
 	if params.DiskBus == "" {
 		params.DiskBus = "virtio"
 	}

@@ -46,11 +46,41 @@ check_latest_version=false
 `
 }
 
-// buildWindowsPantherUnattendXML 返回注入到 /Windows/Panther/unattend.xml 的标准
-// CloudbaseInit Unattend.xml 内容。specialize pass 调用 cloudbase-init-unattend 读取
-// Config Drive 设置主机名；oobeSystem pass 跳过所有 OOBE 向导界面。
-func buildWindowsPantherUnattendXML() string {
-	return `<?xml version="1.0" encoding="utf-8"?>
+// buildWindowsPantherUnattendXML 根据 Windows 版本生成 Unattend.xml 内容。
+// specialize pass: 禁用 AutoLogon + 设置临时密码
+// oobeSystem pass: 跳过 OOBE 向导（Server 2025 需要额外的 UserAccounts + AutoLogon）
+func buildWindowsPantherUnattendXML(category string) string {
+	needOOBEBypass := strings.EqualFold(category, "WindowsServer2025")
+
+	// Windows Server 2025 oobeSystem pass 必须同时包含：
+	// 1. UserAccounts/AdministratorPassword → 告知 Windows 管理员密码已配置
+	// 2. AutoLogon(LogonCount=1) → 强制跳过 Server 版的密码设置屏幕
+	oobeContent := `
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>1</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>`
+	if needOOBEBypass {
+		oobeContent = `
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>Temp@BootInit#1</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>1</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>`
+	}
+
+	return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
   <settings pass="generalize">
     <component name="Microsoft-Windows-PnpSysprep" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -58,14 +88,7 @@ func buildWindowsPantherUnattendXML() string {
     </component>
   </settings>
   <settings pass="oobeSystem">
-    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <OOBE>
-        <HideEULAPage>true</HideEULAPage>
-        <NetworkLocation>Work</NetworkLocation>
-        <ProtectYourPC>1</ProtectYourPC>
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
-      </OOBE>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">%s
     </component>
   </settings>
   <settings pass="specialize">
@@ -86,17 +109,62 @@ func buildWindowsPantherUnattendXML() string {
       </RunSynchronous>
     </component>
   </settings>
-</unattend>`
+</unattend>`, oobeContent)
 }
 
-// injectWindowsCloudbaseInitFiles 通过 virt-customize 向克隆磁盘注入两个文件（单次调用）：
-//  1. /Windows/Panther/unattend.xml：specialize 阶段禁用自动登录 + 设置临时密码
-//  2. cloudbase-init.conf：主服务配置（含完整插件列表，密码注入、主机名设置等）
+// detectWindowsNTFSPartition 检测磁盘镜像中的 Windows NTFS 系统分区。
+// 使用 guestfish 列举文件系统，返回包含 /Windows 目录的 NTFS 分区设备路径。
+// 如果检测失败，返回空字符串。
+func detectWindowsNTFSPartition(diskPath string) string {
+	// 列出所有文件系统
+	result := utils.ExecCommandLongRunning("guestfish", "--ro", "-a", diskPath,
+		"run", ":", "list-filesystems")
+	if result.Error != nil {
+		logger.App.Warn("检测 Windows 分区失败: guestfish list-filesystems", "error", result.Stderr)
+		return ""
+	}
+
+	// 解析输出，寻找 NTFS 分区（格式: /dev/sdaX: ntfs）
+	var ntfsPartitions []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, "ntfs") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) >= 1 {
+				ntfsPartitions = append(ntfsPartitions, strings.TrimSpace(parts[0]))
+			}
+		}
+	}
+
+	if len(ntfsPartitions) == 0 {
+		logger.App.Warn("未发现 NTFS 分区", "disk", diskPath)
+		return ""
+	}
+
+	// 尝试每个 NTFS 分区，找到含 /Windows 目录的系统分区
+	for _, part := range ntfsPartitions {
+		checkResult := utils.ExecCommandLongRunning("guestfish", "--ro", "-a", diskPath,
+			"run", ":", "mount-ro", part, "/", ":", "is-dir", "/Windows")
+		if checkResult.Error == nil && strings.TrimSpace(checkResult.Stdout) == "true" {
+			logger.App.Info("检测到 Windows 系统分区", "disk", diskPath, "partition", part)
+			return part
+		}
+	}
+
+	// 未找到含 /Windows 的分区，回退使用第一个 NTFS 分区
+	logger.App.Warn("未找到含 /Windows 的 NTFS 分区，使用第一个 NTFS 分区", "partition", ntfsPartitions[0])
+	return ntfsPartitions[0]
+}
+
+// injectWindowsCloudbaseInitFiles 通过 virt-customize 向克隆磁盘注入配置文件：
+//  1. /Program Files/Cloudbase Solutions/Cloudbase-Init/conf/Unattend.xml
+//  2. /Windows/Panther/unattend.xml
+//  3. /Program Files/Cloudbase Solutions/Cloudbase-Init/conf/cloudbase-init.conf
 //
-// 设计原则：specialize 阶段不再调用 cloudbase-init-unattend.exe，避免其元数据源
-// 不可用时导致 exit 2 触发重启循环或黑屏。主机名由 cloudbase-init 主服务负责。
+// 当 libguestfs 的 OS 自动检测失败时（Windows Server 2025 已知问题），
+// 自动回退为显式挂载 NTFS 分区（通过 -m 参数），绕过 OS 检测。
 // 注入失败仅记录警告，不中断克隆流程。
-func injectWindowsCloudbaseInitFiles(vmName, cloneDisk string, progressFn func(int, string)) {
+func injectWindowsCloudbaseInitFiles(vmName, cloneDisk, category string, progressFn func(int, string)) {
 	if progressFn == nil {
 		progressFn = func(int, string) {}
 	}
@@ -107,18 +175,54 @@ func injectWindowsCloudbaseInitFiles(vmName, cloneDisk string, progressFn func(i
 	_ = os.WriteFile(confPath, []byte(confContent), 0600)
 	defer func() { _ = os.Remove(confPath) }()
 
-	unattendContent := buildWindowsPantherUnattendXML()
+	unattendContent := buildWindowsPantherUnattendXML(category)
 	unattendPath := fmt.Sprintf("/tmp/_cbi-unattend-%s.xml", vmName)
 	_ = os.WriteFile(unattendPath, []byte(unattendContent), 0600)
 	defer func() { _ = os.Remove(unattendPath) }()
 
-	injectResult := utils.ExecCommandLongRunning("virt-customize", "-a", cloneDisk, "--no-network",
-		"--upload", unattendPath+":/Windows/Panther/unattend.xml",
-		"--upload", confPath+`:/Program Files/Cloudbase Solutions/Cloudbase-Init/conf/cloudbase-init.conf`,
-		"--quiet")
+	// 构造注入参数（上传到三个关键路径）
+	uploadArgs := []string{
+		"--mkdir", "/Windows/Panther/Unattend",
+		"--upload", unattendPath + `:/Program Files/Cloudbase Solutions/Cloudbase-Init/conf/Unattend.xml`,
+		"--upload", unattendPath + ":/Windows/Panther/unattend.xml",
+		"--upload", confPath + `:/Program Files/Cloudbase Solutions/Cloudbase-Init/conf/cloudbase-init.conf`,
+		"--quiet",
+	}
+
+	// 第一次尝试：使用默认 OS 检测（适用于大多数 Windows 版本）
+	args := append([]string{"-a", cloneDisk, "--no-network"}, uploadArgs...)
+	injectResult := utils.ExecCommandLongRunning("virt-customize", args...)
+
+	if injectResult.Error != nil && strings.Contains(injectResult.Stderr, "no operating system") {
+		// OS 检测失败（Windows Server 2025 已知问题），回退为 guestfish 显式挂载分区
+		logger.App.Info("virt-customize OS 检测失败，尝试 guestfish 显式挂载 NTFS 分区", "vm", vmName)
+		progressFn(36, "检测 Windows 分区...")
+
+		winPart := detectWindowsNTFSPartition(cloneDisk)
+		if winPart == "" {
+			progressFn(38, "CloudbaseInit 配置文件注入失败，无法检测 Windows 分区")
+			logger.App.Warn("注入 CloudbaseInit 配置失败: 无法检测 Windows 分区", "vm", vmName)
+			return
+		}
+
+		// 使用 guestfish 显式挂载分区，绕过 OS 检测
+		// ntfsfix 清除可能的脏标记（重装场景中 VM 可能未正常关机）
+		progressFn(37, "通过 guestfish 注入文件...")
+		injectResult = utils.ExecCommandLongRunning("guestfish", "--rw", "-a", cloneDisk,
+			"run", ":",
+			"ntfsfix", winPart, ":",
+			"mount", winPart, "/", ":",
+			"mkdir-p", "/Windows/Panther/Unattend", ":",
+			"upload", unattendPath, "/Program Files/Cloudbase Solutions/Cloudbase-Init/conf/Unattend.xml", ":",
+			"upload", unattendPath, "/Windows/Panther/unattend.xml", ":",
+			"upload", confPath, "/Program Files/Cloudbase Solutions/Cloudbase-Init/conf/cloudbase-init.conf")
+	}
+
 	if injectResult.Error != nil {
 		progressFn(38, "CloudbaseInit 配置文件注入失败，首次启动可能需要手动设置")
 		logger.App.Warn("注入 CloudbaseInit 配置失败", "vm", vmName, "error", injectResult.Stderr)
+	} else {
+		logger.App.Info("CloudbaseInit 配置文件注入成功", "vm", vmName)
 	}
 }
 
@@ -157,7 +261,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 		}
 
 		// 注入 CloudbaseInit 配置文件（cloudbase-init.conf + Panther unattend.xml）
-		injectWindowsCloudbaseInitFiles(params.Name, cloneDisk, progressFn)
+		injectWindowsCloudbaseInitFiles(params.Name, cloneDisk, params.TemplateCategory, progressFn)
 
 		// 创建 Config Drive ISO（包含实例 hostname、admin_pass、instance-id）
 		isoPath, isoErr = createWindowsConfigDriveISO(params.Name, params.Hostname, password)

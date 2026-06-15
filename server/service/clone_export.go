@@ -17,6 +17,7 @@ func GetTemplateMetaForClone(templateName string) *clonepkg.TemplateMeta {
 	}
 	result := &clonepkg.TemplateMeta{
 		Type:          meta.Type,
+		Category:      meta.Category,
 		BootType:      meta.BootType,
 		RootPassword:  meta.RootPassword,
 		TemplateUser:  meta.TemplateUser,

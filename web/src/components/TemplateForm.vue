@@ -145,7 +145,7 @@ const form = reactive({
 
 const categoryOptions = computed(() => form.type === 'windows' ? WINDOWS_TEMPLATE_CATEGORY_OPTIONS : LINUX_TEMPLATE_CATEGORY_OPTIONS)
 const categoryPlaceholder = computed(() => form.type === 'windows'
-  ? '默认归入 WindowsServer2022，可选择 Windows10 / WindowsServer2012R2 / 其它'
+  ? '默认归入 WindowsServer2022，可选择 WindowsServer2025 / Windows10 / WindowsServer2012R2 / 其它'
   : '默认归入 Ubuntu，可选择 Debian、CentOS')
 const categoryTip = computed(() => form.type === 'windows'
   ? 'Windows 模板按版本分类展示，2012 R2 会保留 BIOS/SATA 等默认配置用于克隆'

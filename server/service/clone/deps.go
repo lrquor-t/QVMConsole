@@ -114,6 +114,7 @@ type Deps struct {
 // TemplateMeta mirrors service.TemplateMeta for use within the clone package.
 type TemplateMeta struct {
 	Type          string                 `json:"type"`
+	Category      string                 `json:"category"` // 二级分类（如 WindowsServer2025/WindowsServer2022 等）
 	BootType      string                 `json:"boot_type"`
 	RootPassword  string                 `json:"root_password"`   // 已废弃，保留兼容旧元数据
 	TemplateUser  string                 `json:"template_user"`   // 模板中的普通用户名（用于用户名重命名）
