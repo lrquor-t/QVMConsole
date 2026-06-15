@@ -150,6 +150,9 @@ func detectWindowsTemplateCategoryFromName(templateName string) string {
 	nameLower := strings.ToLower(strings.TrimSpace(templateName))
 	compact := strings.NewReplacer(" ", "", "_", "", "-", "", ".", "").Replace(nameLower)
 	switch {
+	case strings.Contains(compact, "windows11") ||
+		strings.Contains(compact, "win11"):
+		return "Windows11"
 	case strings.Contains(compact, "windowsserver2012r2") ||
 		strings.Contains(compact, "server2012r2") ||
 		strings.Contains(compact, "win2012r2") ||

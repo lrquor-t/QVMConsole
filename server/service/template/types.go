@@ -42,6 +42,7 @@ var (
 	windowsTemplateCategories = []string{
 		defaultWindowsTemplateCategory,
 		"WindowsServer2025",
+		"Windows11",
 		"Windows10",
 		"WindowsServer2012R2",
 		"其它",

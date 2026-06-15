@@ -48,9 +48,10 @@ check_latest_version=false
 
 // buildWindowsPantherUnattendXML 根据 Windows 版本生成 Unattend.xml 内容。
 // specialize pass: 禁用 AutoLogon + 设置临时密码
-// oobeSystem pass: 跳过 OOBE 向导（Server 2025 需要额外的 UserAccounts + AutoLogon）
+// oobeSystem pass: 跳过 OOBE 向导（Server 2025 / Windows 11 需要额外的 UserAccounts + AutoLogon）
 func buildWindowsPantherUnattendXML(category string) string {
-	needOOBEBypass := strings.EqualFold(category, "WindowsServer2025")
+	needOOBEBypass := strings.EqualFold(category, "WindowsServer2025") ||
+		strings.EqualFold(category, "Windows11")
 
 	// Windows Server 2025 oobeSystem pass 必须同时包含：
 	// 1. UserAccounts/AdministratorPassword → 告知 Windows 管理员密码已配置

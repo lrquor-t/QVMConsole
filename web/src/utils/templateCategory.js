@@ -10,6 +10,7 @@ export const LINUX_TEMPLATE_CATEGORY_OPTIONS = [
 export const WINDOWS_TEMPLATE_CATEGORY_OPTIONS = [
   'WindowsServer2025',
   'WindowsServer2022',
+  'Windows11',
   'Windows10',
   'WindowsServer2012R2',
   '其它',
