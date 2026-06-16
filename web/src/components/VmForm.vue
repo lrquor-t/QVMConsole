@@ -2351,7 +2351,7 @@ const submitButtonText = computed(() => registrationMode.value ? '加入注册�
 
 const allRequiredFilled = computed(() => {
   if (isEdit.value) return true
-  const nameOk = /^[a-zA-Z0-9]+$/.test(form.name)
+  const nameOk = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(form.name)
   const vcpuOk = form.vcpu > 0
   const ramOk = form.ram > 0
   if (!nameOk || !vcpuOk || !ramOk) return false
@@ -2374,7 +2374,7 @@ const allRequiredFilled = computed(() => {
 
 const allRequiredTip = computed(() => {
   const missing = []
-  if (!/^[a-zA-Z0-9]+$/.test(form.name)) missing.push('虚拟机名称')
+  if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(form.name)) missing.push('虚拟机名称')
   if (form.vcpu <= 0) missing.push('CPU 核心')
   if (form.ram <= 0) missing.push('内存')
   if (!isAdmin.value && !form.security_group_id) missing.push('安全组')
