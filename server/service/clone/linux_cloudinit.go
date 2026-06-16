@@ -39,8 +39,31 @@ func prepareLinuxNoCloudInit(params *CloneParams, cloneDisk string) error {
 
 	args := []string{
 		"-a", cloneDisk,
-		// 0. 确保 cloud-init 和 growpart 已安装（跨发行版，无网络环境下安装会静默失败，不影响后续流程）
-		"--run-command", "if command -v dnf >/dev/null 2>&1; then dnf install -y cloud-init cloud-utils-growpart 2>/dev/null || true; elif command -v apt-get >/dev/null 2>&1; then apt-get update -qq 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init cloud-guest-utils 2>/dev/null || true; elif command -v yum >/dev/null 2>&1; then yum install -y cloud-init cloud-utils-growpart 2>/dev/null || true; fi",
+		// 0. 确保 cloud-init 和 growpart 已安装（使用国内镜像源加速；安装失败仅告警不阻断，不影响密码/账户等底线初始化）
+		"--run-command", "if command -v dnf >/dev/null 2>&1; then " +
+			"if ! rpm -q cloud-init cloud-utils-growpart &>/dev/null; then " +
+			"for repo in /etc/yum.repos.d/*.repo; do [ -f \"$repo\" ] || continue; " +
+			"sed -i 's|^mirrorlist=|#mirrorlist=|g; s|^metalink=|#metalink=|g' \"$repo\"; " +
+			"sed -i 's|mirror.centos.org|mirrors.aliyun.com|g; s|dl.fedoraproject.org/pub|mirrors.aliyun.com|g' \"$repo\"; " +
+			"sed -i 's|^#baseurl=|baseurl=|g' \"$repo\"; done; " +
+			"dnf install -y cloud-init cloud-utils-growpart 2>/dev/null || echo \"QVM_WARN: cloud-init/growpart dnf install failed, disk auto-resize disabled\" >&2; " +
+			"fi; " +
+			"elif command -v apt-get >/dev/null 2>&1; then " +
+			"if ! dpkg -s cloud-init cloud-guest-utils &>/dev/null; then " +
+			"for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do [ -f \"$f\" ] || continue; " +
+			"sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g; s|http://security.ubuntu.com|https://mirrors.aliyun.com|g; s|http://deb.debian.org|https://mirrors.aliyun.com|g; s|http://security.debian.org|https://mirrors.aliyun.com/debian-security|g' \"$f\"; done; " +
+			"if apt-get update -qq 2>/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init cloud-guest-utils 2>/dev/null || echo \"QVM_WARN: cloud-init/growpart apt-get install failed, disk auto-resize disabled\" >&2; " +
+			"else echo \"QVM_WARN: apt-get update failed (no network?), disk auto-resize disabled\" >&2; fi; " +
+			"fi; " +
+			"elif command -v yum >/dev/null 2>&1; then " +
+			"if ! rpm -q cloud-init cloud-utils-growpart &>/dev/null; then " +
+			"for repo in /etc/yum.repos.d/*.repo; do [ -f \"$repo\" ] || continue; " +
+			"sed -i 's|^mirrorlist=|#mirrorlist=|g' \"$repo\"; " +
+			"sed -i 's|mirror.centos.org|mirrors.aliyun.com|g' \"$repo\"; " +
+			"sed -i 's|^#baseurl=|baseurl=|g' \"$repo\"; done; " +
+			"yum install -y cloud-init cloud-utils-growpart 2>/dev/null || echo \"QVM_WARN: cloud-init/growpart yum install failed, disk auto-resize disabled\" >&2; " +
+			"fi; " +
+			"fi",
 		// 1. 清理 machine-id（重置实例身份）
 		"--run-command", "truncate -s 0 /etc/machine-id 2>/dev/null || rm -f /etc/machine-id",
 		"--run-command", "rm -f /var/lib/dbus/machine-id 2>/dev/null || true",
