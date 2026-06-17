@@ -881,7 +881,9 @@
     >
       <el-form :model="switchForm" label-width="140px" label-position="left">
         <el-form-item v-if="isAdmin" label="所属用户">
-          <el-input v-model="switchForm.username" placeholder="留空使用筛选用户或当前管理员" />
+          <el-select v-model="switchForm.username" filterable clearable placeholder="选择用户" style="width: 100%;" :loading="switchUserLoading">
+            <el-option v-for="user in switchUserOptions" :key="user.username" :label="user.label || user.username" :value="user.username" />
+          </el-select>
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="switchForm.name" placeholder="请输入交换机名称" />
@@ -1322,6 +1324,8 @@ const probeSubmitting = ref(false)
 
 const switchDialogVisible = ref(false)
 const editingSwitch = ref(null)
+const switchUserOptions = ref([])
+const switchUserLoading = ref(false)
 const switchForm = reactive({ username: '', name: '', bridge_name: 'br-ovs', bridge_vlan_id: 0, allow_promiscuous: false, allow_mac_change: false, allow_forged_transmits: false, cidr: '', gateway_ip: '', dhcp_start: '', dhcp_end: '', traffic_down_gb: 0, traffic_up_gb: 0, bandwidth_down_mbps: 0, bandwidth_up_mbps: 0, bandwidth_mbps: 0 })
 
 const bridgeDialogVisible = ref(false)
@@ -1589,6 +1593,20 @@ async function handleRepair() {
   }
 }
 
+async function loadSwitchUserOptions() {
+  if (!isAdmin.value) return
+  switchUserLoading.value = true
+  try {
+    const res = await getUserList()
+    switchUserOptions.value = (res.data || []).map(item => ({
+      username: item.username,
+      label: item.email ? `${item.username} (${item.email})` : item.username
+    }))
+  } finally {
+    switchUserLoading.value = false
+  }
+}
+
 function openSwitchDialog(row) {
   if (row?.is_system) {
     ElMessage.warning('系统基础网络交换机仅供查看，不可编辑')
@@ -1615,6 +1633,7 @@ function openSwitchDialog(row) {
     bandwidth_mbps: 0
   })
   switchDialogVisible.value = true
+  loadSwitchUserOptions()
 }
 
 function forwardRowSelectable(row) {

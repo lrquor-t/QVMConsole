@@ -107,6 +107,20 @@ func UpdateVPCSwitch(operator, role string, id uint, req VPCSwitchRequest) (*mod
 	if role != "admin" && sw.Username != operator {
 		return nil, fmt.Errorf("无权操作此交换机")
 	}
+	// 支持管理员修改交换机所属用户
+	if role == "admin" {
+		newUsername, err := resolveVPCUsername(operator, role, req.Username)
+		if err != nil {
+			return nil, err
+		}
+		if newUsername != "" && newUsername != sw.Username {
+			sw.Username = newUsername
+			// 确保新用户存在默认安全组
+			if _, err := EnsureDefaultSecurityGroup(newUsername); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if req.BridgeName != "" && req.BridgeName != sw.BridgeName {
 		return nil, fmt.Errorf("暂不支持修改交换机目标网桥")
 	}
