@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,6 +50,8 @@ func GenerateTokenWithOperation(userID uint, username, role, tokenType, operatio
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "qvmconsole",
+			Audience:  jwt.ClaimStrings{"qvmconsole-api"},
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -59,7 +62,7 @@ func GenerateTokenWithOperation(userID uint, username, role, tokenType, operatio
 func ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.GlobalConfig.JWTSecret), nil
-	})
+	}, jwt.WithLeeway(5*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +70,32 @@ func ParseToken(tokenString string) (*Claims, error) {
 		if claims.TokenType == "" {
 			claims.TokenType = service.TokenTypeAccess
 		}
+		// iss/aud 校验（过渡期兼容：旧 token 无 iss/aud 时不拒绝）
+		if !validateIssuerAudience(claims) {
+			return nil, jwt.ErrTokenInvalidClaims
+		}
 		return claims, nil
 	}
 	return nil, jwt.ErrSignatureInvalid
+}
+
+// validateIssuerAudience 校验 iss/aud 声明，兼容无 iss/aud 的旧 token
+func validateIssuerAudience(claims *Claims) bool {
+	// 新 token 必须携带正确的 iss
+	if claims.Issuer != "" && claims.Issuer != "qvmconsole" {
+		return false
+	}
+	// 新 token 必须携带正确的 aud
+	if len(claims.Audience) > 0 {
+		for _, aud := range claims.Audience {
+			if aud == "qvmconsole-api" {
+				return true
+			}
+		}
+		return false
+	}
+	// 无 iss 且无 aud 的旧 token 允许通过
+	return true
 }
 
 // AuthMiddleware 仅允许正式访问 Token
@@ -309,7 +335,16 @@ func VMAccessMiddleware() gin.HandlerFunc {
 
 // checkUserOwnsVM 检查用户是否拥有指定VM（读取VM访问列表文件）
 func checkUserOwnsVM(username, vmName string) bool {
-	filePath := config.GlobalConfig.VMAccessDir + "/" + username
+	// 安全校验：用户名不允许包含路径分隔符、.. 序列和空字符
+	if username == "" || strings.Contains(username, "..") || strings.ContainsAny(username, "/\\") || strings.ContainsRune(username, 0) {
+		return false
+	}
+	// 使用 filepath.Join + 前缀校验双保险
+	baseDir := filepath.Clean(config.GlobalConfig.VMAccessDir)
+	filePath := filepath.Join(baseDir, username)
+	if !strings.HasPrefix(filePath, baseDir+string(filepath.Separator)) && filePath != baseDir {
+		return false
+	}
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return false

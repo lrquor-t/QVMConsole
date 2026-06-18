@@ -34,14 +34,44 @@ func EncryptSecurityText(plainText string) (string, error) {
 	return base64.StdEncoding.EncodeToString(payload), nil
 }
 
-// DecryptSecurityText 解密敏感文本
+// DecryptSecurityText 解密敏感文本（兼容旧密钥过渡期）
 func DecryptSecurityText(cipherText string) (string, error) {
+	plain, _, err := DecryptSecurityTextAutoUpgrade(cipherText)
+	return plain, err
+}
+
+// DecryptSecurityTextAutoUpgrade 解密并在旧密钥解密成功后自动用新密钥重加密
+// 返回值：plainText, upgradedCipher（空字符串表示无需升级）, error
+func DecryptSecurityTextAutoUpgrade(cipherText string) (string, string, error) {
 	raw, err := base64.StdEncoding.DecodeString(cipherText)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	block, err := aes.NewCipher(buildSecurityKey())
+	// 优先使用新密钥解密
+	plain, err := decryptRawWithKey(raw, buildSecurityKey())
+	if err == nil {
+		return plain, "", nil
+	}
+
+	// 回退到旧密钥（过渡期兼容）
+	if config.GlobalConfig.LegacySecuritySecret != "" {
+		if plain, legacyErr := decryptRawWithKey(raw, buildSecurityKeyWithSecret(config.GlobalConfig.LegacySecuritySecret)); legacyErr == nil {
+			// 旧密钥解密成功，用新密钥重新加密
+			if upgraded, encErr := EncryptSecurityText(plain); encErr == nil {
+				return plain, upgraded, nil
+			}
+			// 重加密失败不影响解密结果
+			return plain, "", nil
+		}
+	}
+
+	return "", "", err
+}
+
+// decryptRawWithKey 使用指定密钥解密原始字节
+func decryptRawWithKey(raw []byte, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -67,6 +97,10 @@ func DecryptSecurityText(cipherText string) (string, error) {
 }
 
 func buildSecurityKey() []byte {
-	sum := sha256.Sum256([]byte(config.GlobalConfig.SecuritySecret))
+	return buildSecurityKeyWithSecret(config.GlobalConfig.SecuritySecret)
+}
+
+func buildSecurityKeyWithSecret(secret string) []byte {
+	sum := sha256.Sum256([]byte(secret))
 	return sum[:]
 }

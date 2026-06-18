@@ -3,13 +3,13 @@ package security
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"kvm_console/model"
-	"kvm_console/utils"
 )
 
 // InviteDetail 邀请详情页展示信息
@@ -447,7 +447,15 @@ func GetUserTOTPSecret(user *model.User) (string, error) {
 	if user == nil || strings.TrimSpace(user.TOTPSecretEnc) == "" {
 		return "", fmt.Errorf("尚未绑定 2FA")
 	}
-	return DecryptSecurityText(user.TOTPSecretEnc)
+	plain, upgraded, err := DecryptSecurityTextAutoUpgrade(user.TOTPSecretEnc)
+	if err != nil {
+		return "", err
+	}
+	// 旧密钥解密成功后透明升级为新密钥
+	if upgraded != "" {
+		_ = model.DB.Model(&model.User{}).Where("id = ?", user.ID).Update("totp_secret_enc", upgraded).Error
+	}
+	return plain, nil
 }
 
 // HasRecoveryCodes 判断用户是否有可用恢复码
@@ -592,28 +600,28 @@ func CreateActiveUserDirectly(username, email, password, role, cloudType string,
 	now := time.Now()
 	loginVerifiedUntil := now.Add(LoginVerificationWindow)
 	user := &model.User{
-		Username:             username,
-		PasswordHash:         string(hashedPassword),
-		Email:                email,
-		Role:                 role,
-		CloudType:            cloudType,
-		Status:               UserStatusActive,
-		EmailVerifiedAt:      &now,
-		LoginVerifiedUntil:   &loginVerifiedUntil,
-		MaxCPU:               maxCPU,
-		MaxMemory:            maxMemory,
-		MaxDisk:              maxDisk,
-		MaxVM:                maxVM,
-		MaxStorage:           maxStorage,
-		MaxRuntimeHours:      maxRuntimeHours,
-		EnablePortForward:    enablePortForward,
-		MaxPortForwards:      maxPortForwards,
-		MaxSnapshots:         maxSnapshots,
-		MaxBandwidthUp:       maxBandwidthUp,
-		MaxBandwidthDown:     maxBandwidthDown,
-		MaxTrafficDown:       maxTrafficDown,
-		MaxTrafficUp:         maxTrafficUp,
-		MaxPublicIPs:         maxPublicIPs,
+		Username:           username,
+		PasswordHash:       string(hashedPassword),
+		Email:              email,
+		Role:               role,
+		CloudType:          cloudType,
+		Status:             UserStatusActive,
+		EmailVerifiedAt:    &now,
+		LoginVerifiedUntil: &loginVerifiedUntil,
+		MaxCPU:             maxCPU,
+		MaxMemory:          maxMemory,
+		MaxDisk:            maxDisk,
+		MaxVM:              maxVM,
+		MaxStorage:         maxStorage,
+		MaxRuntimeHours:    maxRuntimeHours,
+		EnablePortForward:  enablePortForward,
+		MaxPortForwards:    maxPortForwards,
+		MaxSnapshots:       maxSnapshots,
+		MaxBandwidthUp:     maxBandwidthUp,
+		MaxBandwidthDown:   maxBandwidthDown,
+		MaxTrafficDown:     maxTrafficDown,
+		MaxTrafficUp:       maxTrafficUp,
+		MaxPublicIPs:       maxPublicIPs,
 	}
 
 	if err := model.DB.Create(user).Error; err != nil {
@@ -666,9 +674,17 @@ func SyncUserPassword(username, password string) error {
 	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
 		return nil
 	}
-	result := utils.ExecShell(fmt.Sprintf("echo '%s:%s' | chpasswd", username, password))
-	if result.Error != nil {
-		return fmt.Errorf("同步系统密码失败: %s", result.Stderr)
+	// 用户名安全校验：只允许字母数字下划线横杠
+	for _, r := range username {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return fmt.Errorf("用户名包含非法字符")
+		}
+	}
+	cmd := exec.Command("chpasswd")
+	cmd.Stdin = strings.NewReader(username + ":" + password + "\n")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("同步系统密码失败: %s", string(output))
 	}
 	return nil
 }

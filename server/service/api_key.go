@@ -3,6 +3,7 @@ package service
 import (
 	crand "crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -126,8 +127,14 @@ func AuthenticateAPIKey(apiKeyID, apiKey string) (*model.User, error) {
 	if err := model.DB.Where("api_key_id = ? AND revoked_at IS NULL", apiKeyID).First(&record).Error; err != nil {
 		return nil, fmt.Errorf("API 凭证无效")
 	}
-	if record.KeyHash != hashAPIKey(apiKey) {
-		return nil, fmt.Errorf("API 凭证无效")
+	if subtle.ConstantTimeCompare([]byte(record.KeyHash), []byte(hashAPIKey(apiKey))) != 1 {
+		// 兼容旧密钥过渡期：尝试用 legacy 密钥验证
+		if config.GlobalConfig.LegacySecuritySecret == "" || subtle.ConstantTimeCompare([]byte(record.KeyHash), []byte(hashAPIKeyWithSecret(apiKey, config.GlobalConfig.LegacySecuritySecret))) != 1 {
+			return nil, fmt.Errorf("API 凭证无效")
+		}
+		// legacy 验证成功，更新为新密钥的 hash
+		newHash := hashAPIKey(apiKey)
+		_ = model.DB.Model(&record).Update("key_hash", newHash).Error
 	}
 
 	var user model.User
@@ -167,6 +174,12 @@ func randomToken(prefix string, byteSize int) (string, error) {
 
 func hashAPIKey(apiKey string) string {
 	sum := sha256.Sum256([]byte(config.GlobalConfig.SecuritySecret + ":" + apiKey))
+	return hex.EncodeToString(sum[:])
+}
+
+// hashAPIKeyWithSecret 使用指定 secret 计算 hash（兼容旧密钥）
+func hashAPIKeyWithSecret(apiKey, secret string) string {
+	sum := sha256.Sum256([]byte(secret + ":" + apiKey))
 	return hex.EncodeToString(sum[:])
 }
 

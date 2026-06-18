@@ -2,10 +2,13 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"kvm_console/config"
 )
 
 // RateLimitConfig 限频配置
@@ -74,6 +77,22 @@ func (rl *RateLimiter) Allow(ip string, isPublic bool) (bool, int, int) {
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+
+	// 防止内存泄漏：entries 超过上限时触发全量清理
+	const maxEntries = 100000
+	if len(rl.entries) > maxEntries {
+		// 紧急清理：删除所有已过期的条目
+		now := time.Now()
+		for k, v := range rl.entries {
+			if now.Sub(v.windowStart) > time.Minute {
+				delete(rl.entries, k)
+			}
+		}
+		// 如果清理后仍超限，清空所有
+		if len(rl.entries) > maxEntries {
+			rl.entries = make(map[string]*rateLimitEntry)
+		}
+	}
 
 	entry, exists := rl.entries[ip]
 	if !exists || now.Sub(entry.windowStart) > windowDuration {
@@ -155,19 +174,41 @@ func isPublicPath(path string) bool {
 
 // getClientIP 获取客户端真实 IP，优先取 X-Forwarded-For / X-Real-IP
 func getClientIP(c *gin.Context) string {
-	if ip := c.GetHeader("X-Forwarded-For"); ip != "" {
-		// X-Forwarded-For 可能包含多个 IP，取第一个
-		for i := 0; i < len(ip); i++ {
-			if ip[i] == ',' {
-				return ip[:i]
+	// 仅当配置了可信代理且请求来自可信代理时才读取 X-Forwarded-For
+	if len(config.GlobalConfig.TrustedProxies) > 0 {
+		remoteAddr := c.Request.RemoteAddr
+		// 提取 IP（去掉端口）
+		remoteIP := remoteAddr
+		if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
+			remoteIP = remoteAddr[:idx]
+		}
+		remoteIP = strings.Trim(remoteIP, "[]") // 处理 IPv6
+
+		if isTrustedProxy(remoteIP) {
+			if ip := c.GetHeader("X-Forwarded-For"); ip != "" {
+				for i := 0; i < len(ip); i++ {
+					if ip[i] == ',' {
+						return strings.TrimSpace(ip[:i])
+					}
+				}
+				return strings.TrimSpace(ip)
+			}
+			if ip := c.GetHeader("X-Real-IP"); ip != "" {
+				return strings.TrimSpace(ip)
 			}
 		}
-		return ip
-	}
-	if ip := c.GetHeader("X-Real-IP"); ip != "" {
-		return ip
 	}
 	return c.ClientIP()
+}
+
+// isTrustedProxy 检查 IP 是否在可信代理列表中
+func isTrustedProxy(ip string) bool {
+	for _, trusted := range config.GlobalConfig.TrustedProxies {
+		if trusted == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // RateLimitMiddleware 全局限频中间件

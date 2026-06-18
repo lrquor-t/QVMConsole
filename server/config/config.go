@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +30,8 @@ type Config struct {
 	VMCredentialSecret string `json:"vm_credential_secret"`
 	// 账户安全加密密钥
 	SecuritySecret string `json:"security_secret"`
+	// 旧的 SecuritySecret（过渡期兼容）
+	LegacySecuritySecret string `json:"-"`
 	// JWT 过期时间（小时）
 	JWTExpireHours int `json:"jwt_expire_hours"`
 	// JWT 密钥自动轮换间隔（小时，0=禁用）
@@ -36,6 +40,10 @@ type Config struct {
 	RateLimitPublicPerMin int `json:"rate_limit_public_per_min"`
 	// API 限频：认证接口每 IP 每分钟最大请求数（0=不禁用）
 	RateLimitAuthPerMin int `json:"rate_limit_auth_per_min"`
+	// CORS 允许的来源（逗号分隔，留空=允许所有 *）
+	CORSAllowedOrigins string `json:"cors_allowed_origins"`
+	// 可信代理 IP 列表（逗号分隔，用于解析 X-Forwarded-For）
+	TrustedProxies []string `json:"trusted_proxies"`
 	// 模板目录
 	TemplateDir string `json:"template_dir"`
 	// 模板导入临时目录
@@ -239,24 +247,46 @@ func Init() {
 		LogMaxSizeMB:                          getEnvInt("KVM_LOG_MAX_SIZE_MB", 100),
 		LogMaxBackups:                         getEnvInt("KVM_LOG_MAX_BACKUPS", 0),
 		NetworkWaitOnlineDisabled:             getEnvBool("KVM_NETWORK_WAIT_ONLINE_DISABLED", false),
+		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
 	}
+	// 解析可信代理列表
+	if proxies := getEnv("KVM_TRUSTED_PROXIES", ""); proxies != "" {
+		for _, p := range strings.Split(proxies, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				GlobalConfig.TrustedProxies = append(GlobalConfig.TrustedProxies, trimmed)
+			}
+		}
+	}
+	// 密钥隔离：自动生成独立密钥而非 fallback 到 JWTSecret
 	if GlobalConfig.VMCredentialSecret == "" {
-		GlobalConfig.VMCredentialSecret = GlobalConfig.JWTSecret
+		generated := generateRandomKey(32)
+		GlobalConfig.VMCredentialSecret = generated
+		appendEnvKey("KVM_VM_CREDENTIAL_SECRET", generated)
+		fmt.Fprintf(os.Stderr, "[安全] 已自动生成并持久化 KVM_VM_CREDENTIAL_SECRET\n")
 	}
 	if GlobalConfig.SecuritySecret == "" {
-		GlobalConfig.SecuritySecret = GlobalConfig.JWTSecret
+		// 检查是否有旧的 JWTSecret 作为 legacy 密钥（用于过渡兼容）
+		GlobalConfig.LegacySecuritySecret = GlobalConfig.JWTSecret
+		generated := generateRandomKey(32)
+		GlobalConfig.SecuritySecret = generated
+		appendEnvKey("KVM_SECURITY_SECRET", generated)
+		appendEnvKey("KVM_LEGACY_SECURITY_SECRET", GlobalConfig.LegacySecuritySecret)
+		fmt.Fprintf(os.Stderr, "[安全] 已自动生成并持久化 KVM_SECURITY_SECRET\n")
+	} else {
+		// 加载持久化的 legacy 密钥（用于解密旧数据）
+		GlobalConfig.LegacySecuritySecret = getEnv("KVM_LEGACY_SECURITY_SECRET", "")
 	}
 }
 
 // ValidateSecurity 启动后安全检查（需在数据库设置加载完成后调用）
 func ValidateSecurity() {
-	if GlobalConfig.VMCredentialSecret != "" && GlobalConfig.VMCredentialSecret == GlobalConfig.JWTSecret &&
+	if GlobalConfig.VMCredentialSecret == GlobalConfig.JWTSecret &&
 		GlobalConfig.JWTSecret != defaultJWTSecret && !GlobalConfig.DevelopmentMode {
-		fmt.Fprintf(os.Stderr, "[安全警告] KVM_VM_CREDENTIAL_SECRET 未设置，已回退使用 KVM_JWT_SECRET。建议为不同用途生成独立密钥。\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] KVM_VM_CREDENTIAL_SECRET 与 KVM_JWT_SECRET 相同，建议使用独立密钥。\n")
 	}
-	if GlobalConfig.SecuritySecret != "" && GlobalConfig.SecuritySecret == GlobalConfig.JWTSecret &&
+	if GlobalConfig.SecuritySecret == GlobalConfig.JWTSecret &&
 		GlobalConfig.JWTSecret != defaultJWTSecret && !GlobalConfig.DevelopmentMode {
-		fmt.Fprintf(os.Stderr, "[安全警告] KVM_SECURITY_SECRET 未设置，已回退使用 KVM_JWT_SECRET。建议为不同用途生成独立密钥。\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] KVM_SECURITY_SECRET 与 KVM_JWT_SECRET 相同，建议使用独立密钥。\n")
 	}
 
 	// 拒绝默认 JWT 密钥启动（开发模式仅警告）
@@ -280,6 +310,29 @@ func ValidateSecurity() {
 			os.Exit(1)
 		}
 	}
+}
+
+// generateRandomKey 生成指定长度的随机 base64 密钥
+func generateRandomKey(byteLen int) string {
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand.Read 失败意味着系统熵池严重异常，不应带着弱密钥继续运行
+		fmt.Fprintf(os.Stderr, "[安全致命] 无法生成安全随机数: %v\n", err)
+		os.Exit(1)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// appendEnvKey 将密钥追加到 .env 文件
+func appendEnvKey(key, value string) {
+	envPath := EnvFilePath()
+	f, err := os.OpenFile(envPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[安全警告] 无法写入 .env 文件: %v\n", err)
+		return
+	}
+	defer f.Close()
+	f.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 }
 
 // getEnv 获取环境变量，提供默认值

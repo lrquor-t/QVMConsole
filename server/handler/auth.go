@@ -106,8 +106,16 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// 登录爆破防护
+	clientIP := c.ClientIP()
+	if allowed, reason := service.CheckLoginAllowed(clientIP, strings.TrimSpace(req.Username)); !allowed {
+		c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": reason})
+		return
+	}
+
 	var user model.User
 	if err := model.DB.Where("username = ?", strings.TrimSpace(req.Username)).First(&user).Error; err != nil {
+		service.RecordLoginFailure(clientIP, strings.TrimSpace(req.Username))
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 		return
 	}
@@ -120,9 +128,11 @@ func Login(c *gin.Context) {
 		return
 	}
 	if strings.TrimSpace(user.PasswordHash) == "" || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+		service.RecordLoginFailure(clientIP, strings.TrimSpace(req.Username))
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 		return
 	}
+	service.ClearLoginFailures(clientIP, user.Username)
 
 	security := service.BuildSecurityState(&user)
 	if service.CanEnterBootstrap(&user) {

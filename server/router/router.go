@@ -18,10 +18,19 @@ import (
 // Setup 初始化路由
 func Setup() *gin.Engine {
 	r := gin.New()
+
+	// 配置可信代理
+	if len(config.GlobalConfig.TrustedProxies) > 0 {
+		r.SetTrustedProxies(config.GlobalConfig.TrustedProxies)
+	} else {
+		r.SetTrustedProxies(nil) // 不信任任何代理头
+	}
+
 	r.Use(middleware.RequestLoggerMiddleware(), gin.Recovery())
 
 	// 全局中间件
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.SecurityHeadersMiddleware())
 
 	// 全局 API 限频
 	rlConfig := middleware.RateLimitConfig{
@@ -541,14 +550,25 @@ func setupStaticFileServing(r *gin.Engine) {
 			return
 		}
 
-		// 尝试提供静态文件
-		filePath := filepath.Join(absWebDistDir, path)
-		if _, err := os.Stat(filePath); err == nil {
-			c.File(filePath)
+		// 安全路径校验：null byte 检查（必须在 Clean 之前）
+		if strings.ContainsRune(path, 0) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "非法路径"})
+			return
+		}
+		cleanPath := filepath.Clean(path)
+		safePath := filepath.Join(absWebDistDir, cleanPath)
+		if !strings.HasPrefix(safePath, absWebDistDir+string(filepath.Separator)) && safePath != absWebDistDir {
+			c.JSON(http.StatusForbidden, gin.H{"error": "非法路径"})
 			return
 		}
 
-		// SPA 回退到 index.html —— 禁止缓存入口文件，确保升级后浏览器加载最新资源
+		// 尝试提供静态文件
+		if _, err := os.Stat(safePath); err == nil {
+			c.File(safePath)
+			return
+		}
+
+		// SPA 回退到 index.html
 		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 		c.Header("Pragma", "no-cache")
 		c.Header("Expires", "0")
