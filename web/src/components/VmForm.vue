@@ -4027,10 +4027,11 @@ const onTemplateChange = async (templateName) => {
 // 加载 VPC 交换机和安全组
 const loadVPCOptions = async () => {
   try {
-    const params = isAdmin.value && userStore.username ? { username: userStore.username } : undefined
+    // 管理员创建虚拟机时需要看到全部交换机（系统基础网络、桥接直通、各用户的 NAT 交换机），
+    // 不传 username 参数，后端对管理员默认返回全部；非管理员则由后端根据 JWT 中的用户名自动过滤
     const [switchRes, groupRes] = await Promise.all([
-      getVPCSwitches(params),
-      getVPCSecurityGroups(params)
+      getVPCSwitches(),
+      getVPCSecurityGroups()
     ])
     vpcSwitches.value = switchRes.data || []
     vpcSecurityGroups.value = groupRes.data || []

@@ -131,6 +131,11 @@ func BindVMToVPCAsAdmin(vmName string, switchID, securityGroupID uint) error {
 				switchOwner = sg.Username
 			}
 		}
+		if switchOwner == "" {
+			// 最终回退：管理员操作且系统交换机（如新克隆的 VM 尚无归属用户），
+			// 使用 admin 作为归属用户，后续管理员可重新分配 VM 归属
+			switchOwner = "admin"
+		}
 	}
 	if switchOwner == "" {
 		return fmt.Errorf("无法识别虚拟机归属用户")
