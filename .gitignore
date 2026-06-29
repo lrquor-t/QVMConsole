@@ -37,3 +37,5 @@ release/
 docs-web
 tmp/
 .qoder/
+docs/
+server/.env
