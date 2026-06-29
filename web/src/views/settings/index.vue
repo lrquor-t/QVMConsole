@@ -650,6 +650,19 @@
             批量克隆时最多允许同时克隆的虚拟机数量，默认 10，设为 1 时退化为顺序克隆 | 环境变量: KVM_BATCH_CLONE_MAX_CONCURRENCY
           </div>
         </el-form-item>
+            <!-- 文件上传 -->
+        <el-divider content-position="left">
+          <el-icon style="margin-right: 4px;"><Upload /></el-icon>
+          文件上传
+        </el-divider>
+
+        <el-form-item label="分片上传并发数">
+          <el-input-number v-model="form.chunk_upload_concurrency" :min="1" :max="10" style="width: 100%;" />
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            文件分片上传时同时上传的分片数量，默认 3。普通公网建议 3-5，局域网或稳定高速链路可调到 6-8，最大 10；浏览器对同一站点并发连接数有限，过大会因网络拥塞反而降低速度并增加失败重试 | 环境变量: KVM_CHUNK_UPLOAD_CONCURRENCY
+          </div>
+        </el-form-item>
             <!-- 救援系统 -->
         <el-divider content-position="left">
           <el-icon style="margin-right: 4px;"><FirstAidKit /></el-icon>
@@ -1266,6 +1279,7 @@ const form = reactive({
   default_disk_iops_read: 0,
   default_disk_iops_write: 0,
   batch_clone_max_concurrency: 10,
+  chunk_upload_concurrency: 3,
   dynamic_memory_scheduler_enabled: true,
   dynamic_memory_interval_seconds: 30,
   dynamic_memory_host_reserve_mb: 2048,
@@ -1769,6 +1783,8 @@ const buildPayload = () => ({
   log_max_backups: form.log_max_backups,
   network_wait_online_disabled: form.network_wait_online_disabled,
   spice_enabled_by_default: form.spice_enabled_by_default,
+  batch_clone_max_concurrency: form.batch_clone_max_concurrency,
+  chunk_upload_concurrency: form.chunk_upload_concurrency,
 })
 
 const handleTestSMTP = async () => {

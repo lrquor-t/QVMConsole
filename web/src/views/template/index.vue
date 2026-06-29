@@ -410,6 +410,7 @@ import {
 } from '@/api/vm'
 import { templateUploadInit, templateUploadChunk, templateUploadComplete, templateUploadCancel } from '@/api/template'
 import { ChunkUploader } from '@/utils/chunkUploader'
+import { getSettings } from '@/api/settings'
 import {
   LINUX_TEMPLATE_CATEGORY_OPTIONS,
   WINDOWS_TEMPLATE_CATEGORY_OPTIONS,
@@ -830,11 +831,19 @@ const handleImportPreview = async () => {
       importUploading.value = true
       importProgress.value = 0
       // 分片上传模板包到导入临时目录（断点续传 + 秒传）
+      // 读取分片上传并发数设置（读取失败或非法时退回默认值）
+      let concurrency = 3
+      try {
+        const v = Number((await getSettings()).data?.chunk_upload_concurrency)
+        if (Number.isInteger(v) && v >= 1 && v <= 10) concurrency = v
+      } catch {
+        // 忽略，使用默认并发数
+      }
       const uploader = new ChunkUploader({
         init: templateUploadInit,
         chunk: templateUploadChunk,
         complete: templateUploadComplete,
-      })
+      }, { concurrency })
       currentTemplateUploader.value = uploader
       const { sessionKey } = await uploader.upload(importRawFile.value, {}, {
         onUploadProgress: (ratio) => {

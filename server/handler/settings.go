@@ -78,6 +78,8 @@ type SettingsResponse struct {
 	DefaultDiskIOPSWrite int `json:"default_disk_iops_write"` // 默认写 IOPS 限制（0 表示不限制）
 	// 批量克隆最大同时克隆数量
 	BatchCloneMaxConcurrency int `json:"batch_clone_max_concurrency"`
+	// 分片上传并发数（前端按此值并发上传分片）
+	ChunkUploadConcurrency int `json:"chunk_upload_concurrency"`
 	// JWT 密钥自动轮换间隔（小时，0=禁用）
 	JWTSecretRotateHours int    `json:"jwt_secret_rotate_hours"`
 	JWTSecretLastRotated string `json:"jwt_secret_last_rotated"`
@@ -87,8 +89,8 @@ type SettingsResponse struct {
 	NetworkWaitOnlineDisabled bool   `json:"network_wait_online_disabled"`
 	NetworkWaitOnlineSummary  string `json:"network_wait_online_summary"`
 	// 安全防护
-	SessionFingerprintEnabled bool `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled      bool `json:"request_filter_enabled"`
+	SessionFingerprintEnabled  bool `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
 }
 
@@ -146,6 +148,8 @@ type UpdateSettingsRequest struct {
 	DefaultDiskIOPSWrite *int `json:"default_disk_iops_write"` // 默认写 IOPS 限制（0 表示不限制）
 	// 批量克隆最大同时克隆数量
 	BatchCloneMaxConcurrency *int `json:"batch_clone_max_concurrency"`
+	// 分片上传并发数
+	ChunkUploadConcurrency *int `json:"chunk_upload_concurrency"`
 	// JWT 密钥轮换间隔
 	JWTSecretRotateHours *int `json:"jwt_secret_rotate_hours"`
 	// 日志最大备份数
@@ -153,8 +157,8 @@ type UpdateSettingsRequest struct {
 	// 网络等待就绪检测
 	NetworkWaitOnlineDisabled *bool `json:"network_wait_online_disabled"`
 	// 安全防护
-	SessionFingerprintEnabled *bool `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled      *bool `json:"request_filter_enabled"`
+	SessionFingerprintEnabled  *bool `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       *bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled *bool `json:"password_breach_check_enabled"`
 }
 
@@ -186,9 +190,9 @@ func GetPublicSettings(c *gin.Context) {
 		"code":    200,
 		"message": "ok",
 		"data": PublicSettingsResponse{
-			SiteTitle:                 siteTitle,
+			SiteTitle:                  siteTitle,
 			PasswordBreachCheckEnabled: config.GlobalConfig.PasswordBreachCheckEnabled,
-			SpiceEnabledByDefault:     config.GlobalConfig.SpiceEnabledByDefault,
+			SpiceEnabledByDefault:      config.GlobalConfig.SpiceEnabledByDefault,
 		},
 	})
 }
@@ -263,6 +267,7 @@ func GetSettings(c *gin.Context) {
 			DefaultDiskIOPSRead:                   cfg.DefaultDiskIOPSRead,
 			DefaultDiskIOPSWrite:                  cfg.DefaultDiskIOPSWrite,
 			BatchCloneMaxConcurrency:              cfg.BatchCloneMaxConcurrency,
+			ChunkUploadConcurrency:                cfg.ChunkUploadConcurrency,
 			JWTSecretRotateHours:                  cfg.JWTSecretRotateHours,
 			JWTSecretLastRotated:                  jwtLastRotated,
 			LogMaxBackups:                         cfg.LogMaxBackups,
@@ -550,6 +555,13 @@ func UpdateSettings(c *gin.Context) {
 			return
 		}
 		cfg.BatchCloneMaxConcurrency = *req.BatchCloneMaxConcurrency
+	}
+	if req.ChunkUploadConcurrency != nil {
+		if *req.ChunkUploadConcurrency < 1 || *req.ChunkUploadConcurrency > 10 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "分片上传并发数需在 1 - 10 之间"})
+			return
+		}
+		cfg.ChunkUploadConcurrency = *req.ChunkUploadConcurrency
 	}
 	if req.JWTSecretRotateHours != nil {
 		if *req.JWTSecretRotateHours < 0 || *req.JWTSecretRotateHours > 720 {

@@ -145,6 +145,8 @@ type Config struct {
 	DefaultDiskIOPSWrite int `json:"default_disk_iops_write"` // 默认写 IOPS 限制
 	// 批量克隆最大同时克隆数量
 	BatchCloneMaxConcurrency int `json:"batch_clone_max_concurrency"`
+	// 分片上传并发数（前端按此值并发上传分片，0 或非法时取默认 3）
+	ChunkUploadConcurrency int `json:"chunk_upload_concurrency"`
 	// 是否使用 go-libvirt RPC（默认 true，关闭后降级为 virsh 命令行）
 	UseGoLibvirt bool `json:"use_go_libvirt"`
 	// 日志配置
@@ -278,6 +280,7 @@ func Init() {
 		PortForwardHTTPProbeIntervalMinutes:   getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_INTERVAL_MINUTES", 60),
 		PortForwardHTTPProbeTimeoutSeconds:    getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_TIMEOUT_SECONDS", 3),
 		BatchCloneMaxConcurrency:              getEnvInt("KVM_BATCH_CLONE_MAX_CONCURRENCY", 10),
+		ChunkUploadConcurrency:                getEnvInt("KVM_CHUNK_UPLOAD_CONCURRENCY", 3),
 		RateLimitPublicPerMin:                 getEnvInt("KVM_RATE_LIMIT_PUBLIC", 20),
 		RateLimitAuthPerMin:                   getEnvInt("KVM_RATE_LIMIT_AUTH", 0),
 		UseGoLibvirt:                          getEnvBool("KVM_USE_GO_LIBVIRT", true),
@@ -769,6 +772,10 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			if v, err := strconv.Atoi(value); err == nil && v > 0 {
 				c.BatchCloneMaxConcurrency = v
 			}
+		case "chunk_upload_concurrency":
+			if v, err := strconv.Atoi(value); err == nil && v > 0 {
+				c.ChunkUploadConcurrency = v
+			}
 		case "jwt_secret_rotate_hours":
 			if v, err := strconv.Atoi(value); err == nil && v >= 0 {
 				c.JWTSecretRotateHours = v
@@ -883,6 +890,7 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"default_disk_iops_read":                    strconv.Itoa(c.DefaultDiskIOPSRead),
 		"default_disk_iops_write":                   strconv.Itoa(c.DefaultDiskIOPSWrite),
 		"batch_clone_max_concurrency":               strconv.Itoa(c.BatchCloneMaxConcurrency),
+		"chunk_upload_concurrency":                  strconv.Itoa(c.ChunkUploadConcurrency),
 		"jwt_secret_rotate_hours":                   strconv.Itoa(c.JWTSecretRotateHours),
 		"use_go_libvirt":                            strconv.FormatBool(c.UseGoLibvirt),
 		"log_dir":                                   c.LogDir,

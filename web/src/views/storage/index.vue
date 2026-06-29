@@ -270,6 +270,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getStorageInfo, initStorage, getStorageFiles, storageUploadInit, storageUploadChunk, storageUploadComplete, storageUploadCancel, getPendingUploads, deleteStorageFile, getStorageDownloadUrl, mountStorage, unmountStorage, getUserMounts } from '@/api/storage'
 import { ChunkUploader } from '@/utils/chunkUploader'
 import { getSelfVMs } from '@/api/user'
+import { getSettings } from '@/api/settings'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { copyTextWithFallback } from '@/utils/clipboard'
@@ -469,11 +470,20 @@ const handleUpload = async (uploadFile, category) => {
   uploadPaused.value = false
   uploadDialogVisible.value = true
 
+  // 读取分片上传并发数设置（读取失败或非法时退回默认值）
+  let concurrency = 3
+  try {
+    const v = Number((await getSettings()).data?.chunk_upload_concurrency)
+    if (Number.isInteger(v) && v >= 1 && v <= 10) concurrency = v
+  } catch {
+    // 忽略，使用默认并发数
+  }
+
   const uploader = new ChunkUploader({
     init: storageUploadInit,
     chunk: storageUploadChunk,
     complete: storageUploadComplete,
-  })
+  }, { concurrency })
   currentUploader.value = uploader
 
   try {
