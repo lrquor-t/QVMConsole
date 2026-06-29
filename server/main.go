@@ -462,6 +462,38 @@ func registerTaskHandlers() {
 		return fmt.Sprintf(`{"vg_name":"%s"}`, params.VGName), nil
 	})
 
+	// 创建 ZFS 存储池任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageCreateZFSPool, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			Params string `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		var req service.ZFSPoolRequest
+		if err := json.Unmarshal([]byte(params.Params), &req); err != nil {
+			return "", fmt.Errorf("解析 ZFS 存储池参数失败: %w", err)
+		}
+		if err := service.CreateZFSPool(ctx, req, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"pool_name":"%s"}`, req.PoolName), nil
+	})
+
+	// 销毁 ZFS 存储池任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageDeleteZFSPool, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			PoolName string `json:"pool_name"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.DeleteZFSPool(ctx, params.PoolName, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"pool_name":"%s"}`, params.PoolName), nil
+	})
+
 	// 删除虚拟机任务
 	taskqueue.RegisterHandler(model.TaskTypeDelete, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params struct {

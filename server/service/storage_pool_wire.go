@@ -16,6 +16,8 @@ type LVMVolumeRequest = pool.LVMVolumeRequest
 type VGInfo = pool.VGInfo
 type LVInfo = pool.LVInfo
 type PVInfo = pool.PVInfo
+type ZFSPoolRequest = pool.ZFSPoolRequest
+type ZPoolInfo = pool.ZPoolInfo
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -87,6 +89,26 @@ func ListVGs() ([]VGInfo, []LVInfo, []PVInfo, error) {
 // DeleteLVMVolume delegates to pool.DeleteLVMVolume
 func DeleteLVMVolume(ctx context.Context, vgName string, progress func(int, string)) error {
 	return pool.DeleteLVMVolume(ctx, vgName, progress)
+}
+
+// CreateZFSPool delegates to pool.CreateZFSPool
+func CreateZFSPool(ctx context.Context, req ZFSPoolRequest, progress func(int, string)) error {
+	return pool.CreateZFSPool(ctx, req, progress)
+}
+
+// DeleteZFSPool delegates to pool.DeleteZFSPool
+func DeleteZFSPool(ctx context.Context, poolName string, progress func(int, string)) error {
+	return pool.DeleteZFSPool(ctx, poolName, progress)
+}
+
+// ZFSAvailable delegates to pool.ZFSAvailable
+func ZFSAvailable() bool {
+	return pool.ZFSAvailable()
+}
+
+// ListZPools delegates to pool.ListZPools
+func ListZPools() ([]ZPoolInfo, error) {
+	return pool.ListZPools()
 }
 
 // ── Unexported delegates (used internally by service root package) ──

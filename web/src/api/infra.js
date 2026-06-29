@@ -102,3 +102,29 @@ export function deleteLVMVolume(vgName) {
     data: { vg_name: vgName }
   })
 }
+
+// 检测宿主机 ZFS 可用性
+export function getZFSStatus() {
+  return request({
+    url: '/storage-pool/zfs-status',
+    method: 'get'
+  })
+}
+
+// 创建 ZFS 存储池
+export function createZFSPool(data) {
+  return request({
+    url: '/storage-pool/create-zfs-pool',
+    method: 'post',
+    data
+  })
+}
+
+// 销毁 ZFS 存储池
+export function deleteZFSPool(poolName) {
+  return request({
+    url: '/storage-pool/delete-zfs-pool',
+    method: 'post',
+    data: { pool_name: poolName }
+  })
+}

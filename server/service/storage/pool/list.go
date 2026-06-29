@@ -29,6 +29,14 @@ func ListStoragePools() ([]HostStoragePoolInfo, error) {
 		pools = injectLVMTree(pools, vgs, lvs, mounts, dfUsage, configs)
 	}
 
+	// 注入 ZFS 存储池层级
+	if ZFSAvailable() {
+		zPools, err := ListZPools()
+		if err == nil && len(zPools) > 0 {
+			pools = injectZFSTree(pools, zPools, mounts, dfUsage, configs)
+		}
+	}
+
 	return pools, nil
 }
 

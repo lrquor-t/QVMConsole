@@ -397,8 +397,11 @@ func Setup() *gin.Engine {
 				storagePool.POST("/:id/create-partition", middleware.AdminMiddleware(), handler.CreateStoragePartition)
 				storagePool.POST("/:id/delete-partitions", middleware.AdminMiddleware(), handler.DeleteStoragePartitions)
 				storagePool.GET("/pv-targets", middleware.AdminMiddleware(), handler.GetAvailablePVTargets)
+				storagePool.GET("/zfs-status", middleware.AdminMiddleware(), handler.GetZFSStatus)
 				storagePool.POST("/create-volume", middleware.AdminMiddleware(), handler.CreateStorageVolume)
 				storagePool.POST("/delete-volume", middleware.AdminMiddleware(), handler.DeleteStorageVolume)
+				storagePool.POST("/create-zfs-pool", middleware.AdminMiddleware(), handler.CreateZFSPool)
+				storagePool.POST("/delete-zfs-pool", middleware.AdminMiddleware(), handler.DeleteZFSPool)
 			}
 
 			// ==================== 节点管理（管理员） ====================

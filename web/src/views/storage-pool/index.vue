@@ -13,7 +13,7 @@
           <el-switch v-model="showAvailableOnly" size="small" />
           <span>仅显示可用磁盘</span>
         </div>
-        <el-button type="success" :icon="Plus" @click="openCreateVolume">创建存储卷</el-button>
+        <el-button type="success" :icon="Plus" @click="openCreateVolume">创建存储池</el-button>
         <el-button type="primary" :icon="Refresh" @click="fetchData" :loading="loading">刷新</el-button>
       </div>
     </div>
@@ -112,15 +112,20 @@
               <div class="disk-group-info">
                 <div class="disk-group-name-row">
                   <el-icon v-if="disk.type === 'vg' || disk.is_lvm_vg" class="disk-icon vg-icon" :size="20"><Connection /></el-icon>
+                  <el-icon v-else-if="disk.is_zfs_pool" class="disk-icon" :size="20" color="#38BDF8"><Coin /></el-icon>
                   <el-icon v-else class="disk-icon" :size="20"><Box /></el-icon>
                   <span class="disk-group-name">{{ disk.display_name }}</span>
                   <el-tag v-if="disk.type === 'vg' || disk.is_lvm_vg" size="small" type="warning" effect="plain">VG</el-tag>
+                  <el-tag v-if="disk.is_zfs_pool" size="small" type="success" effect="plain">ZFS</el-tag>
+                  <el-tag v-if="disk.is_zfs_pool && disk.zfs_vdev_type" size="small" type="info" effect="plain">{{ zfsVdevLabel(disk.zfs_vdev_type) }}</el-tag>
                   <el-tag v-if="disk.is_default" size="small" type="success" effect="plain">默认</el-tag>
                   <el-tag v-if="disk.enabled" size="small" type="primary" effect="plain">已启用</el-tag>
                 </div>
                 <div class="disk-group-meta">
-                  <span class="mono-text">{{ disk.device_path }}</span>
-                  <span class="meta-sep">·</span>
+                  <template v-if="disk.device_path">
+                    <span class="mono-text">{{ disk.device_path }}</span>
+                    <span class="meta-sep">·</span>
+                  </template>
                   <span>{{ typeLabel(disk.type) }}</span>
                   <template v-if="disk.pv_count > 0">
                     <span class="meta-sep">·</span>
@@ -130,7 +135,7 @@
                     <span class="meta-sep">·</span>
                     <span>{{ disk.lv_count }} 个逻辑卷</span>
                   </template>
-                  <template v-if="disk.model && disk.type !== 'vg' && !disk.is_lvm_vg">
+                  <template v-if="disk.model && disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool">
                     <span class="meta-sep">·</span>
                     <span>{{ disk.model }}</span>
                   </template>
@@ -142,7 +147,7 @@
               </div>
             </div>
             <div class="disk-group-actions">
-              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg">
+              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool">
                 <el-button size="small" plain @click="openConfig(disk)">配置</el-button>
                 <el-button size="small" plain type="primary" :disabled="!disk.can_use_for_vm || disk.is_default" @click="handleSetDefault(disk)">设为默认</el-button>
                 <el-button size="small" plain type="warning" :disabled="!disk.can_format" @click="openFormat(disk)">格式化挂载</el-button>
@@ -151,6 +156,9 @@
               </template>
               <template v-if="disk.type === 'vg' || disk.is_lvm_vg">
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">删除存储卷</el-button>
+              </template>
+              <template v-if="disk.is_zfs_pool">
+                <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
             </div>
           </div>
@@ -303,7 +311,7 @@
                 <span>{{ formatBytes(part.size) }} 总计</span>
               </div>
             </div>
-            <div class="partition-actions">
+            <div class="partition-actions" v-if="part.type !== 'zmember'">
               <el-button size="small" plain @click="openConfig(part)">配置</el-button>
               <el-button size="small" plain type="primary" :disabled="!part.can_use_for_vm || part.is_default" @click="handleSetDefault(part)">设为默认</el-button>
               <el-button size="small" plain type="warning" :disabled="!part.can_format" @click="openFormat(part)">格式化挂载</el-button>
@@ -427,16 +435,16 @@
       </template>
     </el-dialog>
 
-    <!-- 创建存储卷对话框 -->
-    <el-dialog title="创建存储卷" v-model="createVolumeVisible" width="680px" :close-on-click-modal="false" append-to-body>
+    <!-- 创建存储池对话框 -->
+    <el-dialog title="创建存储池" v-model="createVolumeVisible" width="680px" :close-on-click-modal="false" append-to-body>
       <!-- 第一步：选择存储卷类型 -->
       <template v-if="volumeStep === 'type'">
-        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 20px;">
-          <template #title>选择一种存储卷类型。LVM 存储卷支持将多个磁盘合并为一个逻辑卷组，实现容量聚合和灵活管理。</template>
+        <el-alert :type="volumeTypeHint.type" :closable="false" show-icon style="margin-bottom: 20px;">
+          <template #title>{{ volumeTypeHint.text }}</template>
         </el-alert>
         <el-radio-group v-model="volumeType" size="large" style="width: 100%;">
           <el-row :gutter="12">
-            <el-col :span="12">
+            <el-col :span="8">
               <el-card shadow="hover" class="volume-type-card" :class="{ selected: volumeType === 'lvm' }" @click="volumeType = 'lvm'">
                 <div style="text-align: center; padding: 10px;">
                   <el-icon :size="36" color="#E6A23C"><Connection /></el-icon>
@@ -445,7 +453,25 @@
                 </div>
               </el-card>
             </el-col>
-            <el-col :span="12">
+            <el-col :span="8">
+              <el-tooltip v-if="!zfsAvailable" :content="zfsUnavailableReason || '未安装 ZFS'" placement="top">
+                <el-card shadow="hover" class="volume-type-card disabled-card" style="opacity: 0.4; cursor: not-allowed;">
+                  <div style="text-align: center; padding: 10px;">
+                    <el-icon :size="36" color="#909399"><Coin /></el-icon>
+                    <h3 style="margin: 10px 0 4px;">ZFS 存储池</h3>
+                    <p style="color: #999; font-size: 12px; margin: 0;">{{ zfsUnavailableReason || '未安装 ZFS' }}</p>
+                  </div>
+                </el-card>
+              </el-tooltip>
+              <el-card v-else shadow="hover" class="volume-type-card" :class="{ selected: volumeType === 'zfs' }" @click="volumeType = 'zfs'">
+                <div style="text-align: center; padding: 10px;">
+                  <el-icon :size="36" color="#38BDF8"><Coin /></el-icon>
+                  <h3 style="margin: 10px 0 4px;">ZFS 存储池</h3>
+                  <p style="color: #999; font-size: 12px; margin: 0;">支持镜像、RAIDZ、压缩、校验</p>
+                </div>
+              </el-card>
+            </el-col>
+            <el-col :span="8">
               <el-card shadow="hover" class="volume-type-card disabled-card" style="opacity: 0.4; cursor: not-allowed;">
                 <div style="text-align: center; padding: 10px;">
                   <el-icon :size="36" color="#909399"><Box /></el-icon>
@@ -584,23 +610,135 @@
           <el-button type="primary" :disabled="!volumeConfirmed || !lvmForm.vg_name || !lvmForm.lv_name || !lvmForm.lv_size || lvmForm.device_ids.length === 0" :loading="creatingVolume" @click="submitCreateVolume">提交任务</el-button>
         </div>
       </template>
+
+      <!-- 第二步：ZFS 配置表单 -->
+      <template v-if="volumeStep === 'config' && volumeType === 'zfs'">
+        <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>此操作会将选中的磁盘创建为 ZFS 存储池，并创建专用数据集作为虚拟机磁盘目录。磁盘上的所有数据将被清除。</template>
+        </el-alert>
+
+        <el-form :model="zfsForm" label-width="110px" label-position="top">
+          <!-- 选择成员盘 -->
+          <el-form-item label="成员磁盘选择">
+            <div style="width: 100%;">
+              <el-alert v-if="pvTargets.length === 0" type="info" :closable="false">
+                未找到可用的磁盘设备。请确保有未挂载、非系统盘的磁盘。
+              </el-alert>
+              <el-checkbox-group v-model="zfsForm.device_ids" v-else>
+                <el-card v-for="disk in pvTargets" :key="disk.id" shadow="never" class="pv-disk-item" style="margin-bottom: 8px;">
+                  <el-checkbox :value="disk.id" style="width: 100%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                      <span style="font-weight: 500;">{{ disk.display_name }}</span>
+                      <span style="color: #999; font-size: 12px;">{{ disk.device_path }} · {{ formatBytes(disk.size) }}</span>
+                    </div>
+                  </el-checkbox>
+                </el-card>
+              </el-checkbox-group>
+              <div class="form-tip" v-if="pvTargets.length > 0">
+                <el-icon><InfoFilled /></el-icon>
+                当前选择 {{ zfsForm.device_ids.length }} 块，{{ zfsVdevLabel(zfsForm.vdev_type) }} 至少需要 {{ zfsVdevMinDisks(zfsForm.vdev_type) }} 块
+                <span v-if="!zfsDisksEnough" style="color: #f56c6c;">（不足）</span>
+              </div>
+            </div>
+          </el-form-item>
+
+          <!-- 存储池配置 -->
+          <el-divider content-position="left">存储池配置</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="存储池名称">
+                <el-input v-model="zfsForm.pool_name" placeholder="例如: tank" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="拓扑 (vdev)">
+                <el-select v-model="zfsForm.vdev_type" style="width: 100%;">
+                  <el-option label="条带/单盘 (stripe)" value="stripe" />
+                  <el-option label="镜像 (mirror) — 2 块起" value="mirror" />
+                  <el-option label="RAIDZ1 — 3 块起" value="raidz1" />
+                  <el-option label="RAIDZ2 — 4 块起" value="raidz2" />
+                  <el-option label="RAIDZ3 — 5 块起" value="raidz3" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="扇区对齐 (ashift)">
+                <el-select v-model="zfsForm.ashift" style="width: 100%;">
+                  <el-option label="12（4K，默认推荐）" value="12" />
+                  <el-option label="13（8K）" value="13" />
+                  <el-option label="9（512B）" value="9" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="压缩">
+                <el-select v-model="zfsForm.compression" style="width: 100%;">
+                  <el-option label="lz4（推荐）" value="lz4" />
+                  <el-option label="zstd" value="zstd" />
+                  <el-option label="gzip" value="gzip" />
+                  <el-option label="关闭" value="off" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <!-- 数据集与挂载 -->
+          <el-divider content-position="left">数据集与挂载</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="数据集名称">
+                <el-input v-model="zfsForm.dataset_name" placeholder="默认 vm-disks" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="挂载路径">
+                <el-input v-model="zfsForm.mount_path" placeholder="留空则自动生成 /var/lib/kvm-storage/..." />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="关闭 atime">
+            <el-switch v-model="zfsForm.atime_off" />
+            <span style="color: #999; font-size: 12px; margin-left: 8px;">关闭可提升性能（推荐）</span>
+          </el-form-item>
+          <el-alert type="info" :closable="false" show-icon style="margin-top: 4px;">
+            <template #title>ZFS 会在开机时自动导入并挂载存储池，无需写入 fstab。请确保宿主机已安装 zfsutils-linux 并启用 zfs.target。</template>
+          </el-alert>
+        </el-form>
+
+        <div class="confirm-line" style="margin-top: 16px;">
+          <el-checkbox v-model="volumeConfirmed">我确认要创建 ZFS 存储池，选中的磁盘数据将被清除</el-checkbox>
+        </div>
+
+        <div style="text-align: right; margin-top: 20px;">
+          <el-button @click="volumeStep = 'type'">上一步</el-button>
+          <el-button @click="createVolumeVisible = false">取消</el-button>
+          <el-button type="primary" :disabled="!volumeConfirmed || !zfsForm.pool_name || zfsForm.device_ids.length === 0 || !zfsDisksEnough" :loading="creatingVolume" @click="submitCreateVolume">提交任务</el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- 删除存储卷确认对话框 -->
-    <el-dialog title="删除存储卷" v-model="deleteVolumeVisible" width="520px" :close-on-click-modal="false" append-to-body>
+    <el-dialog :title="deleteVolumeDialogTitle" v-model="deleteVolumeVisible" width="520px" :close-on-click-modal="false" append-to-body>
       <el-alert type="error" :closable="false" show-icon style="margin-bottom: 16px;">
         <template #title>
-          此操作将删除卷组「{{ deletingVolumeDisk?.name }}」及其所有逻辑卷和物理卷，数据将不可恢复！
+          {{ deleteVolumeWarning }}
         </template>
       </el-alert>
       <el-descriptions :column="1" border size="small">
-        <el-descriptions-item label="卷组名称">{{ deletingVolumeDisk?.name }}</el-descriptions-item>
+        <el-descriptions-item :label="deletingVolumeDisk?.is_zfs_pool ? '存储池名称' : '卷组名称'">{{ deletingVolumeDisk?.name }}</el-descriptions-item>
         <el-descriptions-item label="总容量">{{ formatBytes(deletingVolumeDisk?.size) }}</el-descriptions-item>
-        <el-descriptions-item label="逻辑卷数">{{ deletingVolumeDisk?.lv_count || 0 }} 个</el-descriptions-item>
-        <el-descriptions-item label="物理卷数">{{ deletingVolumeDisk?.pv_count || 0 }} 个</el-descriptions-item>
+        <template v-if="!deletingVolumeDisk?.is_zfs_pool">
+          <el-descriptions-item label="逻辑卷数">{{ deletingVolumeDisk?.lv_count || 0 }} 个</el-descriptions-item>
+          <el-descriptions-item label="物理卷数">{{ deletingVolumeDisk?.pv_count || 0 }} 个</el-descriptions-item>
+        </template>
+        <template v-else>
+          <el-descriptions-item label="拓扑">{{ zfsVdevLabel(deletingVolumeDisk?.zfs_vdev_type) }}</el-descriptions-item>
+        </template>
       </el-descriptions>
       <div class="confirm-line" style="margin-top: 16px;">
-        <el-checkbox v-model="deleteVolumeConfirmed">我确认要删除该卷组及其所有逻辑卷和物理卷</el-checkbox>
+        <el-checkbox v-model="deleteVolumeConfirmed">{{ deleteVolumeConfirmText }}</el-checkbox>
       </div>
       <template #footer>
         <el-button @click="deleteVolumeVisible = false">取消</el-button>
@@ -614,7 +752,7 @@
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
-import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume } from '@/api/infra'
+import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, deleteZFSPool } from '@/api/infra'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -644,7 +782,7 @@ const deletePartitionsVisible = ref(false)
 const deletingPartitions = ref(false)
 const deletePartitionsConfirmed = ref(false)
 
-// 创建存储卷相关状态
+// 创建存储池相关状态
 const createVolumeVisible = ref(false)
 const creatingVolume = ref(false)
 const volumeStep = ref('type') // 'type' | 'config'
@@ -652,6 +790,8 @@ const volumeType = ref('lvm')
 const volumeConfirmed = ref(false)
 const pvTargets = ref([])
 const pvTargetsLoading = ref(false)
+const zfsAvailable = ref(false)
+const zfsUnavailableReason = ref('')
 const lvmForm = reactive({
   device_ids: [],
   vg_name: '',
@@ -664,6 +804,50 @@ const lvmForm = reactive({
   fs_type: 'ext4',
   mount_path: '',
   add_fstab: true,
+})
+const zfsForm = reactive({
+  device_ids: [],
+  pool_name: '',
+  vdev_type: 'stripe',
+  ashift: '12',
+  compression: 'lz4',
+  dataset_name: 'vm-disks',
+  mount_path: '',
+  atime_off: true,
+})
+
+// ZFS vdev 类型所需的最少磁盘数
+const zfsVdevMinDisks = (vdev) => {
+  const map = { stripe: 1, mirror: 2, raidz1: 3, raidz2: 4, raidz3: 5 }
+  return map[vdev] || 1
+}
+const zfsVdevLabel = (vdev) => {
+  const map = {
+    stripe: '条带/单盘',
+    mirror: '镜像 (mirror)',
+    raidz1: 'RAIDZ1',
+    raidz2: 'RAIDZ2',
+    raidz3: 'RAIDZ3',
+  }
+  return map[vdev] || vdev
+}
+const zfsDisksEnough = computed(() => zfsForm.device_ids.length >= zfsVdevMinDisks(zfsForm.vdev_type))
+
+// 根据当前选中的存储卷类型，在卡片上方给出不同的说明提示
+const volumeTypeHint = computed(() => {
+  if (volumeType.value === 'zfs') {
+    if (!zfsAvailable.value) {
+      return { type: 'warning', text: 'ZFS 存储池：' + (zfsUnavailableReason.value || '宿主机未安装 zfsutils-linux，无法创建。') }
+    }
+    return {
+      type: 'success',
+      text: 'ZFS 存储池：基于多块磁盘构建镜像或 RAIDZ 阵列，自带压缩、数据校验与自愈能力，数据安全性高，适合存放重要数据。',
+    }
+  }
+  return {
+    type: 'info',
+    text: 'LVM 存储卷：将多块磁盘组合为卷组并划分逻辑卷，支持条带、镜像与容量灵活扩展，适合通用存储场景。',
+  }
 })
 
 // 清除磁盘弹窗的动态文案
@@ -712,6 +896,8 @@ onMounted(fetchData)
 const filteredTableData = computed(() => {
   if (!showAvailableOnly.value) return tableData.value
   return tableData.value.filter(disk => {
+    // ZFS 存储池始终显示
+    if (disk.is_zfs_pool) return true
     // 已配置的存储池始终显示
     if (disk.configured) return true
     // 可格式化的盘显示（可用作新存储池）
@@ -845,6 +1031,17 @@ const openCreateVolume = async () => {
   } finally {
     pvTargetsLoading.value = false
   }
+
+  // 检测 ZFS 可用性
+  try {
+    const res = await getZFSStatus()
+    zfsAvailable.value = !!res.data?.available
+    zfsUnavailableReason.value = res.data?.reason || ''
+  } catch (err) {
+    console.error(err)
+    zfsAvailable.value = false
+    zfsUnavailableReason.value = '检测 ZFS 可用性失败'
+  }
 }
 
 const onLVTypeChange = (type) => {
@@ -859,6 +1056,29 @@ const onLVTypeChange = (type) => {
 const submitCreateVolume = async () => {
   creatingVolume.value = true
   try {
+    if (volumeType.value === 'zfs') {
+      await createZFSPool({
+        device_ids: zfsForm.device_ids,
+        pool_name: zfsForm.pool_name,
+        vdev_type: zfsForm.vdev_type,
+        ashift: zfsForm.ashift,
+        compression: zfsForm.compression,
+        dataset_name: zfsForm.dataset_name,
+        mount_path: zfsForm.mount_path,
+        atime_off: zfsForm.atime_off,
+      })
+      ElMessage.success('创建 ZFS 存储池任务已提交，请在任务中心查看进度')
+      createVolumeVisible.value = false
+      zfsForm.device_ids = []
+      zfsForm.pool_name = ''
+      zfsForm.vdev_type = 'stripe'
+      zfsForm.ashift = '12'
+      zfsForm.compression = 'lz4'
+      zfsForm.dataset_name = 'vm-disks'
+      zfsForm.mount_path = ''
+      zfsForm.atime_off = true
+      return
+    }
     await createLVMVolume({
       device_ids: lvmForm.device_ids,
       vg_name: lvmForm.vg_name,
@@ -890,11 +1110,25 @@ const submitCreateVolume = async () => {
   }
 }
 
-// ===== 删除 LVM 存储卷 =====
+// ===== 删除 LVM/ZFS 存储卷 =====
 const deleteVolumeVisible = ref(false)
 const deletingVolume = ref(false)
 const deleteVolumeConfirmed = ref(false)
 const deletingVolumeDisk = ref(null)
+
+const deleteVolumeDialogTitle = computed(() =>
+  deletingVolumeDisk.value?.is_zfs_pool ? '销毁 ZFS 存储池' : '删除存储卷'
+)
+const deleteVolumeWarning = computed(() =>
+  deletingVolumeDisk.value?.is_zfs_pool
+    ? `此操作将销毁 ZFS 存储池「${deletingVolumeDisk.value?.name}」及其所有数据集，数据将不可恢复！`
+    : `此操作将删除卷组「${deletingVolumeDisk.value?.name}」及其所有逻辑卷和物理卷，数据将不可恢复！`
+)
+const deleteVolumeConfirmText = computed(() =>
+  deletingVolumeDisk.value?.is_zfs_pool
+    ? '我确认要销毁该 ZFS 存储池及其所有数据集'
+    : '我确认要删除该卷组及其所有逻辑卷和物理卷'
+)
 
 const openDeleteVolume = (disk) => {
   deletingVolumeDisk.value = disk
@@ -903,12 +1137,17 @@ const openDeleteVolume = (disk) => {
 }
 
 const submitDeleteVolume = async () => {
-  const vgName = deletingVolumeDisk.value?.name
-  if (!vgName) return
+  const disk = deletingVolumeDisk.value
+  if (!disk?.name) return
   deletingVolume.value = true
   try {
-    await deleteLVMVolume(vgName)
-    ElMessage.success('删除 LVM 存储卷任务已提交，请在任务中心查看进度')
+    if (disk.is_zfs_pool) {
+      await deleteZFSPool(disk.name)
+      ElMessage.success('销毁 ZFS 存储池任务已提交，请在任务中心查看进度')
+    } else {
+      await deleteLVMVolume(disk.name)
+      ElMessage.success('删除 LVM 存储卷任务已提交，请在任务中心查看进度')
+    }
     deleteVolumeVisible.value = false
     fetchData()
   } finally {
@@ -935,7 +1174,7 @@ const progressColor = (pct = 0) => {
 }
 
 const typeLabel = (type) => {
-  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱', vg: '卷组', lv: '逻辑卷', pv: '物理卷' }
+  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱', vg: '卷组', lv: '逻辑卷', pv: '物理卷', zpool: 'ZFS 池', zdataset: 'ZFS 数据集', zmember: '成员盘' }
   return map[type] || type || '-'
 }
 
@@ -1757,7 +1996,7 @@ onUnmounted(() => {
   letter-spacing: 0.5px;
 }
 
-/* ===== 创建存储卷对话框样式 ===== */
+/* ===== 创建存储池对话框样式 ===== */
 .volume-type-card {
   cursor: pointer;
   border: 2px solid transparent;

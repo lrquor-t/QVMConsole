@@ -251,3 +251,78 @@ func GetVMStorageTargets(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": targets})
 }
+
+// GetZFSStatus 检测宿主机 ZFS 可用性
+func GetZFSStatus(c *gin.Context) {
+	available := service.ZFSAvailable()
+	reason := "ok"
+	if !available {
+		reason = "未检测到 zfsutils-linux，请先安装并加载 ZFS 内核模块"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": gin.H{
+		"available": available,
+		"reason":    reason,
+	}})
+}
+
+// CreateZFSPool 提交创建 ZFS 存储池任务
+func CreateZFSPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_zfs_pool") {
+		return
+	}
+	var req service.ZFSPoolRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+
+	paramsJSON, _ := json.Marshal(req)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageCreateZFSPool, gin.H{"params": string(paramsJSON)}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "提交创建 ZFS 存储池任务失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "创建 ZFS 存储池任务已提交",
+		"data":    gin.H{"task_id": task.ID},
+	})
+}
+
+// DeleteZFSPool 提交销毁 ZFS 存储池任务
+func DeleteZFSPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "delete_zfs_pool") {
+		return
+	}
+	var req struct {
+		PoolName string `json:"pool_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.PoolName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "存储池名称不能为空"})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageDeleteZFSPool, gin.H{"pool_name": req.PoolName}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "提交销毁 ZFS 存储池任务失败: " + err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "销毁 ZFS 存储池任务已提交",
+		"data":    gin.H{"task_id": task.ID},
+	})
+}
