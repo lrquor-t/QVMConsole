@@ -17,8 +17,6 @@
             <el-checkbox v-model="agreementChecked" class="agreement-checkbox">
               <span>我已阅读并同意</span>
               <a href="https://qvmcdocs.xiaozhuhouses.asia/agreement?return=%2Fdocs%2Finstall%2F" target="_blank" rel="noopener noreferrer" class="agreement-link" @click.stop>《用户协议》</a>
-              <span>和</span>
-              <a href="https://qvmcdocs.xiaozhuhouses.asia/agreement?return=%2Fdocs%2Finstall%2F" target="_blank" rel="noopener noreferrer" class="agreement-link" @click.stop>《内测协议》</a>
             </el-checkbox>
           </el-form-item>
           <el-form-item class="submit-item">
@@ -254,7 +252,6 @@
       <div class="about-content">
         <p>{{ displaySiteTitle }}公有云平台，由开发者又菜有爱玩的小朱独立研发设计。底层采用 KVM+QEMU 支持软硬件虚拟机并自行研发模板和开通流程，所有的模板均为官方镜像并非二次魔改，并且采用标准的开通方式。</p>
         <p>同时我自行研发弹性云和轻量云，弹性云面向开发者群体和企业用户，采用配额计费体系，用户可以在配额内灵活自行开通虚拟机VPS并支持VPC内网通信、网段隔离和ACL安全组策略，轻量云则面向个人用户提供最简单的服务器使用方式，由管理员直接开通分配。</p>
-        <p>目前该套系统属于内测抢先体验，尚不对外开放。</p>
         <p class="contact">如需体验试用，可联系 QQ：<strong>3354416548</strong>。</p>
       </div>
       <template #footer>
@@ -506,7 +503,7 @@ const applyStage = async (data) => {
 const handleLogin = async () => {
   if (!loginFormRef.value) return
   if (!agreementChecked.value) {
-    ElMessage.warning('请先阅读并同意用户协议和内测协议')
+    ElMessage.warning('请先阅读并同意用户协议')
     return
   }
   const valid = await loginFormRef.value.validate().catch(() => false)

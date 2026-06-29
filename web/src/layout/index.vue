@@ -131,12 +131,6 @@
           </el-icon>
           <span class="page-title">{{ route.meta.title || displaySiteTitle }}</span>
         </div>
-        <div class="navbar-center">
-          <span class="beta-notice-link" @click="showBetaNoticeDialog">
-            <el-icon><Warning /></el-icon>
-            <span>内测期间，请做好数据备份，避免程序bug造成数据丢失。内测不代表最终成果。</span>
-          </span>
-        </div>
         <div class="right-menu">
           <el-badge :value="activeTaskCount" :hidden="activeTaskCount === 0" :max="99" class="task-badge">
             <el-button text circle @click="toggleRecentTaskPanel" title="近期任务" class="task-toggle-btn">
@@ -160,23 +154,6 @@
             <el-icon><Link /></el-icon>
             开源版
           </el-link>
-          <el-dropdown trigger="click" @command="handleSponsorCommand" class="sponsor-dropdown">
-            <el-button text circle class="sponsor-btn" title="赞助支持">
-              <el-icon size="18"><Coffee /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="sponsor-pay">
-                  <el-icon><Money /></el-icon>
-                  前往赞助
-                </el-dropdown-item>
-                <el-dropdown-item command="sponsor-benefits">
-                  <el-icon><Document /></el-icon>
-                  查看权益内容
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
           <el-tag v-if="!isAdmin" type="success" size="small" class="cloud-tag">
             {{ isLightweight ? '轻量云' : '弹性云' }}
           </el-tag>
@@ -218,107 +195,6 @@
         @open-full="openFullTaskCenter"
       />
     </el-container>
-
-    <!-- 内测须知弹窗 -->
-    <el-dialog
-      v-model="betaNoticeVisible"
-      title="内测须知"
-      width="520px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :show-close="false"
-      destroy-on-close
-      append-to-body
-    >
-      <div class="beta-notice-content">
-        <el-alert
-          type="warning"
-          :closable="false"
-          show-icon
-          class="beta-alert"
-        >
-          <template #title>
-            <span class="beta-alert-title">当前系统处于内测阶段</span>
-          </template>
-        </el-alert>
-        <div class="beta-notice-body">
-          <p>由于当前项目体量较大，为确保每个功能能够正常运行，故采用内测体系。</p>
-          <p><strong>内测不代表最终成果，可能存在一定的 Bug 风险，请务必做好数据备份。</strong></p>
-          <el-divider />
-          <div class="beta-notice-join">
-            <p>务必加入官方 QQ 群：</p>
-            <div class="beta-qq-group">
-              <span class="beta-qq-number">654641487</span>
-              <el-button type="primary" link @click="copyBetaQQ">
-                <el-icon><CopyDocument /></el-icon>
-                复制群号
-              </el-button>
-            </div>
-            <p class="beta-notice-tip">遇到问题及时反馈，反馈有效问题多的用户可以奖励 Pro 资格！</p>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button type="primary" @click="confirmBetaNotice" class="beta-confirm-btn">
-          我已知晓，继续使用
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 赞助支持弹窗 -->
-    <el-dialog
-      v-model="sponsorVisible"
-      title="🤝 赞助支持 QVMConsole"
-      width="480px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :show-close="sponsorCountdown <= 0"
-      destroy-on-close
-      append-to-body
-      class="sponsor-dialog"
-    >
-      <div class="sponsor-content">
-        <div class="sponsor-icon">
-          <el-icon :size="48" color="#E6A23C"><Coffee /></el-icon>
-        </div>
-        <h3 class="sponsor-title">喜欢 QVMConsole 吗？</h3>
-        <p class="sponsor-desc">
-          QVMConsole 是一个由个人开发者独立维护的开源 KVM 虚拟化管理面板。
-          如果你觉得这个项目对你有帮助，欢迎赞助支持，帮助项目持续发展！
-        </p>
-        <div class="sponsor-benefits">
-          <p class="sponsor-benefits-title">✨ 赞助者权益：</p>
-          <ul class="sponsor-benefits-list">
-            <li>优先技术支持响应</li>
-            <li>功能需求优先排期</li>
-            <li>赞助者专属身份标识</li>
-            <li>内测版本优先体验</li>
-          </ul>
-        </div>
-        <div class="sponsor-actions">
-          <el-button type="warning" size="large" class="sponsor-btn-action" @click="openSponsorLink('pay')">
-            <el-icon><Money /></el-icon>
-            前往赞助
-          </el-button>
-          <el-button size="large" class="sponsor-btn-action" @click="openSponsorLink('benefits')">
-            <el-icon><Document /></el-icon>
-            查看权益内容
-          </el-button>
-        </div>
-      </div>
-      <template #footer>
-        <div class="sponsor-footer">
-          <span v-if="sponsorCountdown > 0" class="sponsor-countdown-tip">请仔细阅读赞助权益，{{ sponsorCountdown }}秒后可关闭</span>
-          <el-button
-            :disabled="sponsorCountdown > 0"
-            @click="closeSponsorDialog"
-            class="sponsor-close-btn"
-          >
-            {{ sponsorCountdown > 0 ? `关闭 (${sponsorCountdown}s)` : '关 闭' }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
 
     <!-- 安全设置对话框 -->
     <el-dialog
@@ -574,19 +450,14 @@ import SidebarIcons from '@/components/icons/SidebarIcons.vue'
 import {
   ArrowDown,
   Close,
-  Coffee,
-  CopyDocument,
-  Document,
   Expand,
   Fold,
   Link,
   List,
-  Money,
   Moon,
   Sunny,
   SwitchButton,
-  UserFilled,
-  Warning
+  UserFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyTextWithFallback } from '@/utils/clipboard'
@@ -626,12 +497,6 @@ onMounted(() => {
     document.documentElement.classList.add('dark')
   }
   refreshSecurityInfo()
-
-  // 显示内测须知弹窗
-  showBetaNotice()
-
-  // 检查赞助支持弹窗
-  checkSponsorDialog()
 
   // 监听弹窗打开，自动收起异步任务面板
   dialogObserver = new MutationObserver((mutations) => {
@@ -713,35 +578,6 @@ const generatedAPIKey = ref('')
 const apiKeyLoading = ref(false)
 const apiKeyGenerating = ref(false)
 const apiKeyRevoking = ref(false)
-
-// ==================== 内测须知弹窗 ====================
-const betaNoticeVisible = ref(false)
-
-const showBetaNotice = () => {
-  // 每次登录都弹出，使用 sessionStorage 存储本次会话已确认状态
-  const confirmed = sessionStorage.getItem('beta_notice_confirmed')
-  if (!confirmed && isAdmin.value) {
-    betaNoticeVisible.value = true
-  }
-}
-
-const showBetaNoticeDialog = () => {
-  betaNoticeVisible.value = true
-}
-
-const confirmBetaNotice = () => {
-  sessionStorage.setItem('beta_notice_confirmed', '1')
-  betaNoticeVisible.value = false
-}
-
-const copyBetaQQ = async () => {
-  try {
-    await copyTextWithFallback('654641487')
-    ElMessage.success('群号已复制')
-  } catch (err) {
-    ElMessage.error('复制失败，请手动复制群号：654641487')
-  }
-}
 
 // ==================== 异步任务面板 ====================
 const recentTaskPanelRef = ref(null)
@@ -1151,67 +987,6 @@ const handleCommand = (command) => {
   }
 }
 
-// 赞助下拉菜单命令处理
-const handleSponsorCommand = (command) => {
-  if (command === 'sponsor-pay') {
-    window.open('https://www.ifdian.net/item/ff67c598693811f1836452540025c377?utm_source=copylink&utm_medium=link', '_blank')
-  } else if (command === 'sponsor-benefits') {
-    window.open('https://qvmcdocs.xiaozhuhouses.asia/docs/install/sponsorship', '_blank')
-  }
-}
-
-// ==================== 赞助支持弹窗 ====================
-const sponsorVisible = ref(false)
-const sponsorCountdown = ref(0)
-
-const checkSponsorDialog = () => {
-  const now = new Date()
-  const today = now.toISOString().split('T')[0] // YYYY-MM-DD
-
-  const firstVisit = localStorage.getItem('sponsor_first_visit')
-  if (!firstVisit) {
-    // 首次访问，记录日期但不弹窗
-    localStorage.setItem('sponsor_first_visit', today)
-    return
-  }
-
-  // 仍在首次访问当天，不弹窗
-  if (firstVisit === today) return
-
-  // 检查7天冷却期
-  const lastClosed = localStorage.getItem('sponsor_last_closed')
-  if (lastClosed) {
-    const daysSinceClosed = Math.floor((now.getTime() - parseInt(lastClosed, 10)) / (1000 * 60 * 60 * 24))
-    if (daysSinceClosed < 7) return
-  }
-
-  // 显示弹窗并启动倒计时
-  sponsorVisible.value = true
-  startSponsorCountdown()
-}
-
-const startSponsorCountdown = () => {
-  sponsorCountdown.value = 5
-  const timer = setInterval(() => {
-    sponsorCountdown.value--
-    if (sponsorCountdown.value <= 0) {
-      clearInterval(timer)
-    }
-  }, 1000)
-}
-
-const closeSponsorDialog = () => {
-  localStorage.setItem('sponsor_last_closed', Date.now().toString())
-  sponsorVisible.value = false
-}
-
-const openSponsorLink = (type) => {
-  if (type === 'pay') {
-    window.open('https://www.ifdian.net/item/ff67c598693811f1836452540025c377?utm_source=copylink&utm_medium=link', '_blank')
-  } else if (type === 'benefits') {
-    window.open('https://qvmcdocs.xiaozhuhouses.asia/docs/install/sponsorship', '_blank')
-  }
-}
 </script>
 
 <style scoped>
@@ -1360,42 +1135,6 @@ html.dark .navbar {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ===== 导航栏中间（内测提示） ===== */
-.navbar-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.beta-notice-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 6px;
-  background: var(--el-color-warning-light-9);
-  color: var(--el-color-warning);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.beta-notice-link:hover {
-  background: var(--el-color-warning-light-8);
-  color: var(--el-color-warning-dark-2);
-}
-
-.beta-notice-link .el-icon {
   flex-shrink: 0;
 }
 
@@ -1558,10 +1297,6 @@ html.dark .navbar {
     height: 52px !important;
   }
 
-  .navbar-center {
-    display: none !important;
-  }
-
   .page-title {
     font-size: 14px !important;
   }
@@ -1615,169 +1350,9 @@ html.dark .navbar {
   font-weight: 500;
 }
 
-/* ===== 赞助按钮 ===== */
-.sponsor-dropdown {
-  margin-right: 4px;
-}
-
-.sponsor-btn {
-  font-size: 18px;
-  color: var(--el-text-color-regular);
-  transition: color var(--app-transition-fast, 0.15s ease);
-  display: flex;
-  align-items: center;
-  padding: 4px;
-  border-radius: 6px;
-}
-
-.sponsor-btn:hover {
-  color: var(--el-color-primary);
-  background: var(--app-bg-hover, rgba(64, 158, 255, 0.04));
-}
-
 /* 异步任务面板隐藏（未登录时） */
 .task-panel-hidden {
   display: none !important;
 }
 
-/* ===== 内测须知弹窗 ===== */
-.beta-notice-content {
-  padding: 0 4px;
-}
-
-.beta-alert {
-  margin-bottom: 16px;
-}
-
-.beta-alert-title {
-  font-weight: 600;
-}
-
-.beta-notice-body p {
-  margin: 8px 0;
-  line-height: 1.8;
-  color: var(--el-text-color-regular);
-}
-
-.beta-notice-body strong {
-  color: var(--el-color-warning);
-}
-
-.beta-notice-join {
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
-  padding: 16px;
-  margin-top: 12px;
-}
-
-.beta-qq-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 0;
-}
-
-.beta-qq-number {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--el-color-primary);
-  font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
-  letter-spacing: 1px;
-}
-
-.beta-notice-tip {
-  color: var(--el-color-success);
-  font-size: 13px;
-  margin-top: 8px !important;
-}
-
-.beta-confirm-btn {
-  width: 100%;
-}
-
-/* ===== 赞助支持弹窗 ===== */
-.sponsor-dialog :deep(.el-dialog__header) {
-  text-align: center;
-  font-size: 18px;
-  padding-bottom: 8px;
-}
-
-.sponsor-content {
-  text-align: center;
-  padding: 8px 4px 4px;
-}
-
-.sponsor-icon {
-  margin-bottom: 12px;
-}
-
-.sponsor-title {
-  margin: 0 0 12px;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.sponsor-desc {
-  margin: 0 0 20px;
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--el-text-color-regular);
-  text-align: left;
-  padding: 0 8px;
-}
-
-.sponsor-benefits {
-  background: var(--el-fill-color-light);
-  border-radius: 10px;
-  padding: 14px 20px;
-  margin-bottom: 20px;
-  text-align: left;
-}
-
-.sponsor-benefits-title {
-  margin: 0 0 8px;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-}
-
-.sponsor-benefits-list {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.sponsor-benefits-list li {
-  font-size: 13px;
-  line-height: 2;
-  color: var(--el-text-color-regular);
-}
-
-.sponsor-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 4px;
-}
-
-.sponsor-btn-action {
-  flex: 1;
-  max-width: 200px;
-}
-
-.sponsor-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.sponsor-countdown-tip {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.sponsor-close-btn {
-  min-width: 100px;
-}
 </style>
