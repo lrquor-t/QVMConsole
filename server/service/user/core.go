@@ -3,6 +3,7 @@ package user
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -174,8 +175,20 @@ func ProvisionSystemUserResources(user *model.User, password string) error {
 				"-s", sshShellNologin, user.Username)
 		}
 
-		// 设置系统密码
-		utils.ExecShell(fmt.Sprintf("echo %s:%s | chpasswd", utils.ShellSingleQuote(user.Username), utils.ShellSingleQuote(password)))
+		// 设置系统密码（使用 stdin 方式，避免 shell 转义问题）
+		cleanPassword := strings.Map(func(r rune) rune {
+			if r < 32 || r == 127 {
+				return -1
+			}
+			return r
+		}, password)
+		if cleanPassword != "" {
+			cmd := exec.Command("chpasswd")
+			cmd.Stdin = strings.NewReader(user.Username + ":" + cleanPassword + "\n")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				logger.App.Warn("设置系统密码失败", "user", user.Username, "error", err, "output", string(output))
+			}
+		}
 
 		// 创建 VM 访问配置目录
 		utils.ExecCommand("mkdir", "-p", config.GlobalConfig.VMAccessDir)

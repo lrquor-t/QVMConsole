@@ -329,6 +329,15 @@ func Init() {
 
 // ValidateSecurity 启动后安全检查（需在数据库设置加载完成后调用）
 func ValidateSecurity() {
+	// 开发模式安全警告
+	if GlobalConfig.DevelopmentMode {
+		fmt.Fprintf(os.Stderr, "\n[安全警告] ================================================\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] 当前处于开发模式 (KVM_DEVELOPMENT_MODE=true)\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] CORS 将允许所有来源，JWT 默认密钥仅警告不阻断\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] 请勿在生产环境中启用此模式！\n")
+		fmt.Fprintf(os.Stderr, "[安全警告] ================================================\n\n")
+	}
+
 	if GlobalConfig.VMCredentialSecret == GlobalConfig.JWTSecret &&
 		GlobalConfig.JWTSecret != defaultJWTSecret && !GlobalConfig.DevelopmentMode {
 		fmt.Fprintf(os.Stderr, "[安全警告] KVM_VM_CREDENTIAL_SECRET 与 KVM_JWT_SECRET 相同，建议使用独立密钥。\n")

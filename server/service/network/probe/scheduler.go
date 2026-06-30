@@ -10,6 +10,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
+	"kvm_console/utils"
 	schedpkg "kvm_console/service/scheduler"
 )
 
@@ -33,6 +34,7 @@ func registerPortForwardProbeScheduler() {
 func StartPortForwardHTTPProbeScheduler() {
 	registerPortForwardProbeScheduler()
 	go func() {
+		defer utils.RecoverAndLog("probe-port-forward")
 		for {
 			intervalMinutes := 60
 			if config.GlobalConfig != nil && config.GlobalConfig.PortForwardHTTPProbeIntervalMinutes > 0 {

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"kvm_console/utils"
 )
 
 // ============================================================
@@ -51,6 +53,7 @@ func getHIBPClient() *http.Client {
 // init 启动缓存清理协程
 func init() {
 	go func() {
+		defer utils.RecoverAndLog("hibp-cache-cleanup")
 		ticker := time.NewTicker(hibpCacheCleanup)
 		defer ticker.Stop()
 		for range ticker.C {

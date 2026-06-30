@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"kvm_console/logger"
 	"kvm_console/service"
+	"kvm_console/utils"
 )
 
 // WebSocket 升级器
@@ -179,19 +181,36 @@ func VncWebSocket(c *gin.Context) {
 
 	logger.App.Info("VNC WebSocket 代理已建立", "vm", name, "network", connInfo.Network, "addr", connInfo.Address)
 
+	// 创建可取消上下文，任一方向断开时取消另一方向
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
 	// 双向转发
 	errChan := make(chan error, 2)
 
 	// WebSocket → VNC
 	go func() {
+		defer utils.RecoverAndLog("vnc-ws-to-vnc")
+		defer cancel()
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			_, message, err := ws.ReadMessage()
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 				return
 			}
 			if _, err := vncConn.Write(message); err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 				return
 			}
 		}
@@ -199,17 +218,30 @@ func VncWebSocket(c *gin.Context) {
 
 	// VNC → WebSocket
 	go func() {
+		defer utils.RecoverAndLog("vnc-vnc-to-ws")
+		defer cancel()
 		buf := make([]byte, 32*1024)
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			n, err := vncConn.Read(buf)
 			if err != nil {
 				if err != io.EOF {
-					errChan <- err
+					select {
+					case errChan <- err:
+					default:
+					}
 				}
 				return
 			}
 			if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 				return
 			}
 		}

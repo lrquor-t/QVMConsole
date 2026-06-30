@@ -2,7 +2,9 @@ package clone
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -276,7 +278,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 	if !isNoInit {
 		password := params.Password
 		if password == "" {
-			password = "Qwert333"
+			password = generateRandomPassword(16)
 		}
 
 		// 注入 CloudbaseInit 配置文件（cloudbase-init.conf + Panther unattend.xml）
@@ -492,4 +494,15 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 	}
 
 	return nil
+}
+
+// generateRandomPassword 生成指定长度的随机密码（包含大小写字母和数字）
+func generateRandomPassword(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	password := make([]byte, length)
+	for i := range password {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		password[i] = charset[n.Int64()]
+	}
+	return string(password)
 }

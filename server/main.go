@@ -157,6 +157,7 @@ func registerTaskHandlers() {
 		// 克隆完成后重新分配用户带宽
 		if task.CreatedBy != "" && task.CreatedBy != "admin" {
 			go func() {
+				defer utils.RecoverAndLog("main-clone-rebalance")
 				if err := service.RebalanceUserBandwidth(task.CreatedBy); err != nil {
 					logger.App.Warn("克隆完成后重新分配用户带宽失败", "user", task.CreatedBy, "error", err)
 				}
@@ -481,11 +482,16 @@ func registerTaskHandlers() {
 			if err := service.ForceDeleteVM(params.Name); err != nil {
 				return "", err
 			}
-			_ = service.DeleteVMCredential(params.Name)
-			_ = model.DeleteVMLock(params.Name)
+			if err := service.DeleteVMCredential(params.Name); err != nil {
+				logger.App.Warn("主动删除VM凭据失败", "vm", params.Name, "error", err)
+			}
+			if err := model.DeleteVMLock(params.Name); err != nil {
+				logger.App.Warn("主动删除VM锁失败", "vm", params.Name, "error", err)
+			}
 			markVMCacheMissingAfterTask(params.Name)
 			if task.CreatedBy != "" && task.CreatedBy != "admin" {
 				go func() {
+					defer utils.RecoverAndLog("main-force-delete-rebalance")
 					if err := service.RebalanceUserBandwidth(task.CreatedBy); err != nil {
 						logger.App.Warn("强制删除VM后重新分配用户带宽失败", "user", task.CreatedBy, "error", err)
 					}
@@ -506,12 +512,17 @@ func registerTaskHandlers() {
 		if err != nil {
 			return "", err
 		}
-		_ = service.DeleteVMCredential(params.Name)
-		_ = model.DeleteVMLock(params.Name)
+		if err := service.DeleteVMCredential(params.Name); err != nil {
+			logger.App.Warn("主动删除VM凭据失败", "vm", params.Name, "error", err)
+		}
+		if err := model.DeleteVMLock(params.Name); err != nil {
+			logger.App.Warn("主动删除VM锁失败", "vm", params.Name, "error", err)
+		}
 		markVMCacheMissingAfterTask(params.Name)
 		// 删除完成后重新分配用户带宽
 		if task.CreatedBy != "" && task.CreatedBy != "admin" {
 			go func() {
+				defer utils.RecoverAndLog("main-delete-rebalance")
 				if err := service.RebalanceUserBandwidth(task.CreatedBy); err != nil {
 					logger.App.Warn("删除VM后重新分配用户带宽失败", "user", task.CreatedBy, "error", err)
 				}

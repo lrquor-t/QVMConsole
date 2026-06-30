@@ -159,8 +159,12 @@ func CheckLightweightVMTrafficAfterQuotaUpdate(vmName string) {
 	record.TrafficDown = effectiveDown
 	record.TrafficUp = effectiveUp
 	if !record.IsLimitedDown && !record.IsLimitedUp {
-		_ = saveLightweightVMTrafficMonthly(record)
-		_ = ApplyLightweightVMBandwidth(quota.VMName)
+		if err := saveLightweightVMTrafficMonthly(record); err != nil {
+			logger.App.Warn("轻量VM流量月度记录失败", "vm", quota.VMName, "error", err)
+		}
+		if err := ApplyLightweightVMBandwidth(quota.VMName); err != nil {
+			logger.App.Warn("轻量VM带宽应用失败", "vm", quota.VMName, "error", err)
+		}
 		return
 	}
 	downLimited := quota.TrafficDownGB > 0 && float64(effectiveDown) >= HookTrafficQuotaBytes(quota.TrafficDownGB)

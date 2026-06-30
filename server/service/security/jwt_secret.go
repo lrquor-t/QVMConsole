@@ -11,6 +11,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
+	"kvm_console/utils"
 )
 
 // 用于存储上一次轮换时写入 .env 的路径
@@ -113,6 +114,7 @@ func StartJWTSecretRotator() {
 	logger.App.Info("密钥自动轮换已启动", "component", "JWT", "interval_hours", rotateHours)
 
 	go func() {
+		defer utils.RecoverAndLog("jwt-secret-rotator")
 		for {
 			time.Sleep(interval)
 			cfg := config.GlobalConfig

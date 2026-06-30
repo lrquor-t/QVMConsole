@@ -9,6 +9,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/taskqueue"
+	"kvm_console/utils"
 )
 
 // BatchCloneVM 批量克隆（支持取消）
@@ -17,6 +18,9 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 	if maxConcurrency <= 0 {
 		maxConcurrency = 10
 	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	results := make([]CloneResult, params.Count)
 	var mu sync.Mutex
@@ -30,19 +34,33 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 	for i := 0; i < params.Count; i++ {
 		select {
 		case <-ctx.Done():
+			wg.Wait()
 			return results[:completed], taskqueue.ErrTaskCanceled
 		default:
 		}
 
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			wg.Wait()
+			return results[:completed], taskqueue.ErrTaskCanceled
+		}
 
 		go func(index int) {
+			defer utils.RecoverAndLog("clone-batch")
 			defer wg.Done()
 			defer func() { <-sem }()
 
 			if atomic.LoadInt32(&cancelled) == 1 {
 				return
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
 
 			vmName := fmt.Sprintf("%s-%s", params.Prefix, padNum(params.StartNum+index))
@@ -103,6 +121,7 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 			if err != nil {
 				if err == taskqueue.ErrTaskCanceled {
 					atomic.StoreInt32(&cancelled, 1)
+					cancel()
 					return
 				}
 			}

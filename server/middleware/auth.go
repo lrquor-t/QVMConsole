@@ -317,6 +317,44 @@ func AdminMiddleware() gin.HandlerFunc {
 	}
 }
 
+// ForcePasswordChangeMiddleware 强制修改密码中间件
+// 当用户 ForcePasswordChange=true 时，仅允许访问修改密码和退出登录接口
+func ForcePasswordChangeMiddleware() gin.HandlerFunc {
+	// 白名单：这些路径在强制修改密码期间仍可访问
+	whitelist := map[string]bool{
+		"/api/auth/password":      true, // PUT 修改密码
+		"/api/auth/info":          true, // GET 获取用户信息（含 force_password_change 标志）
+		"/api/auth/logout":        true, // POST 退出登录
+		"/api/public/settings":    true, // GET 公共设置
+		"/api/public/version":     true, // GET 版本
+	}
+	return func(c *gin.Context) {
+		current, exists := c.Get("current_user")
+		if !exists {
+			c.Next()
+			return
+		}
+		user, ok := current.(*model.User)
+		if !ok || !user.ForcePasswordChange {
+			c.Next()
+			return
+		}
+		path := c.Request.URL.Path
+		if whitelist[path] {
+			c.Next()
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": "请先修改默认密码后再使用其他功能",
+			"data": gin.H{
+				"force_password_change": true,
+			},
+		})
+		c.Abort()
+	}
+}
+
 // ElasticCloudOnlyMiddleware 禁止轻量云用户访问弹性云自助能力。
 func ElasticCloudOnlyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {

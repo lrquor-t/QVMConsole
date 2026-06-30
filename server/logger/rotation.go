@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -14,6 +15,11 @@ var rotationDone chan struct{}
 func startDailyRotation() {
 	rotationDone = make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				App.Error("panic recovered", "scope", "log-rotation", "panic", fmt.Sprintf("%v", r))
+			}
+		}()
 		for {
 			now := time.Now()
 			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())

@@ -44,7 +44,7 @@ type LightweightVMRegistration struct {
 	Status               string     `json:"status" gorm:"index;not null;size:32;default:pending"`
 	TaskID               uint       `json:"task_id" gorm:"default:0"`
 	ErrorMessage         string     `json:"error_message" gorm:"type:text"`
-	CreatedBy            string     `json:"created_by" gorm:"size:64"`
+	CreatedBy            string     `json:"created_by" gorm:"index;size:64"`
 	ConfirmedAt          *time.Time `json:"confirmed_at"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`

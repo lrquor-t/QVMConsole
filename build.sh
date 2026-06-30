@@ -162,8 +162,8 @@ if [ "$SKIP_BACKEND" = false ]; then
     info "构建后端二进制..."
     cd "$SERVER_DIR"
 
-    # CGO 交叉编译检测
-    if [ "$IS_CROSS_COMPILE" = true ]; then
+	# CGO 交叉编译检测（仅在需要 CGO 时）
+	if [ "${CGO_ENABLED:-0}" = "1" ] && [ "$IS_CROSS_COMPILE" = true ]; then
         cross_cc=$(GOOS=linux GOARCH="$GOARCH_VALUE" go env CC 2>/dev/null || true)
         if [ -z "$cross_cc" ] || ! command -v "$cross_cc" >/dev/null 2>&1; then
             warn "CGO 交叉编译需要安装对应交叉编译器"
@@ -177,7 +177,7 @@ if [ "$SKIP_BACKEND" = false ]; then
         info "检测到交叉编译器: ${cross_cc}"
     fi
 
-    CGO_ENABLED=1 GOOS=linux GOARCH="$GOARCH_VALUE" \
+    CGO_ENABLED=${CGO_ENABLED:-0} GOOS=linux GOARCH="$GOARCH_VALUE" \
         go build \
         -ldflags="-s -w \
             -X main.Version=${BUILD_VERSION} \
@@ -197,6 +197,11 @@ fi
 # ==================== 打包发行文件 ====================
 info "打包发行文件..."
 
+# 安全校验：后端二进制必须存在
+if [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
+    error "后端二进制 kvm-console 不存在于 ${RELEASE_DIR}/${OUTPUT_NAME}/。\n  若使用 --skip-backend，请确保之前已成功构建且未清空 release 目录。\n  建议：不带 --skip-backend 重新构建。"
+fi
+
 # 复制前端静态文件
 cp -r "$WEB_DIR/dist" "$RELEASE_DIR/${OUTPUT_NAME}/web-dist"
 
@@ -209,7 +214,53 @@ if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
     chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console"
 fi
 
-# 生成 tar.gz
+# ==================== 下载捆绑的 RPM 包（用于 Kylin/openEuler 等缺少的包）====================
+info "下载捆绑的 RPM 包..."
+mkdir -p "$RELEASE_DIR/${OUTPUT_NAME}/bundled"
+
+# arp-scan: 在 Kylin/openEuler 默认源中不存在，从 EPEL 获取
+ARP_SCAN_RPM_URL=""
+if [ "$TARGET_ARCH" = "amd64" ]; then
+    ARP_SCAN_RPM_URL="https://dl.fedoraproject.org/pub/epel/8/Everything/x86_64/Packages/a/arp-scan-1.10.0-1.el8.x86_64.rpm"
+elif [ "$TARGET_ARCH" = "arm64" ]; then
+    ARP_SCAN_RPM_URL="https://dl.fedoraproject.org/pub/epel/8/Everything/aarch64/Packages/a/arp-scan-1.10.0-1.el8.aarch64.rpm"
+fi
+
+if [ -n "$ARP_SCAN_RPM_URL" ]; then
+    if curl -fL --connect-timeout 10 "$ARP_SCAN_RPM_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/arp-scan.rpm" 2>/dev/null; then
+        success "arp-scan RPM 下载完成"
+    else
+        warn "arp-scan RPM 下载失败，该功能将在系统中不可用时跳过（不影响核心功能）"
+    fi
+fi
+
+# libguestfs-tools-c: 包含 virt-filesystems、virt-customize 等 C 工具
+# 在 Kylin 上 guestfs-tools 包可能因依赖不足安装失败，从 AlmaLinux 8 AppStream 预取
+LIBGUESTFS_TOOLS_C_URL=""
+if [ "$TARGET_ARCH" = "amd64" ]; then
+    LIBGUESTFS_TOOLS_C_URL="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os/Packages/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.x86_64.rpm"
+elif [ "$TARGET_ARCH" = "arm64" ]; then
+    LIBGUESTFS_TOOLS_C_URL="https://repo.almalinux.org/almalinux/8/AppStream/aarch64/os/Packages/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.aarch64.rpm"
+fi
+
+if [ -n "$LIBGUESTFS_TOOLS_C_URL" ]; then
+    if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_C_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools-c.rpm" 2>/dev/null; then
+        success "libguestfs-tools-c RPM 下载完成"
+    else
+        warn "libguestfs-tools-c RPM 下载失败，virt-filesystems/virt-customize 将尝试通过系统源安装"
+    fi
+fi
+
+# libguestfs-tools (noarch): 包含 virt-win-reg 等 Perl 脚本
+# 在 openEuler 上可能为独立子包，安装失败时从捆绑包提取
+LIBGUESTFS_TOOLS_NOARCH_URL="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os/Packages/libguestfs-tools-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.noarch.rpm"
+if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_NOARCH_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools.rpm" 2>/dev/null; then
+    success "libguestfs-tools (noarch) RPM 下载完成"
+else
+    warn "libguestfs-tools (noarch) RPM 下载失败，virt-win-reg 将尝试通过系统源安装"
+fi
+
+# ==================== 生成 tar.gz ====================
 cd "$RELEASE_DIR"
 tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}/"
 
@@ -228,5 +279,6 @@ echo -e "${CYAN}║${NC}  内容:"
 echo -e "${CYAN}║${NC}    - kvm-console        后端二进制 (${TARGET_ARCH})"
 echo -e "${CYAN}║${NC}    - web-dist/          前端静态文件"
 echo -e "${CYAN}║${NC}    - install.sh         安装脚本"
+echo -e "${CYAN}║${NC}    - bundled/           捆绑的 RPM 包（用于缺失的系统包）"
 echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""

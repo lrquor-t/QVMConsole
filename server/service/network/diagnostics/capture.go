@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"kvm_console/utils"
 )
 
 // InitNetworkCaptureSession 初始化抓包会话
@@ -129,9 +131,11 @@ func ExecuteNetworkCapture(ctx context.Context, taskID uint, params NetworkCaptu
 	defer cancel()
 	errCh := make(chan error, 2)
 	go func() {
+		defer utils.RecoverAndLog("capture-tcpdump-file")
 		errCh <- runTcpdumpToFile(captureCtx, iface, filePath, req.MaxPackets, bpf)
 	}()
 	go func() {
+		defer utils.RecoverAndLog("capture-tcpdump-summary")
 		errCh <- runTcpdumpSummary(captureCtx, taskID, iface, req.MaxPackets, bpf)
 	}()
 	go monitorCaptureFileSize(captureCtx, cancel, taskID, filePath, int64(req.MaxMB)*1024*1024)

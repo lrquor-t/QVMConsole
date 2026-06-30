@@ -6,11 +6,31 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"kvm_console/logger"
 )
+
+// SafeGo 启动带 panic recovery 的 goroutine
+func SafeGo(fn func()) {
+	go func() {
+		defer RecoverAndLog("goroutine")
+		fn()
+	}()
+}
+
+// RecoverAndLog 在 defer 中调用，捕获 panic 并记录错误日志
+func RecoverAndLog(scope string) {
+	if r := recover(); r != nil {
+		logger.App.Error("panic recovered",
+			"scope", scope,
+			"panic", fmt.Sprintf("%v", r),
+			"stack", string(debug.Stack()),
+		)
+	}
+}
 
 // CmdResult 命令执行结果
 type CmdResult struct {
@@ -177,7 +197,6 @@ func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout ti
 		done <- cmd.Wait()
 	}()
 
-	ctx := context.Background()
 	select {
 	case err := <-done:
 		elapsed := time.Since(start)
@@ -210,19 +229,6 @@ func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout ti
 			Stderr:   "命令执行超时",
 			ExitCode: -1,
 			Error:    fmt.Errorf("命令执行超时: %s %s", name, strings.Join(args, " ")),
-		}
-
-	case <-ctx.Done():
-		killProcessTree(cmd)
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-		}
-		logFn("命令已取消", "cmd", name, "args", argsStr, "reason", ctx.Err())
-		return &CmdResult{
-			Stderr:   "命令已取消",
-			ExitCode: -1,
-			Error:    fmt.Errorf("命令已取消: %s %s: %w", name, strings.Join(args, " "), ctx.Err()),
 		}
 	}
 }

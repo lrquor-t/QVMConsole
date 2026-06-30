@@ -21,13 +21,14 @@ type LoginRequest struct {
 }
 
 type LoginStageResponse struct {
-	Stage          string                `json:"stage"`
-	Token          string                `json:"token,omitempty"`
-	Username       string                `json:"username"`
-	Role           string                `json:"role"`
-	CloudType      string                `json:"cloud_type"`
-	Security       service.SecurityState `json:"security"`
-	AllowedMethods []string              `json:"allowed_methods,omitempty"`
+	Stage              string                `json:"stage"`
+	Token              string                `json:"token,omitempty"`
+	Username           string                `json:"username"`
+	Role               string                `json:"role"`
+	CloudType          string                `json:"cloud_type"`
+	Security           service.SecurityState `json:"security"`
+	AllowedMethods     []string              `json:"allowed_methods,omitempty"`
+	ForcePasswordChange bool                 `json:"force_password_change,omitempty"`
 }
 
 type ChangePasswordRequest struct {
@@ -244,6 +245,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// 检查是否需要强制修改密码（默认管理员账号首次登录）
+	forcePasswordChange := user.ForcePasswordChange
+
 	accessToken, err := middleware.GenerateAccessTokenWithContext(c, user.ID, user.Username, user.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
@@ -253,12 +257,13 @@ func Login(c *gin.Context) {
 		"code":    200,
 		"message": "登录成功",
 		"data": LoginStageResponse{
-			Stage:     "success",
-			Token:     accessToken,
-			Username:  user.Username,
-			Role:      user.Role,
-			CloudType: service.NormalizeCloudType(user.CloudType),
-			Security:  security,
+			Stage:              "success",
+			Token:              accessToken,
+			Username:           user.Username,
+			Role:               user.Role,
+			CloudType:          service.NormalizeCloudType(user.CloudType),
+			Security:           security,
+			ForcePasswordChange: forcePasswordChange,
 		},
 	})
 }
@@ -311,6 +316,7 @@ func ChangePassword(c *gin.Context) {
 	now := time.Now()
 	if err := model.DB.Model(user).Updates(map[string]interface{}{
 		"password_hash":            string(newHash),
+		"force_password_change":    false,
 		"high_risk_verified_until": nil,
 		"login_verified_until":     nil,
 		"security_updated_at":      &now,

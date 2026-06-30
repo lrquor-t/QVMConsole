@@ -80,6 +80,196 @@ EFI_PKG_X86="ovmf"
 QEMU_PKG_ARM="qemu-system-arm"
 EFI_PKG_ARM="qemu-efi-aarch64"
 
+# ==================== RPM 系发行版包名映射 ====================
+# key = APT_DEPS 中的 Debian 包名，value = 对应的 RPM 包名
+# 注意：openEuler/麒麟 的 libvirt 为单一包（含 daemon+client），非 Debian 拆分方式
+declare -A RPM_PKG_MAP
+RPM_PKG_MAP=(
+    ["ca-certificates"]="ca-certificates"
+    ["curl"]="curl"
+    ["tar"]="tar"
+    ["gzip"]="gzip"
+    ["qemu-utils"]="qemu-img"
+    ["libvirt-daemon-system"]="libvirt"
+    ["libvirt-daemon-driver-qemu"]=""          # openEuler 上已包含在 libvirt 包中
+    ["libvirt-clients"]="libvirt-client"
+    ["openvswitch-switch"]="openvswitch"
+    ["dnsmasq-base"]="dnsmasq"
+    ["virtinst"]="virt-install"
+    ["libguestfs-tools"]="libguestfs-tools"
+    ["ntfs-3g"]="ntfs-3g"
+    ["genisoimage"]="genisoimage"
+    ["sshpass"]="sshpass"
+    ["cloud-image-utils"]="cloud-utils"
+    ["lvm2"]="lvm2"
+    ["cloud-guest-utils"]="cloud-utils-growpart"
+    ["quota"]="quota"
+    ["e2fsprogs"]="e2fsprogs"
+    ["util-linux"]="util-linux"
+    ["nftables"]="nftables"
+    ["iproute2"]="iproute"
+    ["iptables"]="iptables"
+    ["tcpdump"]="tcpdump"
+    ["ufw"]="firewalld"
+    ["nmap"]="nmap"
+    ["arp-scan"]="arp-scan"
+    ["conntrack"]="conntrack-tools"
+    ["openssh-client"]="openssh-clients"
+    ["openssh-server"]="openssh-server"
+    ["parted"]="parted"
+)
+
+# RPM 系架构特有包名（openEuler 官方文档确认）
+# QEMU: openEuler 24.03 用 qemu-kvm，部分旧版/麒麟可能只有 qemu，安装时自动回退
+# UEFI: x86 用 edk2-ovmf，AArch64 用 edk2-aarch64
+QEMU_PKG_X86_RPM="qemu-kvm"
+QEMU_PKG_X86_RPM_FALLBACK="qemu"
+EFI_PKG_X86_RPM="edk2-ovmf"
+QEMU_PKG_ARM_RPM="qemu-kvm"
+QEMU_PKG_ARM_RPM_FALLBACK="qemu"
+EFI_PKG_ARM_RPM="edk2-aarch64"
+
+# RPM 系中可能不存在的可选包（缺失时不报错，仅警告）
+# 这些包在部分麒麟/openEuler 源中可能不存在或包名不同
+# 注意：genisoimage 在 apt 系是 APT_DEPS 必装项，此处标记为 RPM 可选（可用 xorriso 替代）
+RPM_PKG_SOFT=(
+    "libguestfs-tools"
+    "cloud-utils"
+    "cloud-utils-growpart"
+    "genisoimage"
+    "arp-scan"
+)
+
+PKG_MGR=""
+
+# ==================== 包管理器辅助函数 ====================
+
+# detect_pkg_manager 检测当前系统的包管理器 (apt/dnf/yum)
+detect_pkg_manager() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        local os_id="${ID:-}"
+        local os_like="${ID_LIKE:-}"
+        os_id="${os_id,,}"
+        os_like="${os_like,,}"
+
+        # Debian/Ubuntu 系列
+        if [[ "$os_id" == "ubuntu" ]] || [[ "$os_id" == "debian" ]]; then
+            PKG_MGR="apt"
+            return
+        fi
+        if [[ "$os_like" == *"debian"* ]] || [[ "$os_like" == *"ubuntu"* ]]; then
+            if command -v apt-get &>/dev/null; then
+                PKG_MGR="apt"
+                return
+            fi
+        fi
+
+        # 显式识别已知 RPM 系发行版
+        case "$os_id" in
+            kylin|neokylin|openEuler|centos|rhel|anolis|rocky|alma|fedora)
+                if command -v dnf &>/dev/null; then
+                    PKG_MGR="dnf"
+                elif command -v yum &>/dev/null; then
+                    PKG_MGR="yum"
+                fi
+                return
+                ;;
+        esac
+        if [[ "$os_like" == *"rhel"* ]] || [[ "$os_like" == *"fedora"* ]] || [[ "$os_like" == *"kylin"* ]] || [[ "$os_like" == *"openeuler"* ]]; then
+            if command -v dnf &>/dev/null; then
+                PKG_MGR="dnf"
+                return
+            fi
+            if command -v yum &>/dev/null; then
+                PKG_MGR="yum"
+                return
+            fi
+        fi
+
+        # 通用 RPM 回退：优先 dnf，回退 yum
+        if command -v dnf &>/dev/null; then
+            PKG_MGR="dnf"
+            return
+        fi
+        if command -v yum &>/dev/null; then
+            PKG_MGR="yum"
+            return
+        fi
+    fi
+
+    # 最终回退：按命令可用性检测
+    if command -v apt-get &>/dev/null; then
+        PKG_MGR="apt"
+    elif command -v dnf &>/dev/null; then
+        PKG_MGR="dnf"
+    elif command -v yum &>/dev/null; then
+        PKG_MGR="yum"
+    else
+        error "未检测到支持的包管理器 (apt/dnf/yum)"
+        exit 1
+    fi
+}
+
+# pkg_name 将 Debian 包名转换为当前系统的 RPM 包名，Debian 系原样返回
+pkg_name() {
+    case "$PKG_MGR" in
+        apt) echo "$1" ;;
+        dnf|yum)
+            local rpm_name="${RPM_PKG_MAP[$1]:-}"
+            if [ -z "$rpm_name" ]; then
+                # 无映射则跳过（该包在此发行版不可用）
+                return 1
+            fi
+            echo "$rpm_name"
+            ;;
+    esac
+}
+
+# pkg_install 安装指定包
+pkg_install() {
+    case "$PKG_MGR" in
+        apt) DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
+        dnf) dnf install -y "$@" ;;
+        yum) yum install -y "$@" ;;
+    esac
+}
+
+# pkg_update_index 更新包索引
+pkg_update_index() {
+    case "$PKG_MGR" in
+        apt) apt-get update ;;
+        dnf|yum) : ;;  # RPM 系通常不需要单独更新索引
+    esac
+}
+
+# is_pkg_installed 检查指定包是否已安装
+is_pkg_installed() {
+    case "$PKG_MGR" in
+        apt) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed" ;;
+        dnf|yum) rpm -q "$1" &>/dev/null ;;
+    esac
+}
+
+# pkg_is_available 检查包在当前源中是否可用（仅 RPM 系）
+# 注意：dnf repoquery 需要 dnf-plugins-core，缺失时自动安装
+pkg_is_available() {
+    case "$PKG_MGR" in
+        apt) apt-cache show "$1" &>/dev/null ;;
+        dnf)
+            # dnf repoquery 需要 dnf-plugins-core，缺失时先安装
+            if ! dnf repoquery --available "$1" &>/dev/null 2>&1; then
+                if ! rpm -q dnf-plugins-core &>/dev/null 2>&1; then
+                    dnf install -y dnf-plugins-core &>/dev/null 2>&1 || true
+                fi
+                dnf repoquery --available "$1" &>/dev/null
+            fi
+            ;;
+        yum) yum list available "$1" &>/dev/null ;;
+        *) return 1 ;;
+    esac
+}
+
 COMMAND_CHECKS=(
     "virsh"
     "qemu-img"
@@ -131,15 +321,12 @@ check_root() {
 
 check_os() {
     if [ ! -f /etc/os-release ]; then
-        error "无法识别操作系统，本脚本仅适配 Debian / Ubuntu 系列"
+        error "无法识别操作系统"
         exit 1
     fi
     . /etc/os-release
-    if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" && "${ID_LIKE:-}" != *"debian"* && "${ID_LIKE:-}" != *"ubuntu"* ]]; then
-        error "当前系统为 ${PRETTY_NAME:-unknown}，请使用 Debian / Ubuntu 系列系统安装"
-        exit 1
-    fi
-    info "检测到系统: ${PRETTY_NAME:-unknown}"
+    detect_pkg_manager
+    info "检测到系统: ${PRETTY_NAME:-unknown}，包管理器: $PKG_MGR"
 }
 
 detect_arch() {
@@ -283,22 +470,25 @@ choose_mode() {
     fi
 }
 
-is_pkg_installed() {
-    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
-}
-
 install_optional_polkit() {
     if command -v pkaction >/dev/null 2>&1 || systemctl list-unit-files 2>/dev/null | grep -q '^polkit\.service'; then
         return
     fi
     info "补充安装 polkit 组件..."
-    if apt-cache show polkitd >/dev/null 2>&1; then
-        apt-get install -y polkitd
-    elif apt-cache show policykit-1 >/dev/null 2>&1; then
-        apt-get install -y policykit-1
-    else
-        warn "未找到 polkitd / policykit-1 包，用户级 libvirt 授权可能需要手动检查"
-    fi
+    case "$PKG_MGR" in
+        apt)
+            if apt-cache show polkitd >/dev/null 2>&1; then
+                pkg_install polkitd
+            elif apt-cache show policykit-1 >/dev/null 2>&1; then
+                pkg_install policykit-1
+            else
+                warn "未找到 polkitd / policykit-1 包，用户级 libvirt 授权可能需要手动检查"
+            fi
+            ;;
+        dnf|yum)
+            pkg_install polkit 2>/dev/null || warn "未找到 polkit 包，用户级 libvirt 授权可能需要手动检查"
+            ;;
+    esac
 }
 
 find_kvm_stat_binary() {
@@ -333,21 +523,82 @@ check_and_install_deps() {
 
     # 根据架构动态确定依赖列表
     local deps=("${APT_DEPS[@]}")
+    local qemu_pkg_rpm=""
+    local qemu_pkg_rpm_fallback=""
     if [ "$ARCH" = "x86_64" ]; then
-        deps+=("$QEMU_PKG_X86" "$EFI_PKG_X86")
-        info "架构: x86_64，QEMU 包: ${QEMU_PKG_X86}，EFI 包: ${EFI_PKG_X86}"
+        if [ "$PKG_MGR" = "apt" ]; then
+            deps+=("$QEMU_PKG_X86" "$EFI_PKG_X86")
+            info "架构: x86_64，QEMU 包: ${QEMU_PKG_X86}，EFI 包: ${EFI_PKG_X86}"
+        else
+            qemu_pkg_rpm="$QEMU_PKG_X86_RPM"
+            qemu_pkg_rpm_fallback="$QEMU_PKG_X86_RPM_FALLBACK"
+            deps+=("$qemu_pkg_rpm" "$EFI_PKG_X86_RPM")
+            info "架构: x86_64，QEMU 包: ${qemu_pkg_rpm}，EFI 包: ${EFI_PKG_X86_RPM}"
+        fi
     elif [ "$ARCH" = "aarch64" ]; then
-        deps+=("$QEMU_PKG_ARM" "$EFI_PKG_ARM")
-        info "架构: aarch64，QEMU 包: ${QEMU_PKG_ARM}，EFI 包: ${EFI_PKG_ARM}"
+        if [ "$PKG_MGR" = "apt" ]; then
+            deps+=("$QEMU_PKG_ARM" "$EFI_PKG_ARM")
+            info "架构: aarch64，QEMU 包: ${QEMU_PKG_ARM}，EFI 包: ${EFI_PKG_ARM}"
+        else
+            qemu_pkg_rpm="$QEMU_PKG_ARM_RPM"
+            qemu_pkg_rpm_fallback="$QEMU_PKG_ARM_RPM_FALLBACK"
+            deps+=("$qemu_pkg_rpm" "$EFI_PKG_ARM_RPM")
+            info "架构: aarch64，QEMU 包: ${qemu_pkg_rpm}，EFI 包: ${EFI_PKG_ARM_RPM}"
+        fi
     fi
 
     for pkg in "${deps[@]}"; do
-        if is_pkg_installed "$pkg"; then
+        local mapped_pkg
+        mapped_pkg=$(pkg_name "$pkg") || continue  # RPM 系无映射的包跳过
+        if is_pkg_installed "$mapped_pkg"; then
             success "$pkg 已安装"
         else
-            missing+=("$pkg")
+            # 检查是否为 RPM 可选软性包
+            local is_soft=0
+            if [ "$PKG_MGR" != "apt" ]; then
+                for soft in "${RPM_PKG_SOFT[@]}"; do
+                    if [ "$mapped_pkg" = "$soft" ]; then
+                        is_soft=1
+                        break
+                    fi
+                done
+            fi
+            if [ "$is_soft" -eq 1 ]; then
+                # RPM 软性包：跳过主安装流程，由 install_bundled_packages 在后处理中尝试安装
+                warn "可选包 $mapped_pkg 跳过系统源安装（将由捆绑包机制处理）"
+                continue
+            fi
+            missing+=("$mapped_pkg")
         fi
     done
+
+    # QEMU 包回退：如果主包名（qemu-kvm）不可用，尝试回退包名（qemu）
+    if [ "$PKG_MGR" != "apt" ] && [ -n "$qemu_pkg_rpm" ] && [ -n "$qemu_pkg_rpm_fallback" ]; then
+        local qemu_rpm_mapped
+        qemu_rpm_mapped=$(pkg_name "$qemu_pkg_rpm" 2>/dev/null || true)
+        local qemu_fb_mapped
+        qemu_fb_mapped=$(pkg_name "$qemu_pkg_rpm_fallback" 2>/dev/null || true)
+        if [ -n "$qemu_rpm_mapped" ] && [ -n "$qemu_fb_mapped" ]; then
+            # 检查主包是否在 missing 列表中且未安装
+            local qemu_in_missing=0
+            local i
+            for i in "${!missing[@]}"; do
+                if [ "${missing[$i]}" = "$qemu_rpm_mapped" ]; then
+                    qemu_in_missing=1
+                    # 检查回退包是否已安装或可用
+                    if is_pkg_installed "$qemu_fb_mapped" 2>/dev/null; then
+                        unset 'missing[i]'
+                        success "QEMU 包回退: $qemu_rpm_mapped → $qemu_fb_mapped（已安装）"
+                    elif pkg_is_available "$qemu_fb_mapped" 2>/dev/null; then
+                        unset 'missing[i]'
+                        missing+=("$qemu_fb_mapped")
+                        warn "QEMU 包回退: $qemu_rpm_mapped 不可用，改用 $qemu_fb_mapped"
+                    fi
+                    break
+                fi
+            done
+        fi
+    fi
 
     if [ ${#missing[@]} -gt 0 ]; then
         warn "发现缺失依赖: ${missing[*]}"
@@ -357,29 +608,186 @@ check_and_install_deps() {
             error "缺少必要依赖，无法保证面板功能完整运行"
             exit 1
         fi
-        info "更新 apt 包索引..."
-        apt-get update
+        info "更新包索引..."
+        pkg_update_index
         info "安装缺失依赖..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+        pkg_install "${missing[@]}"
+    fi
+
+    # ISO 创建工具回退：genisoimage 不可用时尝试安装 xorriso
+    if ! command -v genisoimage >/dev/null 2>&1 && \
+       ! command -v xorriso >/dev/null 2>&1 && \
+       ! command -v mkisofs >/dev/null 2>&1; then
+        warn "未找到 genisoimage/xorriso/mkisofs，尝试安装替代工具..."
+        pkg_install xorriso 2>/dev/null || pkg_install genisoimage 2>/dev/null || true
     fi
 
     install_optional_polkit
     check_optional_kvm_stat
     ensure_required_commands
     ensure_core_services
+
+    # 安装捆绑的 RPM 包（为 Kylin/openEuler 等源中缺失的包提供）
+    install_bundled_packages
+}
+
+# extract_rpm_cmd 从捆绑 RPM 中提取单个命令到 /usr/local/bin
+# 优先使用 rpm2cpio，回退 bsdtar；确保提取工具可用
+extract_rpm_cmd() {
+    local rpm_file="$1" cmd_name="$2"
+    [ -f "$rpm_file" ] || return 1
+
+    if ! command -v rpm2cpio >/dev/null 2>&1 && ! command -v bsdtar >/dev/null 2>&1; then
+        dnf install -y rpm-build &>/dev/null 2>&1 || true
+    fi
+
+    local tmp
+    tmp=$(mktemp -d)
+
+    if command -v rpm2cpio >/dev/null 2>&1; then
+        rpm2cpio "$rpm_file" 2>/dev/null | cpio -idm -D "$tmp" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+    elif command -v bsdtar >/dev/null 2>&1; then
+        bsdtar xf "$rpm_file" -C "$tmp" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+    else
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    if [ -f "$tmp/usr/bin/$cmd_name" ]; then
+        cp "$tmp/usr/bin/$cmd_name" /usr/local/bin/
+        chmod +x "/usr/local/bin/$cmd_name"
+        rm -rf "$tmp"
+        return 0
+    fi
+    rm -rf "$tmp"
+    return 1
+}
+
+# install_bundled_packages 安装 release 中捆绑的 RPM 包，以及重试软性包安装
+# 用于 Kylin/openEuler 等系统默认源中缺少的包，或在主流程中跳过的可选包
+# 执行顺序：bundled → dnf soft retry → dnf provides fallback
+install_bundled_packages() {
+    local script_dir
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    local bundled_dir="${script_dir}/bundled"
+
+    # === Phase 1: 优先使用捆绑包（无需网络，快） ===
+    if [ -d "$bundled_dir" ]; then
+        info "检测到捆绑的 RPM 包目录，优先尝试本地包..."
+
+        # arp-scan: 优先 dnf 安装（依赖少，可能成功）
+        if ! command -v arp-scan >/dev/null 2>&1 && [ -f "$bundled_dir/arp-scan.rpm" ]; then
+            if dnf install -y "$bundled_dir/arp-scan.rpm" 2>/dev/null || \
+               yum install -y "$bundled_dir/arp-scan.rpm" 2>/dev/null; then
+                success "arp-scan 安装成功"
+            else
+                warn "捆绑的 arp-scan 安装失败（可能缺少依赖），ARP 扫描功能将使用 nmap 替代"
+            fi
+        fi
+
+        # libguestfs-tools-c: 直接提取二进制，跳过 dnf 依赖解析（libguestfs.so.0 已在系统）
+        local -a lgft_bins=(virt-filesystems virt-customize guestfish guestmount \
+            virt-sysprep virt-sparsify virt-builder virt-resize virt-inspector \
+            virt-df virt-diff virt-edit virt-format virt-get-kernel virt-log \
+            virt-ls virt-make-fs virt-rescue virt-tail virt-cat virt-alignment-scan)
+        if ! command -v virt-filesystems >/dev/null 2>&1 && [ -f "$bundled_dir/libguestfs-tools-c.rpm" ]; then
+            local extracted=0
+            for cmd in "${lgft_bins[@]}"; do
+                if ! command -v "$cmd" >/dev/null 2>&1 && \
+                   extract_rpm_cmd "$bundled_dir/libguestfs-tools-c.rpm" "$cmd"; then
+                    extracted=$((extracted + 1))
+                fi
+            done
+            if command -v virt-filesystems >/dev/null 2>&1; then
+                success "libguestfs-tools-c 提取完成（${extracted} 个工具）"
+            fi
+        fi
+
+        # virt-win-reg: 从 libguestfs-tools noarch RPM 提取
+        if ! command -v virt-win-reg >/dev/null 2>&1 && [ -f "$bundled_dir/libguestfs-tools.rpm" ]; then
+            if extract_rpm_cmd "$bundled_dir/libguestfs-tools.rpm" virt-win-reg; then
+                success "virt-win-reg 已提取到 /usr/local/bin"
+            fi
+        fi
+    fi
+
+    # === Phase 2: 重试之前在 RPM_PKG_SOFT 中跳过的包（可能在某些源中可用） ===
+    if [ "$PKG_MGR" != "apt" ]; then
+        local soft_pkg
+        for soft_pkg in "${RPM_PKG_SOFT[@]}"; do
+            if ! rpm -q "$soft_pkg" &>/dev/null 2>&1; then
+                if dnf install -y "$soft_pkg" &>/dev/null 2>&1 || \
+                   yum install -y "$soft_pkg" &>/dev/null 2>&1; then
+                    success "$soft_pkg 安装成功"
+                fi
+            fi
+        done
+    fi
+
+    # === Phase 3: dnf provides 最终回退（部分包可能在系统源中） ===
+    if [ "$PKG_MGR" != "apt" ]; then
+        local soft_cmd
+        for soft_cmd in virt-filesystems virt-customize guestfish virt-win-reg growpart; do
+            if ! command -v "$soft_cmd" >/dev/null 2>&1; then
+                local providing_pkg
+                providing_pkg=$(dnf provides "$soft_cmd" 2>/dev/null | awk -F: '/^[^ ]+ :/ {print $1; exit}' || true)
+                if [ -n "$providing_pkg" ]; then
+                    info "命令 $soft_cmd 由 $providing_pkg 提供，尝试安装..."
+                    if dnf install -y "$providing_pkg" &>/dev/null 2>&1 || \
+                       yum install -y "$providing_pkg" &>/dev/null 2>&1; then
+                        success "$soft_cmd 安装成功"
+                    else
+                        warn "命令 $soft_cmd 的包 $providing_pkg 安装失败"
+                    fi
+                fi
+            fi
+        done
+    fi
 }
 
 ensure_required_commands() {
     info "校验功能所需系统命令..."
     local missing_cmds=()
+    local soft_missing_cmds=()
     local cmd
+    # RPM 系上来自软性包的命令（缺失时仅警告不报错）
+    local rpm_soft_cmds=("virt-customize" "guestfish" "virt-win-reg" "growpart" "virt-filesystems")
     for cmd in "${COMMAND_CHECKS[@]}"; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
-            missing_cmds+=("$cmd")
+            # genisoimage 可由 xorriso 或 mkisofs 替代
+            if [ "$cmd" = "genisoimage" ]; then
+                if command -v xorriso >/dev/null 2>&1 || command -v mkisofs >/dev/null 2>&1; then
+                    continue
+                fi
+                if [ "$PKG_MGR" != "apt" ]; then
+                    soft_missing_cmds+=("genisoimage (或 xorriso/mkisofs)")
+                    continue
+                fi
+                missing_cmds+=("genisoimage (或 xorriso/mkisofs)")
+                continue
+            fi
+            # RPM 系软性命令：缺失时仅警告
+            local is_soft=0
+            if [ "$PKG_MGR" != "apt" ]; then
+                for sc in "${rpm_soft_cmds[@]}"; do
+                    if [ "$cmd" = "$sc" ]; then
+                        is_soft=1
+                        break
+                    fi
+                done
+            fi
+            if [ "$is_soft" -eq 1 ]; then
+                soft_missing_cmds+=("$cmd")
+            else
+                missing_cmds+=("$cmd")
+            fi
         fi
     done
+    if [ ${#soft_missing_cmds[@]} -gt 0 ]; then
+        warn "以下可选命令不可用（功能可能受限）: ${soft_missing_cmds[*]}"
+    fi
     if [ ${#missing_cmds[@]} -gt 0 ]; then
-        error "以下命令不可用: ${missing_cmds[*]}。请检查 apt 源或依赖安装结果"
+        error "以下命令不可用: ${missing_cmds[*]}。请检查包管理器或依赖安装结果"
         exit 1
     fi
     success "系统命令校验完成"
@@ -387,18 +795,94 @@ ensure_required_commands() {
 
 ensure_core_services() {
     info "检查核心服务..."
-    systemctl enable --now libvirtd 2>/dev/null || systemctl enable --now libvirt-daemon 2>/dev/null || true
-    systemctl enable --now openvswitch-switch 2>/dev/null || true
+    systemctl enable --now libvirtd 2>/dev/null || systemctl enable --now libvirt-daemon 2>/dev/null || \
+        systemctl enable --now virtqemud 2>/dev/null || true
+    systemctl enable --now openvswitch-switch 2>/dev/null || \
+        systemctl enable --now openvswitch 2>/dev/null || true
     systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
 
-    if ! systemctl is-active --quiet libvirtd 2>/dev/null && ! systemctl is-active --quiet libvirt-daemon 2>/dev/null; then
-        error "libvirt 服务未运行，请检查 libvirt-daemon-system 安装状态"
+    if ! systemctl is-active --quiet libvirtd 2>/dev/null && \
+       ! systemctl is-active --quiet libvirt-daemon 2>/dev/null && \
+       ! systemctl is-active --quiet virtqemud 2>/dev/null; then
+        # 尝试识别实际存在的服务名，给出更有用的错误信息
+        local found_svc=""
+        for svc in libvirtd libvirt-daemon virtqemud; do
+            if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
+                found_svc="$svc"
+                break
+            fi
+        done
+        if [ -n "$found_svc" ]; then
+            error "libvirt 服务 ${found_svc} 已安装但未运行，请检查: systemctl status ${found_svc}"
+        else
+            error "未找到 libvirt 服务（libvirtd/libvirt-daemon/virtqemud），请检查 libvirt 安装状态"
+        fi
         exit 1
     fi
-    if ! systemctl is-active --quiet openvswitch-switch 2>/dev/null; then
-        warn "openvswitch-switch 当前未运行，面板会在网络修复时再次尝试启动"
+    if ! systemctl is-active --quiet openvswitch-switch 2>/dev/null && \
+       ! systemctl is-active --quiet openvswitch 2>/dev/null; then
+        warn "openvswitch 当前未运行，面板会在网络修复时再次尝试启动"
     fi
     success "核心服务检查完成"
+}
+
+# configure_qemu_for_rpm 修复 openEuler/麒麟 上 QEMU 权限问题
+# openEuler 默认 QEMU 以 qemu 用户运行，需确保 qemu.conf 配置允许访问虚拟机文件
+configure_qemu_for_rpm() {
+    [ "$PKG_MGR" = "apt" ] && return 0
+    local qemu_conf="/etc/libvirt/qemu.conf"
+    if [ ! -f "$qemu_conf" ]; then
+        warn "未找到 $qemu_conf，跳过 QEMU 配置修复"
+        return 0
+    fi
+    info "修复 openEuler/麒麟 QEMU 权限配置..."
+    # 确保 user 和 group 设置为 root（面板以 root 运行，需要直接操控 QEMU 进程）
+    if grep -qE '^#\s*user\s*=' "$qemu_conf"; then
+        sed -i 's/^#\s*user\s*=.*/user = "root"/' "$qemu_conf"
+    elif ! grep -qE '^user\s*=\s*"root"' "$qemu_conf"; then
+        echo 'user = "root"' >> "$qemu_conf"
+    fi
+    if grep -qE '^#\s*group\s*=' "$qemu_conf"; then
+        sed -i 's/^#\s*group\s*=.*/group = "root"/' "$qemu_conf"
+    elif ! grep -qE '^group\s*=\s*"root"' "$qemu_conf"; then
+        echo 'group = "root"' >> "$qemu_conf"
+    fi
+    # 重启 libvirtd 使配置生效
+    systemctl restart libvirtd 2>/dev/null || systemctl restart libvirt-daemon 2>/dev/null || true
+    success "QEMU 权限配置已修复（user=root, group=root）"
+}
+
+# configure_libvirt_nonroot 为非 root 用户配置 libvirt 访问权限
+# openEuler 文档要求：用户加入 libvirt 组 + 设置 LIBVIRT_DEFAULT_URI 环境变量
+# 注意：此函数在 write_env 之前调用；首次安装时 .env 不存在，直接跳过（默认 root）
+#       更新时读取已有 .env 中的用户，符合预期（为当前运行用户配置）
+configure_libvirt_nonroot() {
+    [ "$PKG_MGR" = "apt" ] && return 0
+    info "配置非 root 用户 libvirt 访问权限..."
+    # 获取面板运行用户（从 .env 或默认 root）
+    local panel_user="root"
+    if [ -f "$ENV_FILE" ]; then
+        local env_user
+        env_user=$(grep -E '^KVM_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
+        [ -n "$env_user" ] && panel_user="$env_user"
+    fi
+    if [ "$panel_user" = "root" ]; then
+        info "面板以 root 运行，跳过非 root 用户配置"
+        return 0
+    fi
+    # 将用户加入 libvirt 组
+    if ! id -nG "$panel_user" 2>/dev/null | grep -qw libvirt; then
+        usermod -a -G libvirt "$panel_user" 2>/dev/null && \
+            info "用户 $panel_user 已加入 libvirt 组" || \
+            warn "无法将用户 $panel_user 加入 libvirt 组"
+    fi
+    # 设置 LIBVIRT_DEFAULT_URI 环境变量
+    local bashrc="/home/$panel_user/.bashrc"
+    if [ -f "$bashrc" ] && ! grep -q 'LIBVIRT_DEFAULT_URI' "$bashrc"; then
+        echo 'export LIBVIRT_DEFAULT_URI="qemu:///system"' >> "$bashrc"
+        info "已为 $panel_user 设置 LIBVIRT_DEFAULT_URI 环境变量"
+    fi
+    success "libvirt 非 root 用户配置完成"
 }
 
 detect_root_size() {
@@ -1140,6 +1624,8 @@ show_info() {
 run_install_or_update() {
     check_kvm_hardware
     check_and_install_deps
+    configure_qemu_for_rpm
+    configure_libvirt_nonroot
     ensure_kvm_runtime
     setup_quota
     configure_port

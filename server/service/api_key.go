@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"kvm_console/config"
+	"kvm_console/logger"
 	"kvm_console/model"
 )
 
@@ -134,7 +135,9 @@ func AuthenticateAPIKey(apiKeyID, apiKey string) (*model.User, error) {
 		}
 		// legacy 验证成功，更新为新密钥的 hash
 		newHash := hashAPIKey(apiKey)
-		_ = model.DB.Model(&record).Update("key_hash", newHash).Error
+		if err := model.DB.Model(&record).Update("key_hash", newHash).Error; err != nil {
+			logger.App.Warn("API Key更新失败", "key_id", record.ID, "error", err)
+		}
 	}
 
 	var user model.User
@@ -149,7 +152,9 @@ func AuthenticateAPIKey(apiKeyID, apiKey string) (*model.User, error) {
 	}
 
 	now := time.Now()
-	_ = model.DB.Model(&record).Update("last_used_at", &now).Error
+	if err := model.DB.Model(&record).Update("last_used_at", &now).Error; err != nil {
+		logger.App.Warn("API Key最后使用时间更新失败", "key_id", record.ID, "error", err)
+	}
 	return &user, nil
 }
 

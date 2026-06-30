@@ -10,7 +10,7 @@ type PublicIP struct {
 	Gateway        string    `json:"gateway" gorm:"size:45"`
 	UplinkIF       string    `json:"uplink_if" gorm:"size:64"`
 	SupportedModes string    `json:"supported_modes" gorm:"size:128;not null;default:nat,classic_route,classic_bridge"`
-	Status         string    `json:"status" gorm:"size:32;not null;default:free"`
+	Status         string    `json:"status" gorm:"index;size:32;not null;default:free"`
 	Remark         string    `json:"remark" gorm:"size:255"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`

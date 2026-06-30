@@ -528,6 +528,7 @@ func CleanupExpiredSessions() {
 // StartExpiredSessionCleanup 启动后台 goroutine 定时清理过期会话。
 func StartExpiredSessionCleanup() {
 	go func() {
+		defer utils.RecoverAndLog("chunkupload-cleanup")
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		for range ticker.C {

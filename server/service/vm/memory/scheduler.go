@@ -45,6 +45,7 @@ func registerDynamicMemorySchedulers() {
 func StartMemoryBalloonScheduler() {
 	registerDynamicMemorySchedulers()
 	go func() {
+		defer utils.RecoverAndLog("memory-balloon-scheduler")
 		logger.App.Info("动态内存调度器已启动")
 		for {
 			interval := 30

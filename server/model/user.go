@@ -12,10 +12,10 @@ type User struct {
 	Username              string         `json:"username" gorm:"uniqueIndex;size:64;not null"`
 	PasswordHash          string         `json:"-" gorm:"size:256"`
 	Email                 string         `json:"email" gorm:"size:255;index"`
-	Role                  string         `json:"role" gorm:"size:20;not null;default:'user'"`          // admin / user
+	Role                  string         `json:"role" gorm:"index;size:20;not null;default:'user'"`          // admin / user
 	CloudType             string         `json:"cloud_type" gorm:"size:32;not null;default:'elastic'"` // elastic / lightweight
 	DedicatedVPCSwitchID  uint           `json:"dedicated_vpc_switch_id" gorm:"default:0"`
-	Status                string         `json:"status" gorm:"size:32;not null;default:'active'"`
+	Status                string         `json:"status" gorm:"index;size:32;not null;default:'active'"`
 	EmailVerifiedAt       *time.Time     `json:"email_verified_at"`
 	TOTPEnabled           bool           `json:"totp_enabled" gorm:"default:false"`
 	TOTPSecretEnc         string         `json:"-" gorm:"type:text"`
@@ -44,6 +44,7 @@ type User struct {
 	RuntimeLastObservedAt *time.Time     `json:"-"`                                   // 上次统计运行时长的时间
 	RuntimeWarningSentAt  *time.Time     `json:"-"`                                   // 2 小时预警邮件发送时间
 	SSHEnabled            bool           `json:"ssh_enabled" gorm:"default:false"`    // 是否允许 SSH 登录，默认关闭
+	ForcePasswordChange   bool           `json:"force_password_change" gorm:"default:false"` // 首次登录强制修改密码
 	CreatedAt             time.Time      `json:"created_at"`
 	UpdatedAt             time.Time      `json:"updated_at"`
 	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index"`
