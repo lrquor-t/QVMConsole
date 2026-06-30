@@ -28,6 +28,9 @@ type TemplatePackageManifest = templatepkg.TemplatePackageManifest
 type TemplatePackageNode = templatepkg.TemplatePackageNode
 type ImportTemplatePreviewNode = templatepkg.ImportTemplatePreviewNode
 type ImportTemplatePreviewResult = templatepkg.ImportTemplatePreviewResult
+type MergeTemplateParams = templatepkg.MergeTemplateParams
+type MergeTemplateResult = templatepkg.MergeTemplateResult
+type MergePreview = templatepkg.MergePreview
 
 // ── Constant re-exports ──
 
@@ -77,6 +80,21 @@ func DeleteTemplateWithVMs(params *DeleteTemplateParams, progressFn func(int, st
 // GetDeleteTemplatePreview delegates to templatepkg.GetDeleteTemplatePreview
 func GetDeleteTemplatePreview(templateName string) (*DeleteTemplatePreview, error) {
 	return templatepkg.GetDeleteTemplatePreview(templateName)
+}
+
+// GetMergePreview delegates to templatepkg.GetMergePreview
+func GetMergePreview(templateName string) (*MergePreview, error) {
+	return templatepkg.GetMergePreview(templateName)
+}
+
+// MergeTemplate delegates to templatepkg.MergeTemplate
+func MergeTemplate(params *MergeTemplateParams, progressFn func(int, string)) (*MergeTemplateResult, error) {
+	return templatepkg.MergeTemplate(params, progressFn)
+}
+
+// ParseMergeTemplateParams delegates to templatepkg.ParseMergeTemplateParams
+func ParseMergeTemplateParams(jsonStr string) (*MergeTemplateParams, error) {
+	return templatepkg.ParseMergeTemplateParams(jsonStr)
 }
 
 // ListTemplateVMs delegates to templatepkg.ListTemplateVMs

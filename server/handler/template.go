@@ -288,3 +288,57 @@ func UpdateTemplateMeta(c *gin.Context) {
 func UpdateTemplatePublish(c *gin.Context) {
 	UpdateTemplateMeta(c)
 }
+
+// GetMergePreview 获取模板合并预览
+func GetMergePreview(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少模板名称"})
+		return
+	}
+	preview, err := service.GetMergePreview(name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取模板合并预览失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": preview})
+}
+
+// MergeTemplateRequest 合并模板请求
+type MergeTemplateRequest struct {
+	Mode        string   `json:"mode"`
+	ExpectedVMs []string `json:"expected_vms"`
+}
+
+// MergeTemplate 合并模板（异步任务）
+func MergeTemplate(c *gin.Context) {
+	if !requireMaintenanceModeDisabled(c, "合并模板") {
+		return
+	}
+	if !requireHighRiskVerification(c, "merge_template") {
+		return
+	}
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少模板名称"})
+		return
+	}
+	var req MergeTemplateRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "合并参数错误"})
+		return
+	}
+
+	username, _ := c.Get("username")
+	params := &service.MergeTemplateParams{
+		TemplateName: name,
+		Mode:         req.Mode,
+		ExpectedVMs:  req.ExpectedVMs,
+	}
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeMergeTemplate, params, username.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交合并模板任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "合并模板任务已提交", "data": gin.H{"task_id": task.ID}})
+}

@@ -201,6 +201,20 @@ func registerTaskHandlers() {
 		return `{"status":"ok"}`, nil
 	})
 
+	// 模板合并任务
+	taskqueue.RegisterHandler(model.TaskTypeMergeTemplate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		params, err := service.ParseMergeTemplateParams(task.Params)
+		if err != nil {
+			return "", err
+		}
+		result, err := service.MergeTemplate(params, progress)
+		if err != nil {
+			return "", err
+		}
+		resultJSON, _ := json.Marshal(result)
+		return string(resultJSON), nil
+	})
+
 	// 批量克隆任务（支持取消）
 	taskqueue.RegisterHandler(model.TaskTypeBatch, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		params, err := service.ParseBatchCloneParams(task.Params)

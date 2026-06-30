@@ -257,11 +257,13 @@ func Setup() *gin.Engine {
 				tpl.POST("/import/confirm", handler.ConfirmImportTemplateHandler)
 				tpl.GET("/download/:filename", handler.DownloadTemplateExportHandler)
 				tpl.GET("/:name/delete-preview", handler.GetDeleteTemplatePreview)
+				tpl.GET("/:name/merge-preview", handler.GetMergePreview)
 				tpl.GET("/:name/vms", handler.GetTemplateVMs)
 				tpl.POST("/:name/export", handler.ExportTemplateHandler)
 				tpl.DELETE("/:name/export", handler.DeleteExportedTemplateHandler)
 				tpl.PUT("/:name/publish", handler.UpdateTemplatePublish)
 				tpl.PUT("/:name/meta", handler.UpdateTemplateMeta)
+				tpl.POST("/:name/merge", handler.MergeTemplate)
 				tpl.DELETE("/:name", handler.DeleteTemplate)
 			}
 
