@@ -287,7 +287,116 @@ func MergeTemplate(params *MergeTemplateParams, progressFn func(int, string)) (*
 	case TemplateMergeModeFlatten:
 		return mergeTemplateFlatten(params, preview, progressFn)
 	case TemplateMergeModeCommitToParent:
-		return nil, fmt.Errorf("模式二暂未实现")
+		return mergeTemplateCommitToParent(params, preview, progressFn)
 	}
 	return nil, fmt.Errorf("不支持的合并模式: %s", mode)
+}
+
+// mergeTemplateCommitToParent 模式二：把 B 的增量回写到父 A（commit），B 的子模板/VM 改挂到 A，最后删除 B。
+func mergeTemplateCommitToParent(params *MergeTemplateParams, preview *MergePreview, progressFn func(int, string)) (*MergeTemplateResult, error) {
+	if preview == nil {
+		return nil, fmt.Errorf("合并预览为空")
+	}
+	if len(preview.CommitToParent.Blockers) > 0 {
+		return nil, fmt.Errorf("无法回写到父模板: %s", strings.Join(preview.CommitToParent.Blockers, "；"))
+	}
+	parent := preview.ParentTemplate
+	if parent == nil {
+		return nil, fmt.Errorf("根模板没有父节点，无法回写")
+	}
+	bPath, err := EnsureTemplatePath(params.TemplateName)
+	if err != nil {
+		return nil, err
+	}
+	aPath, err := EnsureTemplatePath(parent.Name)
+	if err != nil {
+		return nil, fmt.Errorf("父模板不可用: %w", err)
+	}
+
+	// 1) commit：把 B 增量写入 A（需先解 A 不可变，commit 后立即恢复）。
+	progressFn(15, "正在把增量回写到父模板...")
+	_ = utils.RemoveFileImmutable(aPath)
+	if r := utils.ExecCommandWithTimeout("qemu-img", 6*time.Hour, "commit", "-f", "qcow2", bPath); r.Error != nil {
+		_ = utils.SetFileImmutable(aPath) // 恢复不可变再返回
+		return nil, fmt.Errorf("回写增量失败: %s", r.Stderr)
+	}
+	_ = utils.SetFileImmutable(aPath)
+
+	// 2) B 的直接子模板 C 改挂到 A（rebase + 族归一）。
+	tree, err := buildTemplateTreeData()
+	if err != nil {
+		return nil, err
+	}
+	rebasedTemplates := make([]string, 0, len(preview.CommitToParent.ChildTemplates))
+	for i, c := range preview.CommitToParent.ChildTemplates {
+		progressFn(30+(i*30/maxInt(len(preview.CommitToParent.ChildTemplates), 1)), fmt.Sprintf("正在改挂子模板 %s ...", c.AdminName))
+		if err := rebaseQcow2BackingToParent(c.Path, bPath, aPath); err != nil {
+			return nil, fmt.Errorf("改挂子模板 %s 失败: %w", c.AdminName, err)
+		}
+		if err := updatePromotedTemplateMeta(c, *parent); err != nil {
+			return nil, err
+		}
+		// C 的后代族归一到 A 族。
+		for _, n := range collectTemplateSubtree(tree, c.NodeID) {
+			if n.NodeID == c.NodeID {
+				continue
+			}
+			if m := loadTemplateMeta(n.Path); m != nil {
+				m.RootNodeID = parent.RootNodeID
+				m.TemplateUID = parent.TemplateUID
+				_ = saveTemplateMeta(n.Path, m)
+			}
+		}
+		rebasedTemplates = append(rebasedTemplates, c.Name)
+	}
+
+	// 3) B 的直接 linked VM 改挂到 A。
+	rebasedVMs := make([]string, 0, len(preview.CommitToParent.SubtreeVMs))
+	directVMs := directVMsOfNode(tree, params.TemplateName)
+	for i, vm := range directVMs {
+		progressFn(60+(i*20/maxInt(len(directVMs), 1)), fmt.Sprintf("正在改挂虚拟机 %s ...", vm.Name))
+		di := HookGetVMDiskInfo(vm.Name)
+		if strings.TrimSpace(di.Path) == "" {
+			return nil, fmt.Errorf("无法获取虚拟机 %s 的磁盘路径", vm.Name)
+		}
+		if err := rebaseQcow2BackingToParent(di.Path, bPath, aPath); err != nil {
+			return nil, fmt.Errorf("改挂虚拟机 %s 失败: %w", vm.Name, err)
+		}
+		if err := WriteVMTemplateSource(vm.Name, parent.Name, "linked"); err != nil {
+			return nil, err
+		}
+		rebasedVMs = append(rebasedVMs, vm.Name)
+	}
+
+	// 4) B 已无依赖，删除。
+	progressFn(85, "正在删除已合并的模板节点...")
+	if err := deleteTemplateFiles(params.TemplateName); err != nil {
+		return nil, err
+	}
+
+	// 5) 重算 A 的 hash。
+	if meta := GetTemplateMeta(parent.Name); meta != nil {
+		if hash, err := CalculateFileHashes(aPath); err == nil {
+			meta.MD5, meta.SHA256, meta.FileSize = hash.MD5, hash.SHA256, hash.FileSize
+			_ = saveTemplateMeta(aPath, meta)
+		}
+	}
+
+	progressFn(100, "增量已回写到父模板，当前模板节点已删除")
+	return &MergeTemplateResult{
+		TemplateName:     params.TemplateName,
+		Mode:             TemplateMergeModeCommitToParent,
+		DeletedTemplates: []string{params.TemplateName},
+		RebasedTemplates: rebasedTemplates,
+		RebasedVMs:       rebasedVMs,
+	}, nil
+}
+
+// directVMsOfNode 返回直接挂在某模板名下的 linked VM（取自树 vmByNode）。
+func directVMsOfNode(tree *templateTreeData, templateName string) []TemplateRelatedVM {
+	tpl, ok := tree.byName[templateName]
+	if !ok {
+		return nil
+	}
+	return filterLinkedVMs(tree.vmByNode[tpl.NodeID])
 }
