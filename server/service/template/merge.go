@@ -1,9 +1,14 @@
 package template
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"time"
+
+	"kvm_console/utils"
 )
 
 // normalizeMergeMode 归一化合并模式，非法值返回错误。
@@ -157,4 +162,132 @@ func GetMergePreview(templateName string) (*MergePreview, error) {
 			SubtreeVMs:          subtreeVMs,
 		},
 	}, nil
+}
+
+// buildFlattenConvertCmd 构造平铺用的 qemu-img convert 命令（自动拉平整条 backing 链）。
+func buildFlattenConvertCmd(src, dst string) string {
+	return fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s",
+		utils.ShellSingleQuote(src), utils.ShellSingleQuote(dst))
+}
+
+// mergeTemplateFlatten 模式一：把增量模板 B 平铺为独立镜像（原地替换）。
+func mergeTemplateFlatten(params *MergeTemplateParams, preview *MergePreview, progressFn func(int, string)) (*MergeTemplateResult, error) {
+	if preview == nil {
+		return nil, fmt.Errorf("合并预览为空")
+	}
+	if len(preview.Flatten.Blockers) > 0 {
+		return nil, fmt.Errorf("无法平铺: %s", strings.Join(preview.Flatten.Blockers, "；"))
+	}
+	bPath, err := EnsureTemplatePath(params.TemplateName)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := buildTemplateTreeData()
+	if err != nil {
+		return nil, err
+	}
+	bTpl, ok := tree.byName[params.TemplateName]
+	if !ok {
+		return nil, fmt.Errorf("模板不存在: %s", params.TemplateName)
+	}
+
+	tmpPath := bPath + ".merge-" + time.Now().Format("20060102150405")
+	backupPath := bPath + ".merge-old-" + time.Now().Format("20060102150405")
+
+	progressFn(15, "正在平铺 backing 链为独立镜像...")
+	convertCmd := buildFlattenConvertCmd(bPath, tmpPath)
+	if r := utils.ExecShellContextWithTimeout(context.Background(), convertCmd, 2*time.Hour); r.Error != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("平铺磁盘失败: %s", r.Stderr)
+	}
+
+	progressFn(70, "正在原地替换模板文件...")
+	_ = utils.RemoveFileImmutable(bPath) // 解除不可变以允许 rename
+	if err := os.Rename(bPath, backupPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("备份原模板失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, bPath); err != nil {
+		_ = os.Rename(backupPath, bPath) // 回滚
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("替换模板文件失败: %w", err)
+	}
+	_ = utils.ChownLibvirtQEMU(bPath)
+	_ = utils.SetFileImmutable(bPath)
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		// 非致命：旧备份残留，记日志即可
+	}
+
+	progressFn(85, "正在更新模板元数据...")
+	newUID := generateTemplateID("tpl")
+	meta := GetTemplateMeta(params.TemplateName)
+	if meta == nil {
+		meta = &TemplateMeta{}
+	}
+	meta.ParentNodeID = ""
+	meta.RootNodeID = bTpl.NodeID
+	meta.TemplateUID = newUID
+	if hash, err := CalculateFileHashes(bPath); err == nil {
+		meta.MD5, meta.SHA256, meta.FileSize = hash.MD5, hash.SHA256, hash.FileSize
+	}
+	if err := saveTemplateMeta(bPath, meta); err != nil {
+		return nil, err
+	}
+
+	// 子树族归一：B 的后代 RootNodeID/TemplateUID 同步到 B 的新族（保持按 template_uid 分族展示一致）。
+	for _, n := range collectTemplateSubtree(tree, bTpl.NodeID) {
+		if n.NodeID == bTpl.NodeID {
+			continue
+		}
+		if m := loadTemplateMeta(n.Path); m != nil {
+			m.RootNodeID = bTpl.NodeID
+			m.TemplateUID = newUID
+			_ = saveTemplateMeta(n.Path, m)
+		}
+	}
+
+	progressFn(100, "模板已平铺为独立镜像")
+	return &MergeTemplateResult{
+		TemplateName: params.TemplateName,
+		Mode:         TemplateMergeModeFlatten,
+		Flattened:    true,
+	}, nil
+}
+
+// MergeTemplate 合并模板（异步任务逻辑）。执行前重跑预览做服务端校验防竞态。
+func MergeTemplate(params *MergeTemplateParams, progressFn func(int, string)) (*MergeTemplateResult, error) {
+	if progressFn == nil {
+		progressFn = func(int, string) {}
+	}
+	if params == nil || strings.TrimSpace(params.TemplateName) == "" {
+		return nil, fmt.Errorf("模板名称不能为空")
+	}
+	mode, err := normalizeMergeMode(params.Mode)
+	if err != nil {
+		return nil, err
+	}
+	params.Mode = mode
+
+	progressFn(5, "正在校验合并条件...")
+	preview, err := GetMergePreview(params.TemplateName)
+	if err != nil {
+		return nil, err
+	}
+
+	// 防竞态：B 子树 VM 列表须与前端预览时一致。
+	currentVMs := make([]string, 0, len(preview.Flatten.SubtreeVMs))
+	for _, vm := range preview.Flatten.SubtreeVMs {
+		currentVMs = append(currentVMs, vm.Name)
+	}
+	if len(params.ExpectedVMs) > 0 && !sameStringSet(currentVMs, params.ExpectedVMs) {
+		return nil, fmt.Errorf("模板关联虚拟机列表已发生变化，请刷新页面后重新确认")
+	}
+
+	switch mode {
+	case TemplateMergeModeFlatten:
+		return mergeTemplateFlatten(params, preview, progressFn)
+	case TemplateMergeModeCommitToParent:
+		return nil, fmt.Errorf("模式二暂未实现")
+	}
+	return nil, fmt.Errorf("不支持的合并模式: %s", mode)
 }

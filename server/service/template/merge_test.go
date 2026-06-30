@@ -135,3 +135,11 @@ func TestBuildCommitBlockers(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildFlattenConvertCmd(t *testing.T) {
+	got := buildFlattenConvertCmd("/var/lib/libvirt/templates/b.qcow2", "/var/lib/libvirt/templates/b.merge-20260630120000.qcow2")
+	want := "qemu-img convert -f qcow2 -O qcow2 '/var/lib/libvirt/templates/b.qcow2' '/var/lib/libvirt/templates/b.merge-20260630120000.qcow2'"
+	if got != want {
+		t.Fatalf("buildFlattenConvertCmd=\n got=%s\nwant=%s", got, want)
+	}
+}
