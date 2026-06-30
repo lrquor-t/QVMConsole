@@ -440,3 +440,53 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+// ── Template merge ──
+
+const (
+	TemplateMergeModeFlatten        = "flatten"         // 模式一：平铺为独立镜像
+	TemplateMergeModeCommitToParent = "commit_to_parent" // 模式二：增量回写到父模板
+)
+
+// MergeTemplateParams 合并模板参数
+type MergeTemplateParams struct {
+	TemplateName string   `json:"template_name"`
+	Mode         string   `json:"mode"`                   // flatten / commit_to_parent
+	ExpectedVMs  []string `json:"expected_vms,omitempty"` // 二次确认：B 子树 VM 列表防竞态
+}
+
+// MergeTemplateResult 合并结果
+type MergeTemplateResult struct {
+	TemplateName     string   `json:"template_name"`
+	Mode             string   `json:"mode"`
+	Flattened        bool     `json:"flattened"`              // 模式一是否平铺
+	DeletedTemplates []string `json:"deleted_templates,omitempty"` // 模式二删除的 B
+	RebasedTemplates []string `json:"rebased_templates,omitempty"` // 模式二改挂到 A 的子模板
+	RebasedVMs       []string `json:"rebased_vms,omitempty"`       // 模式二改挂到 A 的 VM
+}
+
+// MergePreview 合并预览
+type MergePreview struct {
+	Template       TemplateInfo       `json:"template"`                        // B
+	ParentTemplate *TemplateInfo      `json:"parent_template,omitempty"`       // A，根时为 nil
+	IsIncremental  bool               `json:"is_incremental"`                  // B 物理上是否有 backing
+	Flatten        MergeFlattenPreview  `json:"flatten"`                      // 模式一
+	CommitToParent MergeCommitPreview   `json:"commit_to_parent"`             // 模式二
+}
+
+// MergeFlattenPreview 模式一预览
+type MergeFlattenPreview struct {
+	Can        bool                `json:"can"`
+	Blockers   []string            `json:"blockers,omitempty"`
+	SubtreeVMs []TemplateRelatedVM `json:"subtree_vms,omitempty"` // 需关机的 B 子树 VM
+}
+
+// MergeCommitPreview 模式二预览
+type MergeCommitPreview struct {
+	Can                 bool                `json:"can"`
+	Blockers            []string            `json:"blockers,omitempty"`
+	ParentDirectVMs     []TemplateRelatedVM `json:"parent_direct_vms,omitempty"`     // A 的直接 VM（应空）
+	ParentOtherChildren []TemplateInfo      `json:"parent_other_children,omitempty"` // A 的非 B 子模板（应空）
+	ChildTemplates      []TemplateInfo      `json:"child_templates,omitempty"`       // 将 rebase 到 A 的 B 子模板
+	SubtreeVMs          []TemplateRelatedVM `json:"subtree_vms,omitempty"`           // 将 rebase 到 A 的 B 子树 VM
+}
