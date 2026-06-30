@@ -106,6 +106,7 @@
                     type="danger"
                     @click.stop="openDeleteDialog(node)"
                   >删除</el-button>
+                  <el-button v-if="!node.is_root" size="small" type="primary" @click.stop="openMergeDialog(node)">合并</el-button>
                 </div>
               </div>
               <div
@@ -391,6 +392,55 @@
         >{{ isPromoteDeleteMode ? '确认删除当前节点' : '确认删除链路' }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="mergeDialogVisible" title="合并模板" width="780px">
+      <div v-loading="mergeLoading">
+        <el-alert v-if="!mergeForm.isIncremental" type="info" :closable="false" title="该模板已是独立镜像，无需合并" />
+        <template v-else>
+          <el-radio-group v-model="mergeForm.mode" style="margin-bottom: 14px;">
+            <el-radio-button v-if="mergeForm.flatten.can" value="flatten">平铺为独立镜像</el-radio-button>
+            <el-radio-button v-if="mergeForm.commitToParent.can" value="commit_to_parent">增量回写到父模板</el-radio-button>
+          </el-radio-group>
+
+          <!-- 模式一 -->
+          <div v-if="mergeForm.mode === 'flatten'">
+            <el-alert type="warning" :closable="false" title="将把当前模板平铺为独立镜像（原地替换），父模板不变。当前模板的子模板/虚拟机继续指向它，内容不变。" />
+            <el-descriptions :column="1" border style="margin-top: 14px;">
+              <el-descriptions-item label="需关机的子树虚拟机">{{ (mergeForm.flatten.subtree_vms || []).length }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 模式二 -->
+          <div v-if="mergeForm.mode === 'commit_to_parent'">
+            <el-alert type="error" :closable="false" title="将修改父模板并把当前模板删除（合并归一）。当前模板的子模板/虚拟机会改挂到父模板，内容不变。" />
+            <el-descriptions :column="1" border style="margin-top: 14px;">
+              <el-descriptions-item label="父模板">{{ mergeForm.parentTemplate?.name }}</el-descriptions-item>
+              <el-descriptions-item label="父模板直接虚拟机（应为0）">{{ (mergeForm.commitToParent.parent_direct_vms || []).length }}</el-descriptions-item>
+              <el-descriptions-item label="父模板其它子模板（应为0）">{{ (mergeForm.commitToParent.parent_other_children || []).length }}</el-descriptions-item>
+              <el-descriptions-item label="将改挂的子模板">{{ (mergeForm.commitToParent.child_templates || []).length }}</el-descriptions-item>
+              <el-descriptions-item label="将改挂的虚拟机">{{ (mergeForm.commitToParent.subtree_vms || []).length }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 阻塞项 -->
+          <div v-if="!mergeForm.flatten.can && !mergeForm.commitToParent.can" style="margin-top: 14px;">
+            <el-alert
+              v-for="(b, i) in (mergeForm.mode === 'commit_to_parent' ? mergeForm.commitToParent.blockers : mergeForm.flatten.blockers)"
+              :key="i" type="error" :closable="false" :title="b" style="margin-bottom: 8px;"
+            />
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="mergeDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="mergeSubmitting"
+          :disabled="mergeLoading || !mergeForm.isIncremental || (!mergeForm.flatten.can && !mergeForm.commitToParent.can)"
+          @click="handleMerge"
+        >确认合并</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -402,6 +452,7 @@ import {
   deleteTemplate,
   deleteTemplateExport,
   getTemplateDeletePreview,
+  getTemplateMergePreview, mergeTemplate,
   getTemplateExportDownloadUrl,
   updateTemplatePublish,
   previewImportTemplate,
@@ -479,6 +530,28 @@ const emptyDeleteForm = () => ({
   promoteHotBlockers: [],
 })
 const deleteForm = ref(emptyDeleteForm())
+
+const mergeDialogVisible = ref(false)
+const mergeLoading = ref(false)
+const mergeSubmitting = ref(false)
+const mergeForm = ref({
+  name: '',
+  mode: 'flatten',
+  template: null,
+  parentTemplate: null,
+  isIncremental: false,
+  flatten: { can: false, blockers: [], subtree_vms: [] },
+  commitToParent: { can: false, blockers: [], parent_direct_vms: [], parent_other_children: [], child_templates: [], subtree_vms: [] }
+})
+const emptyMergeForm = () => ({
+  name: '',
+  mode: 'flatten',
+  template: null,
+  parentTemplate: null,
+  isIncremental: false,
+  flatten: { can: false, blockers: [], subtree_vms: [] },
+  commitToParent: { can: false, blockers: [], parent_direct_vms: [], parent_other_children: [], child_templates: [], subtree_vms: [] }
+})
 
 const isPromoteDeleteMode = computed(() => deleteForm.value.mode === 'promote_children' || deleteForm.value.mode === 'promote_children_hot')
 const deleteModeTip = computed(() => {
@@ -1050,6 +1123,50 @@ const handleDelete = async () => {
     console.error('删除模板失败', err)
   } finally {
     deleteSubmitting.value = false
+  }
+}
+
+const openMergeDialog = async (row) => {
+  mergeForm.value = { ...emptyMergeForm(), name: row.name }
+  mergeDialogVisible.value = true
+  mergeLoading.value = true
+  try {
+    const res = await getTemplateMergePreview(row.name)
+    const d = res.data || {}
+    mergeForm.value.template = d.template || null
+    mergeForm.value.parentTemplate = d.parent_template || null
+    mergeForm.value.isIncremental = !!d.is_incremental
+    mergeForm.value.flatten = d.flatten || { can: false, blockers: [], subtree_vms: [] }
+    mergeForm.value.commitToParent = d.commit_to_parent || { can: false, blockers: [], parent_direct_vms: [], parent_other_children: [], child_templates: [], subtree_vms: [] }
+    // 默认选第一个可用模式
+    if (mergeForm.value.flatten.can) {
+      mergeForm.value.mode = 'flatten'
+    } else if (mergeForm.value.commitToParent.can) {
+      mergeForm.value.mode = 'commit_to_parent'
+    }
+  } catch (err) {
+    mergeDialogVisible.value = false
+    console.error('获取模板合并预览失败', err)
+  } finally {
+    mergeLoading.value = false
+  }
+}
+
+const handleMerge = async () => {
+  mergeSubmitting.value = true
+  try {
+    const expectedVMs = (mergeForm.value.flatten.subtree_vms || []).map(vm => vm.name)
+    const res = await mergeTemplate(mergeForm.value.name, {
+      mode: mergeForm.value.mode,
+      expected_vms: expectedVMs
+    })
+    ElMessage.success(res.message || '合并模板任务已提交，请在任务中心查看进度')
+    mergeDialogVisible.value = false
+    fetchData()
+  } catch (err) {
+    console.error('合并模板失败', err)
+  } finally {
+    mergeSubmitting.value = false
   }
 }
 

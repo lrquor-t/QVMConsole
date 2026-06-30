@@ -486,6 +486,23 @@ export function getTemplateDeletePreview(name) {
   })
 }
 
+// 获取模板合并预览
+export function getTemplateMergePreview(name) {
+  return request({
+    url: `/template/${name}/merge-preview`,
+    method: 'get'
+  })
+}
+
+// 合并模板
+export function mergeTemplate(name, data = {}) {
+  return request({
+    url: `/template/${name}/merge`,
+    method: 'post',
+    data
+  })
+}
+
 // 更新模板发布展示配置
 export function updateTemplatePublish(name, data) {
   return request({
