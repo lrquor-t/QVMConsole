@@ -393,50 +393,50 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="mergeDialogVisible" title="合并模板" width="780px">
+    <el-dialog v-model="mergeDialogVisible" title="合并模板" width="780px" :close-on-click-modal="false" append-to-body>
       <div v-loading="mergeLoading">
-        <el-alert v-if="!mergeForm.isIncremental" type="info" :closable="false" title="该模板已是独立镜像，无需合并" />
-        <template v-else>
-          <el-radio-group v-model="mergeForm.mode" style="margin-bottom: 14px;">
-            <el-radio-button v-if="mergeForm.flatten.can" value="flatten">平铺为独立镜像</el-radio-button>
-            <el-radio-button v-if="mergeForm.commitToParent.can" value="commit_to_parent">增量回写到父模板</el-radio-button>
-          </el-radio-group>
+        <el-alert v-if="!mergeForm.isIncremental" type="info" :closable="false" title="该模板已是独立镜像，无需合并" style="margin-bottom: 14px;" />
 
-          <!-- 模式一 -->
-          <div v-if="mergeForm.mode === 'flatten'">
-            <el-alert type="warning" :closable="false" title="将把当前模板平铺为独立镜像（原地替换），父模板不变。当前模板的子模板/虚拟机继续指向它，内容不变。" />
-            <el-descriptions :column="1" border style="margin-top: 14px;">
-              <el-descriptions-item label="需关机的子树虚拟机">{{ (mergeForm.flatten.subtree_vms || []).length }}</el-descriptions-item>
-            </el-descriptions>
-          </div>
+        <!-- 两种模式始终可点击；点击某模式后：可用则显示说明，不可用则显示原因 -->
+        <el-radio-group v-model="mergeForm.mode" style="margin-bottom: 14px;">
+          <el-radio-button value="flatten">平铺为独立镜像</el-radio-button>
+          <el-radio-button value="commit_to_parent">增量回写到父模板</el-radio-button>
+        </el-radio-group>
 
-          <!-- 模式二 -->
-          <div v-if="mergeForm.mode === 'commit_to_parent'">
-            <el-alert type="error" :closable="false" title="将修改父模板并把当前模板删除（合并归一）。当前模板的子模板/虚拟机会改挂到父模板，内容不变。" />
-            <el-descriptions :column="1" border style="margin-top: 14px;">
-              <el-descriptions-item label="父模板">{{ mergeForm.parentTemplate?.name }}</el-descriptions-item>
-              <el-descriptions-item label="父模板直接虚拟机（应为0）">{{ (mergeForm.commitToParent.parent_direct_vms || []).length }}</el-descriptions-item>
-              <el-descriptions-item label="父模板其它子模板（应为0）">{{ (mergeForm.commitToParent.parent_other_children || []).length }}</el-descriptions-item>
-              <el-descriptions-item label="将改挂的子模板">{{ (mergeForm.commitToParent.child_templates || []).length }}</el-descriptions-item>
-              <el-descriptions-item label="将改挂的虚拟机">{{ (mergeForm.commitToParent.subtree_vms || []).length }}</el-descriptions-item>
-            </el-descriptions>
+        <!-- 模式一：始终显示说明；可用时附明细，不可用时附原因 -->
+        <div v-if="mergeForm.mode === 'flatten'">
+          <el-alert type="warning" show-icon :closable="false" title="将把当前模板平铺为独立镜像（原地替换），父模板不变。当前模板的子模板/虚拟机继续指向它，内容不变。" />
+          <el-descriptions v-if="mergeForm.flatten.can" :column="1" border style="margin-top: 14px;">
+            <el-descriptions-item label="需关机的子树虚拟机">{{ (mergeForm.flatten.subtree_vms || []).length }}</el-descriptions-item>
+          </el-descriptions>
+          <div v-if="!mergeForm.flatten.can" style="margin-top: 14px;">
+            <div style="font-size: 12px; color: #909399; margin-bottom: 6px;">当前不可用：</div>
+            <el-alert v-for="(b, i) in (mergeForm.flatten.blockers || [])" :key="'f' + i" type="error" show-icon :closable="false" :title="b" style="margin-bottom: 6px;" />
           </div>
+        </div>
 
-          <!-- 阻塞项 -->
-          <div v-if="!mergeForm.flatten.can && !mergeForm.commitToParent.can" style="margin-top: 14px;">
-            <el-alert
-              v-for="(b, i) in (mergeForm.mode === 'commit_to_parent' ? mergeForm.commitToParent.blockers : mergeForm.flatten.blockers)"
-              :key="i" type="error" :closable="false" :title="b" style="margin-bottom: 8px;"
-            />
+        <!-- 模式二：始终显示说明；可用时附明细，不可用时附原因 -->
+        <div v-if="mergeForm.mode === 'commit_to_parent'">
+          <el-alert type="warning" show-icon :closable="false" title="将修改父模板并把当前模板删除（合并归一）。当前模板的子模板/虚拟机会改挂到父模板，内容不变。" />
+          <el-descriptions v-if="mergeForm.commitToParent.can" :column="1" border style="margin-top: 14px;">
+            <el-descriptions-item label="父模板">{{ mergeForm.parentTemplate?.name }}</el-descriptions-item>
+            <el-descriptions-item label="父模板直接虚拟机（应为0）">{{ (mergeForm.commitToParent.parent_direct_vms || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="父模板其它子模板（应为0）">{{ (mergeForm.commitToParent.parent_other_children || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="将改挂的子模板">{{ (mergeForm.commitToParent.child_templates || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="将改挂的虚拟机">{{ (mergeForm.commitToParent.subtree_vms || []).length }}</el-descriptions-item>
+          </el-descriptions>
+          <div v-if="!mergeForm.commitToParent.can" style="margin-top: 14px;">
+            <div style="font-size: 12px; color: #909399; margin-bottom: 6px;">当前不可用：</div>
+            <el-alert v-for="(b, i) in (mergeForm.commitToParent.blockers || [])" :key="'c' + i" type="error" show-icon :closable="false" :title="b" style="margin-bottom: 6px;" />
           </div>
-        </template>
+        </div>
       </div>
       <template #footer>
         <el-button @click="mergeDialogVisible = false">取消</el-button>
         <el-button
           type="primary"
           :loading="mergeSubmitting"
-          :disabled="mergeLoading || !mergeForm.isIncremental || (!mergeForm.flatten.can && !mergeForm.commitToParent.can)"
+          :disabled="mergeLoading || !mergeForm.isIncremental || (mergeForm.mode === 'flatten' ? !mergeForm.flatten.can : !mergeForm.commitToParent.can)"
           @click="handleMerge"
         >确认合并</el-button>
       </template>
