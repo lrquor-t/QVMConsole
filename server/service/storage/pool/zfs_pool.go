@@ -180,6 +180,73 @@ func buildZpoolCreateArgs(poolName, ashift, vdevType string, devicePaths []strin
 	return args
 }
 
+// resolveStableDevicePaths 把 /dev/sdX 形式的设备路径优先替换为 aliases 中的稳定路径
+// （如 /dev/disk/by-id/wwn-0x...）。aliases 为 nil 或某路径未命中、对应值为空时，
+// 一律回退为原始 devicePaths 元素。纯函数，便于单测；aliases 由 readDeviceByIDAliases
+// 在调用处扫描 /dev/disk/by-id 提供。
+func resolveStableDevicePaths(devicePaths []string, aliases map[string]string) []string {
+	out := make([]string, 0, len(devicePaths))
+	for _, p := range devicePaths {
+		if stable, ok := aliases[p]; ok && strings.TrimSpace(stable) != "" {
+			out = append(out, stable)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// mergeStableAliases 按优先级合并多个「真实路径 → 稳定路径」来源：先出现者胜出，后续不覆盖；
+// 空值视为缺失，让后续来源补位。调用方按优先级从高到低传入（ZFS 场景：by-id 优先于 by-path）。
+// 纯函数，便于单测。
+func mergeStableAliases(sources ...map[string]string) map[string]string {
+	merged := make(map[string]string)
+	for _, src := range sources {
+		for k, v := range src {
+			if merged[k] == "" && strings.TrimSpace(v) != "" {
+				merged[k] = v
+			}
+		}
+	}
+	return merged
+}
+
+// scanDevLinks 扫描指定 glob（如 /dev/disk/by-id/*）下的设备符号链接，建立
+// 「真实路径(/dev/sda) → 稳定路径」的映射。分区级链接（如 by-path/...-part1）
+// readlink 指向 /dev/sda1，不会与整盘 /dev/sda 混淆。
+func scanDevLinks(pattern string) map[string]string {
+	aliases := make(map[string]string)
+	script := fmt.Sprintf(`for p in %s; do [ -e "$p" ] || continue; t=$(readlink -f "$p" 2>/dev/null || true); [ -n "$t" ] && echo "$t|$p"; done`, pattern)
+	result := utils.ExecShell(script)
+	if result.Error != nil {
+		return aliases
+	}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if aliases[parts[0]] == "" {
+			aliases[parts[0]] = parts[1]
+		}
+	}
+	return aliases
+}
+
+// readStableDeviceAliases 按优先级收集 ZFS 成员盘的稳定设备路径别名，回退链：
+//  1. /dev/disk/by-id  —— 基于硬件 WWN/序列号，盘换槽位也不变（最稳）；
+//  2. /dev/disk/by-path —— 基于 PCI/SCSI 拓扑位置，虚拟盘/无序列号盘可由此锁定；
+//  3. 两类都未命中时由 resolveStableDevicePaths 回退到 /dev/sdX。
+//
+// 注意：by-id 在无序列号的虚拟盘上往往缺失（udev 不生成），故必须叠加 by-path 兜底，
+// 否则在虚拟化环境下会退化为 /dev/sdX，失去稳定路径的意义。
+func readStableDeviceAliases() map[string]string {
+	return mergeStableAliases(
+		scanDevLinks("/dev/disk/by-id/*"),
+		scanDevLinks("/dev/disk/by-path/*"),
+	)
+}
+
 // normalizeZFSAshift 规范化 ashift，仅允许 0/9/12/13，否则默认 12。
 func normalizeZFSAshift(a string) string {
 	switch strings.TrimSpace(a) {
@@ -251,6 +318,10 @@ func CreateZFSPool(ctx context.Context, req ZFSPoolRequest, progress func(int, s
 	if err != nil {
 		return fmt.Errorf("校验磁盘失败: %w", err)
 	}
+
+	// 1.5) 优先用稳定路径（by-id → by-path）创建 zpool，避免盘符变动导致的隐患与误选；
+	//      两类稳定标识都未命中时回退到 /dev/sdX。
+	devicePaths = resolveStableDevicePaths(devicePaths, readStableDeviceAliases())
 
 	// 2) 检查 pool 名冲突
 	progress(10, "检查存储池名称冲突...")

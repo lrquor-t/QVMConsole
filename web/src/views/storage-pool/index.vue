@@ -896,8 +896,8 @@ onMounted(fetchData)
 const filteredTableData = computed(() => {
   if (!showAvailableOnly.value) return tableData.value
   return tableData.value.filter(disk => {
-    // ZFS 存储池始终显示
-    if (disk.is_zfs_pool) return true
+    // 已建 ZFS 存储池/数据集：开关打开时隐藏（仅显示可用磁盘，便于找空盘建新池）
+    if (disk.is_zfs_pool) return false
     // 已配置的存储池始终显示
     if (disk.configured) return true
     // 可格式化的盘显示（可用作新存储池）

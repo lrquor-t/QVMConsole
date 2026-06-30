@@ -179,3 +179,112 @@ func TestNormalizeZFSCompression(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveStableDevicePaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   []string
+		aliases map[string]string
+		want    []string
+	}{
+		{
+			name:    "nil aliases fallback to original",
+			input:   []string{"/dev/sda", "/dev/sdb"},
+			aliases: nil,
+			want:    []string{"/dev/sda", "/dev/sdb"},
+		},
+		{
+			name:  "replaces with by-id when mapped",
+			input: []string{"/dev/sda", "/dev/sdb"},
+			aliases: map[string]string{
+				"/dev/sda": "/dev/disk/by-id/ata-FOO-1",
+				"/dev/sdb": "/dev/disk/by-id/wwn-0xBar",
+			},
+			want: []string{"/dev/disk/by-id/ata-FOO-1", "/dev/disk/by-id/wwn-0xBar"},
+		},
+		{
+			name:  "mixed hit and miss keeps miss as-is",
+			input: []string{"/dev/sda", "/dev/sdc"},
+			aliases: map[string]string{
+				"/dev/sda": "/dev/disk/by-id/ata-FOO-1",
+			},
+			want: []string{"/dev/disk/by-id/ata-FOO-1", "/dev/sdc"},
+		},
+		{
+			name:    "empty input returns empty",
+			input:   nil,
+			aliases: map[string]string{"/dev/sda": "/dev/disk/by-id/x"},
+			want:    []string{},
+		},
+		{
+			name:  "empty alias value falls back to original",
+			input: []string{"/dev/sda"},
+			aliases: map[string]string{
+				"/dev/sda": "",
+			},
+			want: []string{"/dev/sda"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := resolveStableDevicePaths(c.input, c.aliases)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("resolveStableDevicePaths(%v, %v)\n got=%v\nwant=%v", c.input, c.aliases, got, c.want)
+			}
+		})
+	}
+}
+
+func TestMergeStableAliases(t *testing.T) {
+	cases := []struct {
+		name    string
+		sources []map[string]string
+		want    map[string]string
+	}{
+		{
+			name:    "nil sources returns empty",
+			sources: nil,
+			want:    map[string]string{},
+		},
+		{
+			name:    "single source copied",
+			sources: []map[string]string{{"/dev/sda": "/dev/disk/by-id/x"}},
+			want:    map[string]string{"/dev/sda": "/dev/disk/by-id/x"},
+		},
+		{
+			name: "first source wins on conflict (by-id beats by-path)",
+			sources: []map[string]string{
+				{"/dev/sda": "/dev/disk/by-id/wwn-1"},
+				{"/dev/sda": "/dev/disk/by-path/pci-1"},
+			},
+			want: map[string]string{"/dev/sda": "/dev/disk/by-id/wwn-1"},
+		},
+		{
+			name: "empty value in earlier source lets later source fill in",
+			sources: []map[string]string{
+				{"/dev/sda": ""},
+				{"/dev/sda": "/dev/disk/by-path/pci-1"},
+			},
+			want: map[string]string{"/dev/sda": "/dev/disk/by-path/pci-1"},
+		},
+		{
+			name: "different keys across sources merged",
+			sources: []map[string]string{
+				{"/dev/sda": "/dev/disk/by-id/x"},
+				{"/dev/sdb": "/dev/disk/by-path/y"},
+			},
+			want: map[string]string{
+				"/dev/sda": "/dev/disk/by-id/x",
+				"/dev/sdb": "/dev/disk/by-path/y",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := mergeStableAliases(c.sources...)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("mergeStableAliases(%v)\n got=%v\nwant=%v", c.sources, got, c.want)
+			}
+		})
+	}
+}
