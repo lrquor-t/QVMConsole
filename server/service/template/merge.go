@@ -133,6 +133,7 @@ func GetMergePreview(templateName string) (*MergePreview, error) {
 		// qemu-img 读取失败时不阻断预览，仅以元数据为准。
 	}
 
+	// subtreeVMs 同时用于两模式：两者都要求 B 子树 VM 全部关机；MergeTemplate 的 ExpectedVMs 比对依赖此同源切片。
 	subtreeVMs := hydrateTemplateRelatedVMs(collectTemplateSubtreeVMs(tree, tpl.NodeID))
 	flattenBlockers := buildFlattenBlockers(hasBacking, subtreeVMs)
 
@@ -329,10 +330,13 @@ func mergeTemplateCommitToParent(params *MergeTemplateParams, preview *MergePrev
 	}
 	rebasedTemplates := make([]string, 0, len(preview.CommitToParent.ChildTemplates))
 	for i, c := range preview.CommitToParent.ChildTemplates {
-		progressFn(30+(i*30/maxInt(len(preview.CommitToParent.ChildTemplates), 1)), fmt.Sprintf("正在改挂子模板 %s ...", c.AdminName))
+		progressFn(30+((i+1)*30/maxInt(len(preview.CommitToParent.ChildTemplates), 1)), fmt.Sprintf("正在改挂子模板 %s ...", c.AdminName))
+		_ = utils.RemoveFileImmutable(c.Path)
 		if err := rebaseQcow2BackingToParent(c.Path, bPath, aPath); err != nil {
+			_ = utils.SetFileImmutable(c.Path) // 尽力恢复不可变再返回
 			return nil, fmt.Errorf("改挂子模板 %s 失败: %w", c.AdminName, err)
 		}
+		_ = utils.SetFileImmutable(c.Path)
 		if err := updatePromotedTemplateMeta(c, *parent); err != nil {
 			return nil, err
 		}
@@ -351,10 +355,10 @@ func mergeTemplateCommitToParent(params *MergeTemplateParams, preview *MergePrev
 	}
 
 	// 3) B 的直接 linked VM 改挂到 A。
-	rebasedVMs := make([]string, 0, len(preview.CommitToParent.SubtreeVMs))
 	directVMs := directVMsOfNode(tree, params.TemplateName)
+	rebasedVMs := make([]string, 0, len(directVMs))
 	for i, vm := range directVMs {
-		progressFn(60+(i*20/maxInt(len(directVMs), 1)), fmt.Sprintf("正在改挂虚拟机 %s ...", vm.Name))
+		progressFn(60+((i+1)*20/maxInt(len(directVMs), 1)), fmt.Sprintf("正在改挂虚拟机 %s ...", vm.Name))
 		di := HookGetVMDiskInfo(vm.Name)
 		if strings.TrimSpace(di.Path) == "" {
 			return nil, fmt.Errorf("无法获取虚拟机 %s 的磁盘路径", vm.Name)
