@@ -101,6 +101,22 @@ export function composeMenu(layoutRaw, ctx = {}) {
     }
   }
 
+  // 受保护项救援：被关闭的分组里的受保护子项提升到顶层并强制启用，
+  // 防止管理员通过 API Key 写入"含受保护项的关闭分组"后把自己锁死在编辑器之外。
+  // （编辑器 UI 也会阻止此操作，这里作为渲染层的最终保障，与写入来源无关。）
+  const topSnapshot = working.slice()
+  for (const n of topSnapshot) {
+    if (n.kind === 'group' && n.enabled === false && Array.isArray(n.children)) {
+      n.children = n.children.filter((c) => {
+        if (c.kind === 'item' && byKey[c.key] && byKey[c.key].protected) {
+          working.push({ kind: 'item', key: c.key, enabled: true })
+          return false
+        }
+        return true
+      })
+    }
+  }
+
   const roleVisible = (item) => {
     if (isAdmin) return true
     if (isLightweight) return !item.lightweightHidden
