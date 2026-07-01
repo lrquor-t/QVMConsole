@@ -1093,6 +1093,10 @@
               </div>
             </el-form-item>
           </el-tab-pane>
+
+          <el-tab-pane label="菜单管理" name="menu" lazy>
+            <MenuEditor />
+          </el-tab-pane>
         </el-tabs>
 
         <el-form-item>
@@ -1209,6 +1213,7 @@
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { Check, Connection, CopyDocument, Cpu, Delete, Download, FirstAidKit, FolderOpened, InfoFilled, Loading, Lock, Message, Monitor, Odometer, Plus, Refresh, Warning } from '@element-plus/icons-vue'
 import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings, getLogStatus, deleteLogs, exportLogs, trimUserStorage, getDiagnosticCategories, exportDiagnostics } from '@/api/settings'
+import MenuEditor from '@/components/MenuEditor.vue'
 import { getAllISOs } from '@/api/infra'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setSiteTitle } from '@/utils/site'
