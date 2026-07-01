@@ -7,8 +7,8 @@ export const menuCatalog = [
   { key: 'template',     title: 'KVM模板',    icon: 'template',    route: '/template/list',   adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'template' },
   { key: 'network',      title: '网络',       icon: 'network',     route: '/network',         adminOnly: false, lightweightHidden: true,  protected: false, defaultGroup: 'network', alt: { title: 'VPC网络', icon: 'vpc' } },
   { key: 'public-ip',    title: '公网 IP',    icon: 'globe',       route: '/public-ip',       adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'network' },
-  { key: 'firewall',     title: '防火墙',    icon: 'firewall',    route: '/firewall',        adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'network' },
-  { key: 'storage-pool', title: '存储池',    icon: 'storage-pool',route: '/storage-pool/list',adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'storage' },
+  { key: 'firewall',     title: '防火墙',     icon: 'firewall',    route: '/firewall',        adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'network' },
+  { key: 'storage-pool', title: '存储池',     icon: 'storage-pool',route: '/storage-pool/list',adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'storage' },
   { key: 'my-storage',   title: '我的存储',   icon: 'folder',      route: '/my-storage',      adminOnly: false, lightweightHidden: true,  protected: false, defaultGroup: 'storage' },
   { key: 'user-list',    title: '用户管理',   icon: 'user',        route: '/user/list',       adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'system' },
   { key: 'scheduler',    title: '调度事件',   icon: 'scheduler',   route: '/scheduler/events',adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'system' },
@@ -16,10 +16,11 @@ export const menuCatalog = [
   { key: 'about',        title: '关于项目',   icon: 'about',       route: '/about',           adminOnly: false, lightweightHidden: false, protected: true,  defaultGroup: null }
 ]
 
-// 回退默认树（镜像当前硬编码菜单）。配置缺失/非法时使用。
-export const defaultMenuLayout = {
-  version: 1,
-  nodes: [
+const ROLE_KEYS = ['admin', 'elastic', 'lightweight']
+
+// 默认菜单（按角色各一份）—— 首次加载/回退时使用，镜像改造前各角色实际可见的菜单。
+export const defaultMenuLayouts = {
+  admin: { version: 1, nodes: [
     { kind: 'item', key: 'home', enabled: true },
     { kind: 'group', id: 'host', title: '主机管理', icon: 'host', enabled: true, children: [
       { kind: 'item', key: 'vm-list', enabled: true },
@@ -43,23 +44,59 @@ export const defaultMenuLayout = {
       { kind: 'item', key: 'settings', enabled: true }
     ]},
     { kind: 'item', key: 'about', enabled: true }
-  ]
+  ]},
+  elastic: { version: 1, nodes: [
+    { kind: 'item', key: 'home', enabled: true },
+    { kind: 'item', key: 'vm-list', enabled: true },
+    { kind: 'item', key: 'network', enabled: true },
+    { kind: 'item', key: 'my-storage', enabled: true },
+    { kind: 'item', key: 'about', enabled: true }
+  ]},
+  lightweight: { version: 1, nodes: [
+    { kind: 'item', key: 'vm-list', enabled: true },
+    { kind: 'item', key: 'about', enabled: true }
+  ]}
 }
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
-// 解析存储的 JSON；空/非法/缺 nodes → 回退默认树
-function parseLayout(raw) {
-  if (typeof raw !== 'string' || raw.trim() === '') return clone(defaultMenuLayout)
-  try {
-    const obj = JSON.parse(raw)
-    if (!obj || !Array.isArray(obj.nodes)) return clone(defaultMenuLayout)
-    return { nodes: obj.nodes }
-  } catch {
-    return clone(defaultMenuLayout)
+// 某角色是否应看到该项（与改造前的角色过滤一致）
+export function validForRole(item, role) {
+  if (role === 'admin') return true
+  if (role === 'lightweight') return !item.lightweightHidden
+  return !item.adminOnly // 弹性云非管理员
+}
+
+// 某角色可用的 catalog 项（编辑器的可添加项来源）
+export function catalogForRole(role) {
+  return menuCatalog.filter((i) => validForRole(i, role))
+}
+
+// 某角色的受保护项 key（不可隐藏/删除；settings 仅对管理员受保护——非管理员本就看不到）
+export function protectedKeysForRole(role) {
+  return menuCatalog.filter((i) => i.protected && validForRole(i, role)).map((i) => i.key)
+}
+
+// 解析存储的 map：{admin,elastic,lightweight}，每份各自回退默认；兼容旧的单树格式({version,nodes})。
+function parseLayoutMap(raw) {
+  const out = {
+    admin: clone(defaultMenuLayouts.admin),
+    elastic: clone(defaultMenuLayouts.elastic),
+    lightweight: clone(defaultMenuLayouts.lightweight)
   }
+  if (typeof raw !== 'string' || raw.trim() === '') return out
+  let obj
+  try { obj = JSON.parse(raw) } catch { return out }
+  if (!obj || typeof obj !== 'object') return out
+  // 兼容旧单树格式：{version,nodes} 视为 admin 一份
+  if (Array.isArray(obj.nodes)) { out.admin = { version: 1, nodes: obj.nodes }; return out }
+  for (const r of ROLE_KEYS) {
+    const v = obj[r]
+    if (v && Array.isArray(v.nodes)) out[r] = { version: 1, nodes: v.nodes }
+  }
+  return out
 }
 
 function collectItemKeys(nodes, set) {
@@ -77,23 +114,24 @@ function findGroupById(nodes, id) {
   return null
 }
 
-// 合并 catalog × 存储结构 → 渲染树（纯函数）。
-// 规则：解析→裁剪陈旧项→注入缺失项(含受保护项恢复)→受保护强制 enabled→
-//       enabled 过滤→角色过滤→整组关闭/空分组隐藏。
-export function composeMenu(layoutRaw, ctx = {}) {
+// 合并：按当前用户角色取对应那一份菜单树，做受保护强制 + 角色安全过滤 + 空分组隐藏。
+// 与"全局单树"模型的区别：不再自动注入全部缺失项——每角色的菜单由管理员在编辑器里独立裁剪，
+// 这里只保证受保护项可见、陈旧/越权项被裁掉。layout/index.vue 按真实访客角色自动取对应那一份。
+export function composeMenu(layoutMapRaw, ctx = {}) {
   const isAdmin = !!ctx.isAdmin
   const isLightweight = !isAdmin && !!ctx.isLightweight
+  const role = isAdmin ? 'admin' : isLightweight ? 'lightweight' : 'elastic'
 
   const byKey = Object.create(null)
   for (const item of menuCatalog) byKey[item.key] = item
 
-  const parsed = parseLayout(layoutRaw)
-  const working = clone(parsed.nodes)
+  const map = parseLayoutMap(layoutMapRaw)
+  const working = clone(map[role].nodes)
 
-  // 注入 catalog 中存在但树里缺失的项（含受保护项缺失时的恢复）
+  // 受保护项（对本角色有效者）若缺失则补回其 defaultGroup，防止管理员把自己锁死
   const referenced = collectItemKeys(working, new Set())
   for (const item of menuCatalog) {
-    if (!referenced.has(item.key)) {
+    if (item.protected && validForRole(item, role) && !referenced.has(item.key)) {
       const node = { kind: 'item', key: item.key, enabled: true }
       const group = item.defaultGroup ? findGroupById(working, item.defaultGroup) : null
       if (group && Array.isArray(group.children)) group.children.push(node)
@@ -101,14 +139,13 @@ export function composeMenu(layoutRaw, ctx = {}) {
     }
   }
 
-  // 受保护项救援：被关闭的分组里的受保护子项提升到顶层并强制启用，
-  // 防止管理员通过 API Key 写入"含受保护项的关闭分组"后把自己锁死在编辑器之外。
-  // （编辑器 UI 也会阻止此操作，这里作为渲染层的最终保障，与写入来源无关。）
+  // 受保护项救援：被关闭的分组里的受保护子项提升到顶层（与写入来源无关的渲染层保障）
   const topSnapshot = working.slice()
   for (const n of topSnapshot) {
     if (n.kind === 'group' && n.enabled === false && Array.isArray(n.children)) {
       n.children = n.children.filter((c) => {
-        if (c.kind === 'item' && byKey[c.key] && byKey[c.key].protected) {
+        const item = c.kind === 'item' ? byKey[c.key] : null
+        if (item && item.protected && validForRole(item, role)) {
           working.push({ kind: 'item', key: c.key, enabled: true })
           return false
         }
@@ -117,14 +154,8 @@ export function composeMenu(layoutRaw, ctx = {}) {
     }
   }
 
-  const roleVisible = (item) => {
-    if (isAdmin) return true
-    if (isLightweight) return !item.lightweightHidden
-    return !item.adminOnly // 弹性云非管理员
-  }
-
   const resolveMeta = (item) => {
-    const useAlt = !isAdmin && !isLightweight && item.alt
+    const useAlt = role === 'elastic' && item.alt
     return {
       key: item.key,
       title: useAlt ? item.alt.title : item.title,
@@ -139,9 +170,9 @@ export function composeMenu(layoutRaw, ctx = {}) {
       if (node.kind === 'item') {
         const item = byKey[node.key]
         if (!item) continue // 裁剪陈旧项
+        if (!validForRole(item, role)) continue // 角色安全过滤（防止越权项泄漏）
         const enabled = item.protected ? true : node.enabled !== false // 受保护强制可见
         if (!enabled) continue
-        if (!roleVisible(item)) continue
         out.push({ type: 'item', ...resolveMeta(item) })
       } else if (node.kind === 'group') {
         if (node.enabled === false) continue // 整组关闭则隐藏
