@@ -2,6 +2,7 @@ package handler
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -92,6 +93,7 @@ type SettingsResponse struct {
 	SessionFingerprintEnabled  bool `json:"session_fingerprint_enabled"`
 	RequestFilterEnabled       bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
+	MenuLayout                 string `json:"menu_layout"` // 菜单树原始 JSON
 }
 
 // UpdateSettingsRequest 更新设置请求
@@ -160,6 +162,7 @@ type UpdateSettingsRequest struct {
 	SessionFingerprintEnabled  *bool `json:"session_fingerprint_enabled"`
 	RequestFilterEnabled       *bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled *bool `json:"password_breach_check_enabled"`
+	MenuLayout                 *string `json:"menu_layout"`
 }
 
 type TestSMTPRequest struct {
@@ -178,6 +181,7 @@ type PublicSettingsResponse struct {
 	SiteTitle                  string `json:"site_title"`
 	PasswordBreachCheckEnabled bool   `json:"password_breach_check_enabled"`
 	SpiceEnabledByDefault      bool   `json:"spice_enabled_by_default"` // 创建虚拟机 SPICE 开关的默认初始值
+	MenuLayout                 string `json:"menu_layout"`              // 菜单树原始 JSON，空=使用默认菜单
 }
 
 // GetPublicSettings 获取公开系统设置
@@ -186,6 +190,7 @@ func GetPublicSettings(c *gin.Context) {
 	if siteTitle == "" {
 		siteTitle = config.DefaultSiteTitle
 	}
+	menuLayout, _ := model.GetSetting("menu_layout")
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "ok",
@@ -193,6 +198,7 @@ func GetPublicSettings(c *gin.Context) {
 			SiteTitle:                  siteTitle,
 			PasswordBreachCheckEnabled: config.GlobalConfig.PasswordBreachCheckEnabled,
 			SpiceEnabledByDefault:      config.GlobalConfig.SpiceEnabledByDefault,
+			MenuLayout:                 menuLayout,
 		},
 	})
 }
@@ -210,6 +216,7 @@ func GetSettings(c *gin.Context) {
 		maintenanceServiceUnits = config.DefaultMaintenanceServiceUnits()
 	}
 	jwtLastRotated, _ := model.GetSetting("jwt_secret_last_rotated")
+	menuLayout, _ := model.GetSetting("menu_layout")
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "ok",
@@ -276,6 +283,7 @@ func GetSettings(c *gin.Context) {
 			SessionFingerprintEnabled:             cfg.SessionFingerprintEnabled,
 			RequestFilterEnabled:                  cfg.RequestFilterEnabled,
 			PasswordBreachCheckEnabled:            cfg.PasswordBreachCheckEnabled,
+			MenuLayout:                            menuLayout,
 		},
 	})
 }
@@ -298,6 +306,17 @@ func UpdateSettings(c *gin.Context) {
 			operation = "enable_maintenance_mode"
 		}
 		if !requireHighRiskVerification(c, operation) {
+			return
+		}
+	}
+
+	if req.MenuLayout != nil {
+		if err := validateMenuLayout(*req.MenuLayout); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		if err := model.SetSetting("menu_layout", *req.MenuLayout); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存菜单配置失败"})
 			return
 		}
 	}
@@ -1060,4 +1079,26 @@ func formatBytes(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// menu_layout 配置最大字节数（菜单树很小，64KB 足够并防御滥用）
+const maxMenuLayoutBytes = 64 * 1024
+
+// validateMenuLayout 轻校验 menu_layout 原始 JSON：空串允许（=回退默认）；
+// 非空时必须可解析为 JSON 对象且不超限。深层结构由前端编辑器保证。
+func validateMenuLayout(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if len(raw) > maxMenuLayoutBytes {
+		return fmt.Errorf("菜单配置过大（超过 %d 字节）", maxMenuLayoutBytes)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return fmt.Errorf("菜单配置不是合法 JSON：%v", err)
+	}
+	if obj == nil {
+		return fmt.Errorf("菜单配置不能为 null")
+	}
+	return nil
 }
