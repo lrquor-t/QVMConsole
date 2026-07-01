@@ -18,103 +18,22 @@
         :collapse-transition="false"
         @select="handleMenuSelect"
       >
-        <el-menu-item index="/dashboard" v-if="!isLightweight">
-          <SidebarIcons icon="home" />
-          <template #title>首页</template>
-        </el-menu-item>
-
-        <!-- 主机管理 -->
-        <el-sub-menu index="host-mgmt">
-          <template #title>
-            <SidebarIcons icon="host" />
-            <span>主机管理</span>
-          </template>
-          <el-menu-item index="/vm/list">
-            <SidebarIcons icon="vm" />
-            <template #title>虚拟机列表</template>
+        <template v-for="node in menuNodes" :key="node.type === 'group' ? ('g:' + node.id) : ('i:' + node.route)">
+          <el-menu-item v-if="node.type === 'item'" :index="node.route">
+            <SidebarIcons :icon="node.icon" />
+            <template #title>{{ node.title }}</template>
           </el-menu-item>
-          <el-menu-item index="/nodes" v-if="isAdmin">
-            <SidebarIcons icon="node" />
-            <template #title>节点管理</template>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <!-- 模板管理 -->
-        <el-sub-menu index="template-mgmt" v-if="isAdmin">
-          <template #title>
-            <SidebarIcons icon="template" />
-            <span>模板管理</span>
-          </template>
-          <el-menu-item index="/template/list">
-            <SidebarIcons icon="template" />
-            <template #title>KVM模板</template>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <!-- 网络管理 -->
-        <el-sub-menu index="network-mgmt" v-if="isAdmin || !isLightweight">
-          <template #title>
-            <SidebarIcons icon="network" />
-            <span>网络管理</span>
-          </template>
-          <el-menu-item index="/network" v-if="isAdmin">
-            <SidebarIcons icon="network" />
-            <template #title>网络</template>
-          </el-menu-item>
-          <el-menu-item index="/network" v-else-if="!isLightweight">
-            <SidebarIcons icon="vpc" />
-            <template #title>VPC 网络</template>
-          </el-menu-item>
-          <el-menu-item index="/public-ip" v-if="isAdmin">
-            <SidebarIcons icon="globe" />
-            <template #title>公网 IP</template>
-          </el-menu-item>
-          <el-menu-item index="/firewall" v-if="isAdmin">
-            <SidebarIcons icon="firewall" />
-            <template #title>防火墙</template>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <!-- 存储管理 -->
-        <el-sub-menu index="storage-mgmt" v-if="isAdmin || !isLightweight">
-          <template #title>
-            <SidebarIcons icon="storage" />
-            <span>存储管理</span>
-          </template>
-          <el-menu-item index="/storage-pool/list" v-if="isAdmin">
-            <SidebarIcons icon="storage-pool" />
-            <template #title>存储池</template>
-          </el-menu-item>
-          <el-menu-item index="/my-storage" v-if="!isLightweight">
-            <SidebarIcons icon="folder" />
-            <template #title>我的存储</template>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <!-- 系统管理 -->
-        <el-sub-menu index="system-mgmt" v-if="isAdmin">
-          <template #title>
-            <SidebarIcons icon="system" />
-            <span>系统管理</span>
-          </template>
-          <el-menu-item index="/user/list">
-            <SidebarIcons icon="user" />
-            <template #title>用户管理</template>
-          </el-menu-item>
-          <el-menu-item index="/scheduler/events">
-            <SidebarIcons icon="scheduler" />
-            <template #title>调度事件</template>
-          </el-menu-item>
-          <el-menu-item index="/settings">
-            <SidebarIcons icon="setting" />
-            <template #title>系统设置</template>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <el-menu-item index="/about">
-          <SidebarIcons icon="about" />
-          <template #title>关于项目</template>
-        </el-menu-item>
+          <el-sub-menu v-else :index="'g:' + node.id">
+            <template #title>
+              <SidebarIcons :icon="node.icon" />
+              <span>{{ node.title }}</span>
+            </template>
+            <el-menu-item v-for="child in node.children" :key="child.route" :index="child.route">
+              <SidebarIcons :icon="child.icon" />
+              <template #title>{{ child.title }}</template>
+            </el-menu-item>
+          </el-sub-menu>
+        </template>
       </el-menu>
     </el-aside>
 
@@ -462,6 +381,8 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import { siteTitle } from '@/utils/site'
+import { menuLayoutRaw } from '@/utils/site'
+import { composeMenu } from '@/utils/menu'
 import { passwordValidator, checkPasswordBreachAsync } from '@/utils/validate'
 
 // 导入近期任务面板组件
@@ -474,6 +395,10 @@ const displaySiteTitle = computed(() => siteTitle.value)
 
 const isAdmin = computed(() => userStore.role === 'admin')
 const isLightweight = computed(() => userStore.role !== 'admin' && userStore.cloudType === 'lightweight')
+
+const menuNodes = computed(() =>
+  composeMenu(menuLayoutRaw.value, { isAdmin: isAdmin.value, isLightweight: isLightweight.value })
+)
 
 const activeMenu = computed(() => route.path)
 
