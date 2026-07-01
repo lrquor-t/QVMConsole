@@ -366,6 +366,7 @@ func resetUserPassword(user *model.User, newPassword string) error {
 	now := time.Now()
 	if err := model.DB.Model(user).Updates(map[string]interface{}{
 		"password_hash":            string(hashedPassword),
+		"force_password_change":    false,
 		"login_verified_until":     nil,
 		"high_risk_verified_until": nil,
 		"security_updated_at":      &now,
@@ -680,8 +681,18 @@ func SyncUserPassword(username, password string) error {
 			return fmt.Errorf("用户名包含非法字符")
 		}
 	}
+	// 密码安全校验：过滤控制字符（换行、回车等），防止通过 stdin 注入额外行
+	cleanPassword := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 { // 控制字符和 DEL
+			return -1
+		}
+		return r
+	}, password)
+	if cleanPassword == "" {
+		return fmt.Errorf("密码过滤后为空")
+	}
 	cmd := exec.Command("chpasswd")
-	cmd.Stdin = strings.NewReader(username + ":" + password + "\n")
+	cmd.Stdin = strings.NewReader(username + ":" + cleanPassword + "\n")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("同步系统密码失败: %s", string(output))

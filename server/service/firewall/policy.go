@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kvm_console/config"
+	"kvm_console/logger"
 	"kvm_console/utils"
 )
 
@@ -125,7 +126,9 @@ func SaveFirewallPolicy(policy *FirewallPolicy) error {
 	oldPolicy, _ := os.ReadFile(firewallPolicyFile)
 	if len(oldPolicy) > 0 {
 		backupPath := filepath.Join(firewallDir, "backups", fmt.Sprintf("policy.%s.json", time.Now().Format("20060102_150405")))
-		_ = os.WriteFile(backupPath, oldPolicy, 0644)
+		if err := os.WriteFile(backupPath, oldPolicy, 0644); err != nil {
+			logger.App.Warn("备份防火墙规则失败", "path", backupPath, "error", err)
+		}
 		pruneFirewallBackups("policy.*.json", 10)
 	}
 	policy.UpdatedAt = time.Now().Format(time.RFC3339)

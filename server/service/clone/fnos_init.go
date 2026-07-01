@@ -76,9 +76,16 @@ passwd -u "$TARGET_USER" 2>/dev/null || true`, quotedUser, quotedHome)
 }
 
 func buildFnOSPasswordCommand(username, password string) string {
+	// 过滤控制字符，防止通过 shell 注入
+	cleanPassword := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, password)
 	return fmt.Sprintf("printf '%%s:%%s\\n' %s %s | chpasswd",
 		utils.ShellSingleQuote(username),
-		utils.ShellSingleQuote(password),
+		utils.ShellSingleQuote(cleanPassword),
 	)
 }
 

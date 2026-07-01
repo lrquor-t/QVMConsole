@@ -417,17 +417,42 @@ func ListVMInterfaces(vmName string) ([]VMInterfaceInfo, error) {
 		return nil, err
 	}
 
+	switchIDs := make([]uint, 0, len(bindings))
+	sgIDs := make([]uint, 0, len(bindings))
+	for _, b := range bindings {
+		switchIDs = append(switchIDs, b.SwitchID)
+		sgIDs = append(sgIDs, b.SecurityGroupID)
+	}
+
+	switches := map[uint]*model.VPCSwitch{}
+	if len(switchIDs) > 0 {
+		var swList []model.VPCSwitch
+		if err := model.DB.Where("id IN ?", switchIDs).Find(&swList).Error; err == nil {
+			for i := range swList {
+				normalizeVPCSwitchBandwidthForResponse(&swList[i])
+				switches[swList[i].ID] = &swList[i]
+			}
+		}
+	}
+
+	secGroups := map[uint]*model.VPCSecurityGroup{}
+	if len(sgIDs) > 0 {
+		var sgList []model.VPCSecurityGroup
+		if err := model.DB.Where("id IN ?", sgIDs).Find(&sgList).Error; err == nil {
+			for i := range sgList {
+				secGroups[sgList[i].ID] = &sgList[i]
+			}
+		}
+	}
+
 	result := make([]VMInterfaceInfo, 0, len(bindings))
 	for _, b := range bindings {
 		info := VMInterfaceInfo{Binding: b}
-		var sw model.VPCSwitch
-		if model.DB.First(&sw, b.SwitchID).Error == nil {
-			normalizeVPCSwitchBandwidthForResponse(&sw)
-			info.Switch = &sw
+		if sw, ok := switches[b.SwitchID]; ok {
+			info.Switch = sw
 		}
-		var sg model.VPCSecurityGroup
-		if model.DB.First(&sg, b.SecurityGroupID).Error == nil {
-			info.SecurityGroup = &sg
+		if sg, ok := secGroups[b.SecurityGroupID]; ok {
+			info.SecurityGroup = sg
 		}
 		result = append(result, info)
 	}

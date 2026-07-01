@@ -319,6 +319,7 @@ func OperateVm(c *gin.Context) {
 		cfg := config.GlobalConfig
 		if cfg.MaxBurstInbound > 0 || cfg.MaxBurstOutbound > 0 {
 			go func() {
+				defer utils.RecoverAndLog("vm-operate-bandwidth")
 				// 等待VM状态稳定后再重新分配（关机需要时间）
 				if req.Action != "start" {
 					time.Sleep(3 * time.Second)
@@ -337,6 +338,7 @@ func OperateVm(c *gin.Context) {
 			username, _ := c.Get("username")
 			usernameStr, _ := username.(string)
 			go func() {
+				defer utils.RecoverAndLog("vm-start-bandwidth")
 				if service.IsLightweightCloudUser(usernameStr) {
 					if err := service.ApplyLightweightVMBandwidth(name); err != nil {
 						logger.App.Warn("开机后应用轻量云 VM 带宽失败", "vm", name, "error", err)

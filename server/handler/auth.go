@@ -21,13 +21,14 @@ type LoginRequest struct {
 }
 
 type LoginStageResponse struct {
-	Stage          string                `json:"stage"`
-	Token          string                `json:"token,omitempty"`
-	Username       string                `json:"username"`
-	Role           string                `json:"role"`
-	CloudType      string                `json:"cloud_type"`
-	Security       service.SecurityState `json:"security"`
-	AllowedMethods []string              `json:"allowed_methods,omitempty"`
+	Stage               string                `json:"stage"`
+	Token               string                `json:"token,omitempty"`
+	Username            string                `json:"username"`
+	Role                string                `json:"role"`
+	CloudType           string                `json:"cloud_type"`
+	Security            service.SecurityState `json:"security"`
+	AllowedMethods      []string              `json:"allowed_methods,omitempty"`
+	ForcePasswordChange bool                  `json:"force_password_change,omitempty"`
 }
 
 type ChangePasswordRequest struct {
@@ -187,6 +188,31 @@ func Login(c *gin.Context) {
 	service.ClearLoginFailures(clientIP, user.Username)
 
 	security := service.BuildSecurityState(&user)
+
+	// 检查是否需要强制修改密码（默认管理员账号首次登录）
+	// 优先级最高：使用默认密码是最高安全风险，必须先修改密码再进行其他操作
+	if user.ForcePasswordChange {
+		accessToken, err := middleware.GenerateAccessTokenWithContext(c, user.ID, user.Username, user.Role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code":    200,
+			"message": "登录成功，请先修改默认密码",
+			"data": LoginStageResponse{
+				Stage:               "success",
+				Token:               accessToken,
+				Username:            user.Username,
+				Role:                user.Role,
+				CloudType:           service.NormalizeCloudType(user.CloudType),
+				Security:            security,
+				ForcePasswordChange: true,
+			},
+		})
+		return
+	}
+
 	if service.CanEnterBootstrap(&user) {
 		token, err := middleware.GenerateTokenWithContext(c, user.ID, user.Username, user.Role, service.TokenTypeBootstrap, 30*time.Minute)
 		if err != nil {
@@ -244,6 +270,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	// 检查是否需要强制修改密码（默认管理员账号首次登录）
+	forcePasswordChange := user.ForcePasswordChange
+
 	accessToken, err := middleware.GenerateAccessTokenWithContext(c, user.ID, user.Username, user.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
@@ -253,12 +282,13 @@ func Login(c *gin.Context) {
 		"code":    200,
 		"message": "登录成功",
 		"data": LoginStageResponse{
-			Stage:     "success",
-			Token:     accessToken,
-			Username:  user.Username,
-			Role:      user.Role,
-			CloudType: service.NormalizeCloudType(user.CloudType),
-			Security:  security,
+			Stage:               "success",
+			Token:               accessToken,
+			Username:            user.Username,
+			Role:                user.Role,
+			CloudType:           service.NormalizeCloudType(user.CloudType),
+			Security:            security,
+			ForcePasswordChange: forcePasswordChange,
 		},
 	})
 }
@@ -282,8 +312,13 @@ func GetUserInfo(c *gin.Context) {
 
 // ChangePassword 修改当前用户密码
 func ChangePassword(c *gin.Context) {
-	if !requireHighRiskVerification(c, "change_password") {
-		return
+	user := getCurrentUser(c)
+	// 如果是强制修改默认密码（首次登录），跳过高风险验证
+	// 因为此时用户尚未设置邮箱/2FA，无法完成二次验证
+	if !user.ForcePasswordChange {
+		if !requireHighRiskVerification(c, "change_password") {
+			return
+		}
 	}
 
 	var req ChangePasswordRequest
@@ -296,7 +331,7 @@ func ChangePassword(c *gin.Context) {
 		return
 	}
 
-	user := getCurrentUser(c)
+	user = getCurrentUser(c)
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.OldPassword)) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "旧密码错误"})
 		return
@@ -311,6 +346,7 @@ func ChangePassword(c *gin.Context) {
 	now := time.Now()
 	if err := model.DB.Model(user).Updates(map[string]interface{}{
 		"password_hash":            string(newHash),
+		"force_password_change":    false,
 		"high_risk_verified_until": nil,
 		"login_verified_until":     nil,
 		"security_updated_at":      &now,
@@ -776,7 +812,7 @@ func VerifyHighRisk(c *gin.Context) {
 			"code":    200,
 			"message": "高风险验证成功（恢复码已消耗）",
 			"data": gin.H{
-				"trusted_until":           time.Now().Add(service.HighRiskEmailTrustWindow).Format(time.RFC3339),
+				"trusted_until":            time.Now().Add(service.HighRiskEmailTrustWindow).Format(time.RFC3339),
 				"recovery_codes_remaining": service.GetRecoveryCodesRemaining(newEnc),
 			},
 		})

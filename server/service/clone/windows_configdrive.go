@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -169,18 +170,35 @@ func createWindowsConfigDriveISO(vmName, hostname, password string) (string, err
 	// 清除旧 ISO（重建/重装场景）
 	_ = os.Remove(isoPath)
 
-	// genisoimage 创建 ISO（label=config-2 为 OpenStack ConfigDrive 标准卷标）
-	result := utils.ExecCommandLongRunning(
-		"genisoimage",
-		"-output", isoPath,
-		"-V", "config-2",
-		"-input-charset", "utf-8",
-		"-joliet", "-rock",
-		tmpDir,
-	)
-	if result.Error != nil {
-		return "", fmt.Errorf("创建 Config Drive ISO 失败: %s", strings.TrimSpace(result.Stderr))
+	// 尝试多种 ISO 创建工具：genisoimage → xorriso（兼容模式） → mkisofs
+	type isoTool struct {
+		name string
+		args []string
 	}
+	tools := []isoTool{
+		{"genisoimage", []string{"-output", isoPath, "-V", "config-2", "-input-charset", "utf-8", "-joliet", "-rock", tmpDir}},
+		{"xorriso", []string{"-as", "genisoimage", "-output", isoPath, "-V", "config-2", "-input-charset", "utf-8", "-joliet", "-rock", tmpDir}},
+		{"mkisofs", []string{"-output", isoPath, "-V", "config-2", "-input-charset", "utf-8", "-joliet", "-rock", tmpDir}},
+	}
+	var errs []string
+	for _, tool := range tools {
+		if _, err := lookPathTool(tool.name); err != nil {
+			continue
+		}
+		result := utils.ExecCommandLongRunning(tool.name, tool.args...)
+		if result.Error == nil {
+			goto isoCreated
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", tool.name, strings.TrimSpace(result.Stderr)))
+	}
+	if len(errs) > 0 {
+		return "", fmt.Errorf("创建 Config Drive ISO 失败（已尝试 %s）: %s",
+			strings.Join([]string{"genisoimage", "xorriso", "mkisofs"}, "/"),
+			strings.Join(errs, "; "))
+	}
+	return "", fmt.Errorf("创建 Config Drive ISO 失败: 未找到可用的 ISO 创建工具（genisoimage/xorriso/mkisofs）")
+
+isoCreated:
 
 	if err := os.Chmod(isoPath, 0640); err != nil {
 		logger.App.Warn("设置 Config Drive ISO 权限失败", "path", isoPath, "error", err)
@@ -254,6 +272,7 @@ func isCloudbaseInitCompleted(vmName string) bool {
 //   - 超时内未完成 → 停止轮询，ISO 将在 VM 删除时清理
 func scheduleWindowsConfigDriveEject(vmName, diskBus string) {
 	go func() {
+		defer utils.RecoverAndLog("configdrive-eject")
 		// === 阶段一：等待 Guest Agent 可达 ===
 		agentDeadline := time.Now().Add(configDriveGuestAgentTimeout)
 		agentDetected := false
@@ -317,4 +336,9 @@ func scheduleWindowsConfigDriveEject(vmName, diskBus string) {
 		CleanupWindowsConfigDriveISO(vmName)
 		logger.App.Info("Config Drive CD-ROM 已自动弹出并清理", "vm", vmName)
 	}()
+}
+
+// lookPathTool 检查命令是否在 PATH 中可用
+func lookPathTool(name string) (string, error) {
+	return exec.LookPath(name)
 }

@@ -87,6 +87,7 @@ func Setup() *gin.Engine {
 		// ==================== 高风险验证 ====================
 		highRiskAuth := auth.Group("")
 		highRiskAuth.Use(middleware.AuthMiddleware())
+		highRiskAuth.Use(middleware.ForcePasswordChangeMiddleware())
 		{
 			highRiskAuth.GET("/info", handler.GetUserInfo)
 			highRiskAuth.GET("/api-key", handler.GetAPIKeyInfo)
@@ -118,6 +119,7 @@ func Setup() *gin.Engine {
 		// ==================== 需要认证的路由 ====================
 		authorized := api.Group("")
 		authorized.Use(middleware.AuthMiddleware())
+		authorized.Use(middleware.ForcePasswordChangeMiddleware())
 		{
 			// ==================== 虚拟机管理 ====================
 			vm := authorized.Group("/vm")

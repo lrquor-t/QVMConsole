@@ -11,6 +11,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/utils"
 	vmpkg "kvm_console/service/vm"
 )
 
@@ -39,6 +40,7 @@ func StartStatsCollector() {
 	HookInitializeLightweightRuntimeQuotaTracker()
 
 	go func() {
+		defer utils.RecoverAndLog("host-stats-collector")
 		collectTicker := time.NewTicker(10 * time.Second)
 		persistTicker := time.NewTicker(60 * time.Second)
 		defer collectTicker.Stop()

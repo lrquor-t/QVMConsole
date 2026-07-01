@@ -63,6 +63,7 @@ func TriggerAdminVMCacheRefreshIfNeeded() {
 	vmCacheRefreshState.Unlock()
 
 	go func() {
+		defer utils.RecoverAndLog("vm-cache-refresh")
 		defer func() {
 			vmCacheRefreshState.Lock()
 			vmCacheRefreshState.inProgress = false
@@ -267,6 +268,7 @@ func RefreshVMCacheByNameAsync(name string) {
 		return
 	}
 	go func() {
+		defer utils.RecoverAndLog("vm-cache-refresh-async")
 		if err := RefreshVMCacheByName(name); err != nil {
 			logger.App.Warn("刷新虚拟机缓存失败", "vm", name, "error", err)
 		}
@@ -280,6 +282,7 @@ func MarkVMCacheMissingAsync(name string) {
 		return
 	}
 	go func() {
+		defer utils.RecoverAndLog("vm-cache-missing-async")
 		if err := MarkVMCacheMissing(name); err != nil {
 			logger.App.Warn("标记虚拟机缓存失效失败", "vm", name, "error", err)
 		}

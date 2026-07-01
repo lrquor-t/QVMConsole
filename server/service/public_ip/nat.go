@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/utils"
 )
@@ -19,7 +20,9 @@ func ApplyPublicIPRules() error {
 	}
 	if _, err := os.Stat(publicIPRulesPath); err == nil {
 		backup := filepath.Join(publicIPConfigDir, "backups", "rules.sh."+time.Now().Format("20060102_150405"))
-		_ = copyFile(publicIPRulesPath, backup, 0755)
+		if err := copyFile(publicIPRulesPath, backup, 0755); err != nil {
+			logger.App.Warn("备份公网IP规则失败", "error", err)
+		}
 	}
 	script, err := BuildPublicIPRulesScript()
 	if err != nil {

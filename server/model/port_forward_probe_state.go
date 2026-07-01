@@ -10,12 +10,12 @@ type PortForwardProbeState struct {
 	HostPort           string     `json:"host_port" gorm:"size:32;not null"`
 	DestIP             string     `json:"dest_ip" gorm:"size:64;not null"`
 	DestPort           string     `json:"dest_port" gorm:"size:32;not null"`
-	VMName             string     `json:"vm_name" gorm:"size:128"`
-	OwnerUsername      string     `json:"owner_username" gorm:"size:64"`
+	VMName             string     `json:"vm_name" gorm:"index;size:128"`
+	OwnerUsername      string     `json:"owner_username" gorm:"index;size:64"`
 	CreatedBy          string     `json:"created_by" gorm:"size:64"`
 	CreatedByAdmin     bool       `json:"created_by_admin"`
 	Live               bool       `json:"live"`
-	Banned             bool       `json:"banned"`
+	Banned             bool       `json:"banned" gorm:"index"`
 	WhitelistScope     string     `json:"whitelist_scope" gorm:"size:32"`
 	LastCheckedAt      *time.Time `json:"last_checked_at"`
 	LastHTTPStatusCode int        `json:"last_http_status_code"`

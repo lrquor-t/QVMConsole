@@ -154,7 +154,7 @@ func executeLiveMigration(ctx context.Context, node model.HostNode, preview *VMM
 			return fmt.Errorf("设置迁移 CPU 限制失败: %w", err)
 		}
 		defer func() {
-			if restoreErr := cpuRestore.Restore(context.Background(), node, preview.VMName); restoreErr != nil {
+			if restoreErr := cpuRestore.Restore(ctx, node, preview.VMName); restoreErr != nil {
 				preview.Warnings = append(preview.Warnings, "迁移后恢复 CPU 限制失败: "+restoreErr.Error())
 			}
 		}()
@@ -171,7 +171,7 @@ func executeLiveMigration(ctx context.Context, node model.HostNode, preview *VMM
 	cleanupTargets := true
 	defer func() {
 		if cleanupTargets && len(createdTargets) > 0 {
-			cleanupLiveMigrationTargets(context.Background(), node, createdTargets)
+			cleanupLiveMigrationTargets(ctx, node, createdTargets)
 		}
 	}()
 

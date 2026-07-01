@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -121,7 +120,7 @@ func PreviewImportTemplateHandler(c *gin.Context) {
 		})
 		return
 	}
-	preview, err := service.PreviewImportTemplate(context.Background(), params)
+	preview, err := service.PreviewImportTemplate(c.Request.Context(), params)
 	if err != nil {
 		if params.CleanupSource {
 			_ = os.Remove(params.SourcePath)

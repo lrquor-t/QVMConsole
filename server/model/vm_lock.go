@@ -8,9 +8,9 @@ import (
 type VMLock struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	VMName    string    `gorm:"uniqueIndex;size:255;not null" json:"vm_name"`
-	Locked    bool      `gorm:"not null;default:false" json:"locked"`
+	Locked    bool      `gorm:"index;not null;default:false" json:"locked"`
 	LockedAt  time.Time `json:"locked_at"`
-	LockedBy  string    `gorm:"size:100;not null;default:''" json:"locked_by"`
+	LockedBy  string    `gorm:"index;size:100;not null;default:''" json:"locked_by"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -47,6 +47,7 @@ func UpsertVMLock(vmName string, locked bool, lockedBy string) error {
 		LockedAt: now,
 		LockedBy: lockedBy,
 	}
+	// NOTE: GORM Where struct ignores zero-value fields
 	return DB.Where(VMLock{VMName: vmName}).
 		Assign(map[string]interface{}{
 			"locked":    locked,

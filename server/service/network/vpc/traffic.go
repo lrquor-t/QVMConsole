@@ -187,13 +187,17 @@ func CheckVPCSwitchTrafficAfterQuotaUpdate(switchID uint) {
 	record.TrafficDown = effectiveDown
 	record.TrafficUp = effectiveUp
 	if !record.IsLimitedDown && !record.IsLimitedUp {
-		_ = saveVPCSwitchTrafficMonthly(record)
+		if err := saveVPCSwitchTrafficMonthly(record); err != nil {
+			logger.App.Warn("VPC交换机月度流量记录失败", "switch", sw.Name, "error", err)
+		}
 		return
 	}
 	downLimited := sw.TrafficDownGB > 0 && float64(effectiveDown) >= TrafficQuotaBytes(sw.TrafficDownGB)
 	upLimited := sw.TrafficUpGB > 0 && float64(effectiveUp) >= TrafficQuotaBytes(sw.TrafficUpGB)
 	if record.IsLimitedDown == downLimited && record.IsLimitedUp == upLimited {
-		_ = saveVPCSwitchTrafficMonthly(record)
+		if err := saveVPCSwitchTrafficMonthly(record); err != nil {
+			logger.App.Warn("VPC交换机月度流量记录失败", "switch", sw.Name, "error", err)
+		}
 		return
 	}
 	record.IsLimitedDown = downLimited

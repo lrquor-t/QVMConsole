@@ -11,6 +11,7 @@ import (
 	"kvm_console/model"
 	"kvm_console/service"
 	"kvm_console/taskqueue"
+	"kvm_console/utils"
 )
 
 // CreateUserRequest 创建用户请求
@@ -567,6 +568,7 @@ func AssignVMs(c *gin.Context) {
 	// 分配后重新计算该用户所有 VM 的带宽
 	assignedVMs := append([]string(nil), req.VMs...)
 	go func() {
+		defer utils.RecoverAndLog("user-assign-vm-bandwidth")
 		if service.IsLightweightCloudUser(username) {
 			for _, vmName := range assignedVMs {
 				if err := service.ApplyLightweightVMBandwidth(vmName); err != nil {

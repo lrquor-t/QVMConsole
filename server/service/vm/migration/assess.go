@@ -118,6 +118,7 @@ func runMigrationSpeedTest(ctx context.Context, node model.HostNode) (float64, f
 	server := &http.Server{Handler: mux}
 	defer server.Close()
 	go func() {
+		defer utils.RecoverAndLog("migration-speed-test")
 		_ = server.Serve(listener)
 	}()
 	url := "http://" + net.JoinHostPort(sourceIP, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)) + "/" + token

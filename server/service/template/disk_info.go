@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+
+	"kvm_console/utils"
 )
 
 // fillTemplateInfoSizes fills disk size info for a single template.
@@ -57,6 +59,7 @@ func fillTemplateInfoSizesBatch(templates []TemplateInfo) {
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go func() {
+			defer utils.RecoverAndLog("template-disk-info")
 			defer wg.Done()
 			for idx := range indexCh {
 				fillTemplateInfoSizes(&templates[idx])

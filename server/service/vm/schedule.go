@@ -16,6 +16,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/taskqueue"
+	"kvm_console/utils"
 )
 
 const (
@@ -182,6 +183,7 @@ func StartVMScheduleRunner() {
 	registerVMScheduleScheduler()
 	vmScheduleRunnerOnce.Do(func() {
 		go func() {
+			defer utils.RecoverAndLog("vm-schedule-runner")
 			runDueVMSchedulesOnce()
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
@@ -316,6 +318,7 @@ func executeScheduledVMAction(ctx context.Context, params VMScheduledActionTaskP
 		}
 		if owner != "" && owner != "admin" {
 			go func(username string) {
+				defer utils.RecoverAndLog("vm-schedule-rebalance")
 				if err := D.RebalanceUserBandwidth(username); err != nil {
 					logger.App.Warn("定时开机后重新分配用户带宽失败", "user", username, "error", err)
 				}
@@ -359,6 +362,7 @@ func executeScheduledVMAction(ctx context.Context, params VMScheduledActionTaskP
 		_ = model.DeleteVMLock(params.VMName)
 		if owner != "" && owner != "admin" {
 			go func(username string) {
+				defer utils.RecoverAndLog("vm-schedule-delete-rebalance")
 				if err := D.RebalanceUserBandwidth(username); err != nil {
 					logger.App.Warn("定时删除虚拟机后重新分配用户带宽失败", "user", username, "error", err)
 				}

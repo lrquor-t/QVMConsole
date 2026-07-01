@@ -9,6 +9,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
+	"kvm_console/utils"
 )
 
 var schedulerRegistry = struct {
@@ -152,6 +153,7 @@ func broadcastSchedulerEvent(message SchedulerEventMessage) {
 // StartSchedulerEventCleanup 启动调度事件清理协程。
 func StartSchedulerEventCleanup() {
 	go func() {
+		defer utils.RecoverAndLog("scheduler-event-cleanup")
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for {

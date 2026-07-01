@@ -19,6 +19,7 @@ import (
 	"kvm_console/model"
 	"kvm_console/service"
 	"kvm_console/service/storage/quota"
+	"kvm_console/utils"
 	"kvm_console/taskqueue"
 )
 
@@ -624,6 +625,7 @@ func UpdateSettings(c *gin.Context) {
 	// 带宽设置变更后异步触发全局带宽重新分配
 	if req.MaxBurstInbound != nil || req.MaxBurstOutbound != nil {
 		go func() {
+			defer utils.RecoverAndLog("settings-bandwidth")
 			if cfg.MaxBurstInbound <= 0 && cfg.MaxBurstOutbound <= 0 {
 				if err := service.ClearGlobalBandwidthLimit(); err != nil {
 					logger.App.Warn("清除全局带宽限制失败", "component", "全局带宽", "error", err)

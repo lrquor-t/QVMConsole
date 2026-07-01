@@ -18,6 +18,10 @@ scripts/
 
 # Editor directories and files
 .vscode/*
+
+# Build artifacts
+release/
+bundled/
 !.vscode/extensions.json
 .idea
 .DS_Store

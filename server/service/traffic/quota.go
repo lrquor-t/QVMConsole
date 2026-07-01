@@ -7,6 +7,7 @@ import (
 
 	"kvm_console/logger"
 	"kvm_console/model"
+	"kvm_console/utils"
 	"kvm_console/service/bandwidth"
 	"kvm_console/service/lightweight"
 	"kvm_console/service/network/vpc"
@@ -420,6 +421,7 @@ func CheckUserTrafficQuotaForStart(username string) error {
 func StartTrafficQuotaChecker() {
 	// 每 60 秒检查一次所有用户的流量配额
 	go func() {
+		defer utils.RecoverAndLog("traffic-quota-checker")
 		checkTicker := time.NewTicker(60 * time.Second)
 		defer checkTicker.Stop()
 
@@ -432,6 +434,7 @@ func StartTrafficQuotaChecker() {
 
 	// 每月 1 日 0 点重置定时器
 	go func() {
+		defer utils.RecoverAndLog("traffic-quota-reset")
 		for {
 			now := time.Now()
 			// 计算距下个月 1 日 0 点的时间

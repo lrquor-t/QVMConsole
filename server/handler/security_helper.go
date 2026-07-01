@@ -52,7 +52,7 @@ func normalizeBaseURL(raw string) string {
 }
 
 func requireHighRiskVerification(c *gin.Context, operation string) bool {
-	return requireHighRiskVerificationWithOptions(c, operation, true)
+	return requireHighRiskVerificationWithOptions(c, operation, false)
 }
 
 func requireStrictHighRiskVerification(c *gin.Context, operation string) bool {
@@ -80,9 +80,14 @@ func requireHighRiskVerificationWithOptions(c *gin.Context, operation string, al
 		}
 	}
 
-	// SMTP 未配置时，无法发送邮箱验证码，敏感操作二次验证一律跳过
+	// SMTP 未配置时，回退到 TOTP 验证（如果已启用）；TOTP 也未启用则跳过
 	if !service.IsSMTPConfigured() {
-		return true
+		if user.TOTPEnabled {
+			// TOTP 已启用，走 TOTP 验证流程（不在此处 return，让下面的 TOTP 逻辑处理）
+		} else {
+			// SMTP 和 TOTP 都不可用，无法进行二次验证
+			return true
+		}
 	}
 
 	if operation == "" {

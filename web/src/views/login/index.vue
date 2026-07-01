@@ -261,6 +261,63 @@
       </template>
     </el-dialog>
 
+    <!-- 首次登录强制修改默认密码弹窗 -->
+    <el-dialog
+      v-model="forcePwdVisible"
+      title="首次登录请修改默认密码"
+      width="460px"
+      append-to-body
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      destroy-on-close
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        style="margin-bottom: 16px;"
+        title="检测到您正在使用默认密码，为保障账户安全，请立即修改密码。"
+      />
+      <el-form
+        ref="forcePwdFormRef"
+        :model="forcePwdForm"
+        :rules="forcePwdRules"
+        label-width="80px"
+      >
+        <el-form-item label="当前密码" prop="oldPassword">
+          <el-input
+            v-model="forcePwdForm.oldPassword"
+            type="password"
+            show-password
+            placeholder="请输入当前密码"
+          />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="forcePwdForm.newPassword"
+            type="password"
+            show-password
+            placeholder="请输入新密码"
+          />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirmPassword">
+          <el-input
+            v-model="forcePwdForm.confirmPassword"
+            type="password"
+            show-password
+            placeholder="请再次输入新密码"
+            @keyup.enter="submitForcePasswordChange"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="handleForcePwdLogout">退出登录</el-button>
+        <el-button type="primary" :loading="forcePwdLoading" @click="submitForcePasswordChange">
+          修改密码并登录
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 恢复码展示弹窗（仅在绑定 2FA 成功后显示一次） -->
     <el-dialog
       v-model="recoveryVisible"
@@ -313,6 +370,7 @@ import { useUserStore } from '@/store/user'
 import { siteTitle } from '@/utils/site'
 import {
   bindEmail,
+  changePassword,
   enable2FA,
   login,
   selectForgotPasswordAccount,
@@ -325,6 +383,7 @@ import {
   skipBootstrap
 } from '@/api/auth'
 import { getSettings, testSMTP, updateSettings } from '@/api/settings'
+import { passwordValidator, checkPasswordBreachAsync } from '@/utils/validate'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -429,6 +488,48 @@ const recoveryVisible = ref(false)
 const recoveryCodes = ref([])
 const pendingSession = ref(null)
 
+// 强制修改默认密码弹窗
+const forcePwdVisible = ref(false)
+const forcePwdLoading = ref(false)
+const forcePwdFormRef = ref(null)
+const pendingForcePwdSession = ref(null)  // 暂存登录会话，密码修改成功后应用
+const forcePwdForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
+const forcePwdRules = {
+  oldPassword: [
+    { required: true, message: '请输入当前密码', trigger: 'blur' }
+  ],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (!value) {
+          callback(new Error('请输入新密码'))
+          return
+        }
+        passwordValidator(rule, value, callback)
+      },
+      trigger: 'blur'
+    }
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value !== forcePwdForm.newPassword) {
+          callback(new Error('两次输入的密码不一致'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ]
+}
+
 const holdRecovery = (codes, sessionData) => {
   recoveryCodes.value = codes || []
   if (sessionData) {
@@ -513,7 +614,17 @@ const handleLogin = async () => {
   try {
     const res = await login({ username: form.username, password: form.password })
     if (res.data.stage === 'success') {
-      applySession(res.data)
+      if (res.data.force_password_change) {
+        // 首次登录需修改默认密码：先设置 token，弹出修改密码弹窗
+        pendingForcePwdSession.value = res.data
+        userStore.setToken(res.data.token)
+        forcePwdForm.oldPassword = form.password  // 预填当前密码
+        forcePwdForm.newPassword = ''
+        forcePwdForm.confirmPassword = ''
+        forcePwdVisible.value = true
+      } else {
+        applySession(res.data)
+      }
     } else {
       await applyStage(res.data)
     }
@@ -792,6 +903,49 @@ const resetStage = () => {
   totpCode.value = ''
   smtpTestEmail.value = ''
   smtpTested.value = false
+}
+
+// 提交强制修改默认密码
+const submitForcePasswordChange = async () => {
+  const valid = await forcePwdFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  // 异步泄露密码检测（HIBP API）
+  const breach = await checkPasswordBreachAsync(forcePwdForm.newPassword)
+  if (breach.enabled && breach.breached) {
+    ElMessage.error('该密码已在已知泄露数据库中发现，请更换为更安全的密码')
+    return
+  }
+
+  forcePwdLoading.value = true
+  try {
+    const res = await changePassword({
+      old_password: forcePwdForm.oldPassword,
+      new_password: forcePwdForm.newPassword
+    })
+    ElMessage.success(res.message || '密码修改成功')
+    forcePwdVisible.value = false
+    // 密码修改成功，应用之前暂存的登录会话
+    if (pendingForcePwdSession.value) {
+      applySession(pendingForcePwdSession.value)
+      pendingForcePwdSession.value = null
+    }
+  } catch (err) {
+    // 拦截器已经弹出了错误提示，这里不再重复
+  } finally {
+    forcePwdLoading.value = false
+  }
+}
+
+// 退出登录（放弃修改密码）
+const handleForcePwdLogout = () => {
+  userStore.logout()
+  forcePwdVisible.value = false
+  pendingForcePwdSession.value = null
+  forcePwdForm.oldPassword = ''
+  forcePwdForm.newPassword = ''
+  forcePwdForm.confirmPassword = ''
+  resetStage()
 }
 
 const resetForgotState = () => {

@@ -7,12 +7,12 @@ type VMCache struct {
 	ID            uint      `json:"id" gorm:"primaryKey"`
 	Name          string    `json:"name" gorm:"uniqueIndex;size:128;not null"`
 	OwnerUsername string    `json:"owner_username" gorm:"index;size:64;not null;default:'admin'"`
-	Status        string    `json:"status" gorm:"size:64"`
+	Status        string    `json:"status" gorm:"index;size:64"`
 	VCPU          int       `json:"vcpu"`
 	MemoryMB      int       `json:"memory_mb"`
 	MaxMemoryMB   int       `json:"max_memory_mb"`
 	Remark        string    `json:"remark" gorm:"size:255"`
-	GroupName     string    `json:"group_name" gorm:"size:128"`
+	GroupName     string    `json:"group_name" gorm:"index;size:128"`
 	Template      string    `json:"template" gorm:"size:255"`
 	DiskSizeText  string    `json:"disk_size_text" gorm:"size:64"`
 	CreatedAtText string    `json:"created_at_text" gorm:"size:32"`
