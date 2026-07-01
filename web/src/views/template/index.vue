@@ -409,6 +409,12 @@
           <el-descriptions v-if="mergeForm.flatten.can" :column="1" border style="margin-top: 14px;">
             <el-descriptions-item label="需关机的子树虚拟机">{{ (mergeForm.flatten.subtree_vms || []).length }}</el-descriptions-item>
           </el-descriptions>
+          <div v-if="mergeForm.flatten.can" style="margin-top: 12px;">
+            <el-checkbox v-model="mergeForm.compress">压缩平铺（体积更小，读速略慢）</el-checkbox>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px; padding-left: 24px;">
+              用 zlib 压缩基础镜像（qemu-img convert -c），模板占用空间明显变小；代价是子模板/虚拟机读取该模板时需解压，随机读略慢。不影响子节点和虚拟机的正确性；合并本身需先关机，已运行的虚拟机不会受影响。
+            </div>
+          </div>
           <div v-if="!mergeForm.flatten.can" style="margin-top: 14px;">
             <div style="font-size: 12px; color: #909399; margin-bottom: 6px;">当前不可用：</div>
             <el-alert v-for="(b, i) in (mergeForm.flatten.blockers || [])" :key="'f' + i" type="error" show-icon :closable="false" :title="b" style="margin-bottom: 6px;" />
@@ -537,6 +543,7 @@ const mergeSubmitting = ref(false)
 const mergeForm = ref({
   name: '',
   mode: 'flatten',
+  compress: false,
   template: null,
   parentTemplate: null,
   isIncremental: false,
@@ -546,6 +553,7 @@ const mergeForm = ref({
 const emptyMergeForm = () => ({
   name: '',
   mode: 'flatten',
+  compress: false,
   template: null,
   parentTemplate: null,
   isIncremental: false,
@@ -1158,6 +1166,7 @@ const handleMerge = async () => {
     const expectedVMs = (mergeForm.value.flatten.subtree_vms || []).map(vm => vm.name)
     const res = await mergeTemplate(mergeForm.value.name, {
       mode: mergeForm.value.mode,
+      compress: mergeForm.value.mode === 'flatten' ? mergeForm.value.compress : false,
       expected_vms: expectedVMs
     })
     ElMessage.success(res.message || '合并模板任务已提交，请在任务中心查看进度')

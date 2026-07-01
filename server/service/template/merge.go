@@ -166,9 +166,14 @@ func GetMergePreview(templateName string) (*MergePreview, error) {
 }
 
 // buildFlattenConvertCmd 构造平铺用的 qemu-img convert 命令（自动拉平整条 backing 链）。
-func buildFlattenConvertCmd(src, dst string) string {
-	return fmt.Sprintf("qemu-img convert -f qcow2 -O qcow2 %s %s",
-		utils.ShellSingleQuote(src), utils.ShellSingleQuote(dst))
+// compress 为 true 时加 -c 用 zlib 压缩各簇：产物体积更小，代价是子节点/虚拟机读取时需解压。
+func buildFlattenConvertCmd(src, dst string, compress bool) string {
+	flags := "-f qcow2 -O qcow2"
+	if compress {
+		flags = "-c -f qcow2 -O qcow2"
+	}
+	return fmt.Sprintf("qemu-img convert %s %s %s",
+		flags, utils.ShellSingleQuote(src), utils.ShellSingleQuote(dst))
 }
 
 // mergeTemplateFlatten 模式一：把增量模板 B 平铺为独立镜像（原地替换）。
@@ -196,7 +201,7 @@ func mergeTemplateFlatten(params *MergeTemplateParams, preview *MergePreview, pr
 	backupPath := bPath + ".merge-old-" + time.Now().Format("20060102150405")
 
 	progressFn(15, "正在平铺 backing 链为独立镜像...")
-	convertCmd := buildFlattenConvertCmd(bPath, tmpPath)
+	convertCmd := buildFlattenConvertCmd(bPath, tmpPath, params.Compress)
 	if r := utils.ExecShellContextWithTimeout(context.Background(), convertCmd, 2*time.Hour); r.Error != nil {
 		_ = os.Remove(tmpPath)
 		return nil, fmt.Errorf("平铺磁盘失败: %s", r.Stderr)

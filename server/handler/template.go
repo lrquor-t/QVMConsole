@@ -307,6 +307,7 @@ func GetMergePreview(c *gin.Context) {
 // MergeTemplateRequest 合并模板请求
 type MergeTemplateRequest struct {
 	Mode        string   `json:"mode"`
+	Compress    bool     `json:"compress"` // 模式一可选：压缩平铺
 	ExpectedVMs []string `json:"expected_vms"`
 }
 
@@ -333,6 +334,7 @@ func MergeTemplate(c *gin.Context) {
 	params := &service.MergeTemplateParams{
 		TemplateName: name,
 		Mode:         req.Mode,
+		Compress:     req.Compress,
 		ExpectedVMs:  req.ExpectedVMs,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeMergeTemplate, params, username.(string))

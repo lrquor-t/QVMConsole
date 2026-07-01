@@ -137,9 +137,27 @@ func TestBuildCommitBlockers(t *testing.T) {
 }
 
 func TestBuildFlattenConvertCmd(t *testing.T) {
-	got := buildFlattenConvertCmd("/var/lib/libvirt/templates/b.qcow2", "/var/lib/libvirt/templates/b.merge-20260630120000.qcow2")
-	want := "qemu-img convert -f qcow2 -O qcow2 '/var/lib/libvirt/templates/b.qcow2' '/var/lib/libvirt/templates/b.merge-20260630120000.qcow2'"
-	if got != want {
-		t.Fatalf("buildFlattenConvertCmd=\n got=%s\nwant=%s", got, want)
+	cases := []struct {
+		name     string
+		compress bool
+		want     string
+	}{
+		{
+			name: "uncompressed",
+			want: "qemu-img convert -f qcow2 -O qcow2 '/var/lib/libvirt/templates/b.qcow2' '/var/lib/libvirt/templates/b.merge-20260630120000.qcow2'",
+		},
+		{
+			name:     "compressed",
+			compress: true,
+			want:     "qemu-img convert -c -f qcow2 -O qcow2 '/var/lib/libvirt/templates/b.qcow2' '/var/lib/libvirt/templates/b.merge-20260630120000.qcow2'",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := buildFlattenConvertCmd("/var/lib/libvirt/templates/b.qcow2", "/var/lib/libvirt/templates/b.merge-20260630120000.qcow2", c.compress)
+			if got != c.want {
+				t.Fatalf("buildFlattenConvertCmd(compress=%v)=\n got=%s\nwant=%s", c.compress, got, c.want)
+			}
+		})
 	}
 }

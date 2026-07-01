@@ -452,6 +452,7 @@ const (
 type MergeTemplateParams struct {
 	TemplateName string   `json:"template_name"`
 	Mode         string   `json:"mode"`                   // flatten / commit_to_parent
+	Compress     bool     `json:"compress,omitempty"`     // 模式一可选：平铺时用 zlib 压缩(-c)，体积更小、读速略慢
 	ExpectedVMs  []string `json:"expected_vms,omitempty"` // 二次确认：B 子树 VM 列表防竞态
 }
 
