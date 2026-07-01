@@ -10,6 +10,13 @@ export const passwordBreachCheckEnabled = ref(true)
 // 创建虚拟机时 SPICE 显示协议开关的默认初始值（默认关闭）
 export const spiceEnabledByDefault = ref(false)
 
+// 菜单树原始 JSON（来自 /public/settings 的 menu_layout）。空串=使用默认菜单
+export const menuLayoutRaw = ref('')
+
+export function setMenuLayoutRaw(value) {
+  menuLayoutRaw.value = typeof value === 'string' ? value : ''
+}
+
 function normalizeSiteTitle(value) {
   const normalized = String(value || '').trim()
   return normalized || DEFAULT_SITE_TITLE
@@ -65,6 +72,8 @@ export async function syncPublicSiteTitle() {
     if (res.data?.spice_enabled_by_default !== undefined) {
       spiceEnabledByDefault.value = res.data.spice_enabled_by_default === true
     }
+    // 同步菜单配置
+    setMenuLayoutRaw(res.data?.menu_layout || '')
     return getSiteTitle()
   } catch {
     return getSiteTitle()
