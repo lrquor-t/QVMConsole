@@ -1099,7 +1099,7 @@
           </el-tab-pane>
         </el-tabs>
 
-        <el-form-item>
+        <el-form-item v-if="activeTab !== 'menu'">
           <el-button type="primary" :loading="saving" @click="handleSave">
             <el-icon style="margin-right: 4px;"><Check /></el-icon>
             保存设置
