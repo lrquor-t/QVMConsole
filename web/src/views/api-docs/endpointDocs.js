@@ -48,7 +48,7 @@ export const endpointGroups = [
     endpoints: [
       ep('GET', '/public/settings', '读取公开站点设置', {
         auth: publicAuth,
-        response: 'data: site_title, login_background, development_mode 等公开配置。'
+        response: 'data: site_title, login_background, development_mode, menu_layout(菜单树原始 JSON, 空=默认菜单) 等公开配置。'
       })
     ]
   },
@@ -181,7 +181,7 @@ export const endpointGroups = [
     endpoints: [
       ep('GET', '/settings', '读取系统设置', { notes: [admin, '支持 access/bootstrap token；API Key 仅适用于 access 模式。'] }),
       ep('PUT', '/settings', '保存系统设置', {
-        body: 'JSON: template_dir, clone_dir, iso_dir, network_backend, ovs_bridge, host_ip, public_base_url, site_title, development_mode, maintenance_mode, smtp_* 等可持久化配置',
+        body: 'JSON: template_dir, clone_dir, iso_dir, network_backend, ovs_bridge, host_ip, public_base_url, site_title, development_mode, maintenance_mode, smtp_*, menu_layout(菜单树原始 JSON, 空=默认) 等可持久化配置',
         notes: [admin],
         highRisk: '修改 development_mode、maintenance_mode、SMTP 密码等敏感项时需要二次验证'
       }),
