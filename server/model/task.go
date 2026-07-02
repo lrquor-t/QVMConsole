@@ -62,6 +62,9 @@ const (
 	TaskTypeImportDiskAttach                = "import_disk_attach"                 // 管理员通过绝对路径导入磁盘挂载到已有虚拟机
 	TaskTypeMakeVMIndependent               = "make_vm_independent"                // 链式克隆虚拟机转为独立虚拟机
 	TaskTypeMergeTemplate                   = "merge_template"                     // 模板合并
+	TaskTypeLXCCreate                       = "lxc_create"                         // 创建 LXC 容器
+	TaskTypeLXCDestroy                      = "lxc_destroy"                        // 销毁 LXC 容器
+	TaskTypeLXCSnapshot                     = "lxc_snapshot"                       // LXC 容器快照
 )
 
 // Task 异步任务模型（纯内存存储，不持久化）

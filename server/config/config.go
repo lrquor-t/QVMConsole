@@ -171,6 +171,11 @@ type Config struct {
 	SessionFingerprintEnabled bool `json:"session_fingerprint_enabled"`
 	// 泄露密码检测开关（默认开启，关闭后跳过所有密码校验）
 	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
+	// LXC 容器配置
+	LXCLxcPath           string `json:"lxc_lxc_path"`            // LXC 容器根目录
+	LXCTemplateImportDir string `json:"lxc_template_import_dir"` // 上传 rootfs tarball 临时落盘点
+	LXCDefaultBacking    string `json:"lxc_default_backing"`     // 默认 backing store: overlay/dir
+	LXCBasePrefix        string `json:"lxc_base_prefix"`         // 金基底容器名保留前缀（列表隐藏）
 }
 
 // GlobalConfig 全局配置实例
@@ -300,6 +305,10 @@ func Init() {
 		SessionFingerprintEnabled:             getEnvBool("KVM_SESSION_FINGERPRINT_ENABLED", true),
 		PasswordBreachCheckEnabled:            getEnvBool("KVM_PASSWORD_BREACH_CHECK_ENABLED", true),
 		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
+		LXCLxcPath:                            getEnv("KVM_LXC_LXC_PATH", "/var/lib/lxc"),
+		LXCTemplateImportDir:                  getEnv("KVM_LXC_TEMPLATE_IMPORT_DIR", filepath.Join("/var/lib/lxc", "_imports")),
+		LXCDefaultBacking:                     getEnv("KVM_LXC_DEFAULT_BACKING", "overlay"),
+		LXCBasePrefix:                         getEnv("KVM_LXC_BASE_PREFIX", "lxc__tmpl__"),
 	}
 	// 解析可信代理列表
 	if proxies := getEnv("KVM_TRUSTED_PROXIES", ""); proxies != "" {
