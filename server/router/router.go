@@ -255,6 +255,7 @@ func Setup() *gin.Engine {
 				lxcGroup.DELETE("/:name", handler.DeleteLXCContainer)
 				lxcGroup.POST("/batch", middleware.AdminMiddleware(), handler.BatchOperateLXC)
 				lxcGroup.GET("/:name/ip", handler.GetLXCContainerIP)
+				lxcGroup.GET("/:name/console/ws", handler.LxcConsoleWS)
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
 				lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
 				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
