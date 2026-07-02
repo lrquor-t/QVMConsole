@@ -5,6 +5,8 @@ export const menuCatalog = [
   { key: 'vm-list',      title: '虚拟机列表', icon: 'vm',          route: '/vm/list',         adminOnly: false, lightweightHidden: false, protected: true,  defaultGroup: 'host' },
   { key: 'nodes',        title: '节点管理',   icon: 'node',        route: '/nodes',           adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'host' },
   { key: 'template',     title: 'KVM模板',    icon: 'template',    route: '/template/list',   adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'template' },
+  { key: 'lxc-list',     title: 'LXC容器',    icon: 'vm',          route: '/lxc/list',        adminOnly: false, lightweightHidden: true,  protected: false, defaultGroup: 'host' },
+  { key: 'lxc-template', title: 'LXC模板',    icon: 'template',    route: '/lxc/template',    adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'template' },
   { key: 'network',      title: '网络',       icon: 'network',     route: '/network',         adminOnly: false, lightweightHidden: true,  protected: false, defaultGroup: 'network', alt: { title: 'VPC网络', icon: 'vpc' } },
   { key: 'public-ip',    title: '公网 IP',    icon: 'globe',       route: '/public-ip',       adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'network' },
   { key: 'firewall',     title: '防火墙',     icon: 'firewall',    route: '/firewall',        adminOnly: true,  lightweightHidden: true,  protected: false, defaultGroup: 'network' },
@@ -20,14 +22,16 @@ const ROLE_KEYS = ['admin', 'elastic', 'lightweight']
 
 // 默认菜单（按角色各一份）—— 首次加载/回退时使用，镜像改造前各角色实际可见的菜单。
 export const defaultMenuLayouts = {
-  admin: { version: 1, nodes: [
+  admin: { version: 2, nodes: [
     { kind: 'item', key: 'home', enabled: true },
     { kind: 'group', id: 'host', title: '主机管理', icon: 'host', enabled: true, children: [
       { kind: 'item', key: 'vm-list', enabled: true },
-      { kind: 'item', key: 'nodes', enabled: true }
+      { kind: 'item', key: 'nodes', enabled: true },
+      { kind: 'item', key: 'lxc-list', enabled: true }
     ]},
     { kind: 'group', id: 'template', title: '模板管理', icon: 'template', enabled: true, children: [
-      { kind: 'item', key: 'template', enabled: true }
+      { kind: 'item', key: 'template', enabled: true },
+      { kind: 'item', key: 'lxc-template', enabled: true }
     ]},
     { kind: 'group', id: 'network', title: '网络管理', icon: 'network', enabled: true, children: [
       { kind: 'item', key: 'network', enabled: true },
@@ -91,10 +95,10 @@ function parseLayoutMap(raw) {
   try { obj = JSON.parse(raw) } catch { return out }
   if (!obj || typeof obj !== 'object') return out
   // 兼容旧单树格式：{version,nodes} 视为 admin 一份
-  if (Array.isArray(obj.nodes)) { out.admin = { version: 1, nodes: obj.nodes }; return out }
+  if (Array.isArray(obj.nodes)) { out.admin = { version: obj.version || 1, nodes: obj.nodes }; return out }
   for (const r of ROLE_KEYS) {
     const v = obj[r]
-    if (v && Array.isArray(v.nodes)) out[r] = { version: 1, nodes: v.nodes }
+    if (v && Array.isArray(v.nodes)) out[r] = { version: v.version || 1, nodes: v.nodes }
   }
   return out
 }
@@ -127,6 +131,23 @@ export function composeMenu(layoutMapRaw, ctx = {}) {
 
   const map = parseLayoutMap(layoutMapRaw)
   const working = clone(map[role].nodes)
+
+  // 版本合并：存储版本低于默认版本时，把默认有但存储缺失的项注入其 defaultGroup（仅渲染层；不回写）。
+  const storedVersion = map[role].version || 1
+  const defaultVersion = defaultMenuLayouts[role].version || 1
+  if (storedVersion < defaultVersion) {
+    const referencedNow = collectItemKeys(working, new Set())
+    const defaults = clone(defaultMenuLayouts[role].nodes)
+    for (const dnode of defaults) {
+      if (dnode.kind === 'item' && dnode.key && !referencedNow.has(dnode.key)) {
+        const item = menuCatalog.find((i) => i.key === dnode.key)
+        if (!item || !validForRole(item, role)) continue
+        const group = item.defaultGroup ? findGroupById(working, item.defaultGroup) : null
+        if (group && Array.isArray(group.children)) group.children.push({ kind: 'item', key: dnode.key, enabled: true })
+        else working.push({ kind: 'item', key: dnode.key, enabled: true })
+      }
+    }
+  }
 
   // 受保护项（对本角色有效者）若缺失则补回其 defaultGroup，防止管理员把自己锁死
   const referenced = collectItemKeys(working, new Set())

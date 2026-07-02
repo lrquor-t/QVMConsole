@@ -334,6 +334,7 @@ function resetDefault() {
 async function save() {
   // 先把当前 working 写回 layouts，再整体序列化
   layouts.value[editRole.value].nodes = clone(working.value)
+  layouts.value[editRole.value].version = defaultMenuLayouts[editRole.value]?.version || layouts.value[editRole.value].version || 1
   const err = validate()
   if (err) { ElMessage.warning(err); return }
   const raw = JSON.stringify(layouts.value)
