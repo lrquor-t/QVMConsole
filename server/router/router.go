@@ -250,6 +250,16 @@ func Setup() *gin.Engine {
 			{
 				lxcGroup.GET("/list", handler.ListLXCContainers)
 				lxcGroup.GET("/:name/detail", handler.GetLXCDetail)
+
+				// LXC 模板（仅管理员）
+				lxcTmpl := lxcGroup.Group("/template")
+				lxcTmpl.Use(middleware.AdminMiddleware())
+				{
+					lxcTmpl.GET("/list", handler.ListLXCTemplates)
+					lxcTmpl.POST("/finalize", handler.FinalizeLXCTemplate)
+					lxcTmpl.GET("/:name/detail", handler.GetLXCTemplateDetail)
+					lxcTmpl.DELETE("/:name", handler.DeleteLXCTemplate)
+				}
 			}
 
 			// ==================== 模板管理 ====================
