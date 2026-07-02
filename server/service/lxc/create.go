@@ -84,8 +84,11 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 	}
 	progress(50, "克隆完成，写入配置")
 
+	// 由容器名派生 per-container MAC，保证 DB 行与容器 config 一致（findVethByMAC 据此关联）。
+	mac := genMacByName(params.Name)
+
 	// 覆写克隆 config：per-clone cgroup/autostart/mac
-	if err := applyCloneConfig(params); err != nil {
+	if err := applyCloneConfig(params, mac); err != nil {
 		_ = DestroyContainer(params.Name)
 		return err
 	}
@@ -102,7 +105,7 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		Autostart:     params.Autostart,
 		Remark:        params.Remark,
 		GroupName:     params.GroupName,
-		MacAddress:    genMac(),
+		MacAddress:    mac,
 		Present:       true,
 	}
 	if err := model.DB.Create(&row).Error; err != nil {
@@ -127,14 +130,14 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 	return nil
 }
 
-func applyCloneConfig(p *CreateContainerParams) error {
+func applyCloneConfig(p *CreateContainerParams, mac string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
 	// 追加覆盖项（lxc 配置后值覆盖前值）
 	lines := []string{
 		"lxc.cgroup2.cpu.weight = " + itoaDefault(p.CPUShares, 256),
 		"lxc.cgroup2.memory.max = " + memMax(p.MemoryMB),
 		"lxc.start.auto = " + autoVal(p.Autostart),
-		"lxc.net.0.hwaddr = " + genMac(),
+		"lxc.net.0.hwaddr = " + mac,
 	}
 	content := ""
 	for _, l := range lines {
@@ -170,9 +173,4 @@ func autoVal(b bool) string {
 		return "1"
 	}
 	return "0"
-}
-
-// genMac 派生容器 MAC（本地管理位 02: 前缀，由容器名哈希派生）。
-func genMac() string {
-	return genMacByName("lxc")
 }

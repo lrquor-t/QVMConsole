@@ -110,7 +110,7 @@ func ParseLxcInfo(stdout string) (ContainerDetail, error) {
 // genMacByName 由名称派生本地管理 MAC（02: 前缀，避免与 VM 段冲突）。
 func genMacByName(seed string) string {
 	h := sha1.Sum([]byte(seed))
-	hx := hex.EncodeToString(h[:3])
+	hx := hex.EncodeToString(h[:5])
 	return "02:" + hx[0:2] + ":" + hx[2:4] + ":" + hx[4:6] + ":" + hx[6:8] + ":" + hx[8:10]
 }
 
