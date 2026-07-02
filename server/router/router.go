@@ -255,6 +255,11 @@ func Setup() *gin.Engine {
 				lxcGroup.DELETE("/:name", handler.DeleteLXCContainer)
 				lxcGroup.POST("/batch", middleware.AdminMiddleware(), handler.BatchOperateLXC)
 				lxcGroup.GET("/:name/ip", handler.GetLXCContainerIP)
+				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
+				lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
+				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
+				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)
+				lxcGroup.DELETE("/:name/snapshot/:snap", handler.DeleteLXCSnapshot)
 
 				// LXC 模板（仅管理员）
 				lxcTmpl := lxcGroup.Group("/template")

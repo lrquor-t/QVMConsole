@@ -18,6 +18,11 @@ func IsLxcAvailable() bool {
 	return err == nil
 }
 
+// runCmd 是对 utils.ExecCommand 的本包薄封装，便于在 lxc 包内调用并保持调用点简洁。
+func runCmd(name string, args ...string) *utils.CmdResult {
+	return utils.ExecCommand(name, args...)
+}
+
 // LxcLsFancy 执行 lxc-ls --fancy。
 func LxcLsFancy() *utils.CmdResult {
 	return utils.ExecCommand("lxc-ls", "--fancy")

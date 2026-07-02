@@ -38,7 +38,28 @@ func LXCParseCreateContainerParams(s string) (*lxc.CreateContainerParams, error)
 }
 
 // LXC 生命周期封装
-func LXCStartContainer(name string) error    { return lxc.StartContainer(name) }
-func LXCStopContainer(name string) error     { return lxc.StopContainer(name) }
-func LXCRestartContainer(name string) error  { return lxc.RestartContainer(name) }
-func LXCDestroyContainer(name string) error  { return lxc.DestroyContainer(name) }
+func LXCStartContainer(name string) error   { return lxc.StartContainer(name) }
+func LXCStopContainer(name string) error    { return lxc.StopContainer(name) }
+func LXCRestartContainer(name string) error { return lxc.RestartContainer(name) }
+func LXCDestroyContainer(name string) error { return lxc.DestroyContainer(name) }
+
+// LXCContainerConfigUpdate 透出 lxc.ContainerConfigUpdate，便于 handler 只依赖 service 包。
+type LXCContainerConfigUpdate = lxc.ContainerConfigUpdate
+
+// LXCUpdateContainerConfig 更新容器配置（cgroup/autostart/remark/group）。
+func LXCUpdateContainerConfig(name string, u lxc.ContainerConfigUpdate) error {
+	return lxc.UpdateContainerConfig(name, u)
+}
+
+// LXCCheckQuota 校验用户 LXC 配额（admin 不限）。
+func LXCCheckQuota(username string, cpu, ramMB int) error {
+	return lxc.CheckLXCQuota(username, cpu, ramMB)
+}
+
+// LXC 快照封装
+func LXCListSnapshots(name string) ([]string, error) {
+	return lxc.ListSnapshots(name)
+}
+func LXCCreateSnapshot(name string) error           { return lxc.CreateSnapshot(name) }
+func LXCRestoreSnapshot(name, snap string) error    { return lxc.RestoreSnapshot(name, snap) }
+func LXCDeleteSnapshot(name, snap string) error     { return lxc.DeleteSnapshot(name, snap) }

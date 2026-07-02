@@ -374,6 +374,18 @@ func registerTaskHandlers() {
 		return `{"name":"` + name + `"}`, nil
 	})
 
+	// LXC 容器快照任务（创建快照）
+	taskqueue.RegisterHandler(model.TaskTypeLXCSnapshot, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var name string
+		if err := json.Unmarshal([]byte(task.Params), &name); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.LXCCreateSnapshot(name); err != nil {
+			return "", err
+		}
+		return `{"name":"` + name + `"}`, nil
+	})
+
 	// 轻量云注册 VM 开通任务
 	taskqueue.RegisterHandler(model.TaskTypeLightweightVMProvision, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		params, err := service.ParseLightweightVMProvisionParams(task.Params)
