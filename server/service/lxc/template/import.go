@@ -161,10 +161,11 @@ func writeBaseConfig(base, arch string) error {
 		lxcArch = "aarch64"
 	}
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, base, "config")
+	// 追加覆盖项到 lxc-create 生成的 config（lxc 配置后值覆盖前值）。
+	// 不覆盖 lxc.rootfs.path / lxc.uts.name —— lxc-create 已按所选 backing（overlay）
+	// 正确设置这两项；用 dir: 路径覆盖 rootfs.path 会破坏 overlay 后端，导致克隆无法启动。
 	lines := []string{
-		"lxc.uts.name = " + base,
 		"lxc.arch = " + lxcArch,
-		"lxc.rootfs.path = dir:" + filepath.Join(config.GlobalConfig.LXCLxcPath, base, "rootfs"),
 		"lxc.cgroup2.cpu.weight = 256",
 		"lxc.cgroup2.memory.max = 512M",
 		"lxc.start.auto = 0",
@@ -176,10 +177,21 @@ func writeBaseConfig(base, arch string) error {
 	for _, l := range lines {
 		content += l + "\n"
 	}
-	return os.WriteFile(cfg, []byte(content), 0644)
+	f, err := openForAppend(cfg)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
 }
 
 // ---- helpers ----
+
+// openForAppend 以追加写方式打开文件（lxc 配置后值覆盖前值，故追加而非截断）。
+func openForAppend(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+}
 
 func orDefault(v, def string) string {
 	if strings.TrimSpace(v) == "" {

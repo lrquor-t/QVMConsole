@@ -2,10 +2,16 @@ package template
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 
 	"kvm_console/config"
 )
+
+// templateNameRE 模板名称字符集校验（与 service/lxc 的容器名规则一致：
+// 小写字母、数字、连字符，2-63 字符，首字符为小写字母或数字）。
+// 不引入 service/lxc 以保持 package template 独立。
+var templateNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}$`)
 
 // ImportParams 模板导入参数。SourcePath 为已落地的 rootfs tarball 绝对路径。
 type ImportParams struct {
@@ -31,6 +37,16 @@ func isBaseContainer(name string) bool {
 func validateImportParams(p *ImportParams) error {
 	if strings.TrimSpace(p.Name) == "" {
 		return errors.New("模板名称不能为空")
+	}
+	// 名称会进入 baseContainerName -> lxc-create -n <base>（argv 安全）
+	// 以及 filepath.Join(LXCLxcPath, base, "rootfs")（路径拼接）。
+	// 拒绝路径穿越（如 ../evil）与保留的基底前缀，避免在 lxc 目录之外创建容器。
+	name := strings.TrimSpace(p.Name)
+	if isBaseContainer(name) {
+		return errors.New("模板名称不能使用保留的基底前缀")
+	}
+	if !templateNameRE.MatchString(name) {
+		return errors.New("模板名称只能含小写字母、数字、连字符，2-63 字符")
 	}
 	if strings.TrimSpace(p.SourcePath) == "" {
 		return errors.New("必须提供 rootfs tarball 路径")

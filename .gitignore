@@ -43,3 +43,4 @@ tmp/
 .qoder/
 docs/
 server/.env
+server/**/*.env
