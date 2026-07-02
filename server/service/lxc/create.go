@@ -119,7 +119,10 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)
 	}
 	progress(90, "接入 VPC 网络")
-	// VPC 网络接入在后续任务实现；此处先回填运行态 veth/ip 到缓存。
+	if err := AttachContainerToVPC(params.Name, params.SwitchID, params.SecurityGroupID); err != nil {
+		logger.App.Warn("容器 VPC 接入失败", "name", params.Name, "error", err)
+	}
+	// VPC 接入后回填运行态 veth/ip 到缓存。
 	_ = RefreshRuntimeFields(params.Name)
 
 	// 可选 PostCreateCommand

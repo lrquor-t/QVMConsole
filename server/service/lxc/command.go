@@ -142,15 +142,24 @@ func RefreshRuntimeFields(name string) error {
 	return model.DB.Save(&row).Error
 }
 
-// findVethByMAC 在 host 上按 MAC 查找容器对应 veth 名。
+// findVethByMAC 在 host 上按 MAC 查找容器对应 veth 名（shell 取 ip link 输出后交给纯函数解析）。
 func findVethByMAC(mac string) string {
 	if mac == "" {
 		return ""
 	}
-	res := utils.ExecShell("ip -o link | grep -i '" + normalizeMAC(mac) + "'")
-	// 行形如: "5: vethX@if4: ... link/ether 02:xx ..."
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if !strings.Contains(line, "@") {
+	res := utils.ExecShell("ip -o link")
+	return findVethByMACFromText(res.Stdout, mac)
+}
+
+// findVethByMACFromText 是 findVethByMAC 的纯函数版（便于单测，无 shell 副作用）。
+// 输入为 `ip -o link` 的输出，按 MAC（大小写无关）匹配带 @peer 的 veth 行。
+func findVethByMACFromText(out, mac string) string {
+	needle := normalizeMAC(mac)
+	if needle == "" {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "@") || !strings.Contains(strings.ToLower(line), needle) {
 			continue
 		}
 		parts := strings.SplitN(line, ":", 3)

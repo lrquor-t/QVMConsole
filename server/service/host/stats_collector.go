@@ -11,6 +11,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/service/lxc"
 	"kvm_console/utils"
 	vmpkg "kvm_console/service/vm"
 )
@@ -62,6 +63,10 @@ func StartStatsCollector() {
 				}
 				if !IsMaintenanceModeEnabled() {
 					collectAllVMStats()
+					// LXC 容器流量采集（按 Kind=lxc 绑定读 host veth 计数器）。
+					// 与 VM 的 libvirt 路径相互独立：写入相同 VmStatsRecord 表，
+					// 使既有 VPC 交换机流量聚合（aggregateSwitchMonthlyTrafficRaw）零改动即可覆盖容器。
+					collectLXCVethStats()
 				}
 			case <-persistTicker.C:
 				persistStatsToDB()
@@ -364,4 +369,37 @@ func ClearRuntimeCachesForMaintenance() {
 	statsCache.Lock()
 	statsCache.data = make(map[string]*vmpkg.VmStats)
 	statsCache.Unlock()
+}
+
+// collectLXCVethStats 采集 Kind=lxc 容器的 veth 累计字节并写入 VmStatsRecord，
+// 让既有 VPC 交换机流量聚合逻辑（aggregateSwitchMonthlyTrafficRaw，按 vm_name 取记录差值）
+// 无需改动即可覆盖 LXC。仅对 LXC 绑定生效——VM（Kind=vm）路径仍走 libvirt，零回归。
+func collectLXCVethStats() {
+	if model.DB == nil {
+		return
+	}
+	var bindings []model.VPCVMBinding
+	if err := model.DB.Where("kind = ?", "lxc").Find(&bindings).Error; err != nil {
+		return
+	}
+	now := time.Now()
+	for _, b := range bindings {
+		var row model.LXCCache
+		if err := model.DB.Where("name = ?", b.VMName).First(&row).Error; err != nil {
+			continue
+		}
+		if !strings.EqualFold(row.Status, "running") && row.Status == "" {
+			continue
+		}
+		rx, tx := lxc.ReadVethCounters(row.VethName)
+		record := model.VmStatsRecord{
+			VMName:     b.VMName,
+			NetRxBytes: rx,
+			NetTxBytes: tx,
+			RecordedAt: now,
+		}
+		if err := model.DB.Create(&record).Error; err != nil {
+			logger.App.Warn("持久化 LXC 流量记录失败", "name", b.VMName, "error", err)
+		}
+	}
 }

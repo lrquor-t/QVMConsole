@@ -12,6 +12,7 @@ import (
 
 	"kvm_console/model"
 	"kvm_console/service/ip_resolver"
+	"kvm_console/service/lxc"
 	"kvm_console/utils"
 )
 
@@ -218,7 +219,26 @@ func currentPortForwardRulesForPolicy(policy *FirewallPolicy) []PortForwardRule 
 	return rules
 }
 
+// dispatchKindForName 返回某名称对应的 VPCVMBinding.Kind。
+// 缺失（无绑定 / DB 未初始化）或历史空值一律默认 "vm"，保证 VM 路径零回归。
+func dispatchKindForName(vmName string) string {
+	if model.DB == nil {
+		return "vm"
+	}
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).First(&b).Error; err != nil {
+		return "vm"
+	}
+	if strings.TrimSpace(b.Kind) == "" {
+		return "vm"
+	}
+	return b.Kind
+}
+
 func GetFirewallVMIP(vmName string) string {
+	if dispatchKindForName(vmName) == "lxc" {
+		return lxc.ResolveContainerVPCIP(vmName)
+	}
 	ip := strings.TrimSpace(ip_resolver.GetVMIP(vmName, true))
 	if ip == "" || ip == "unknown" {
 		return ""

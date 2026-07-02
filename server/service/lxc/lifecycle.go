@@ -30,8 +30,10 @@ func RestartContainer(name string) error {
 	return StartContainer(name)
 }
 
-// DestroyContainer 先停后删，并清理缓存行。
+// DestroyContainer 先停后删，并清理缓存行与 VPC 绑定。
 func DestroyContainer(name string) error {
+	// 先解除 VPC 接入（删 OVS 端口、清理绑定），再删除容器。
+	_ = DetachContainerFromVPC(name)
 	// 先停后删
 	_ = utils.ExecCommandQuiet("lxc-stop", "-n", name).Error
 	res := utils.ExecCommandLongRunning("lxc-destroy", "-n", name)
