@@ -61,6 +61,18 @@ const routes = [
         meta: { title: '虚拟机详情', hidden: true }
       },
       {
+        path: 'lxc/list',
+        name: 'LxcList',
+        component: () => import('@/views/lxc/list.vue'),
+        meta: { title: 'LXC 容器', icon: 'Monitor' }
+      },
+      {
+        path: 'lxc/template',
+        name: 'LxcTemplate',
+        component: () => import('@/views/lxc/template.vue'),
+        meta: { title: 'LXC 模板', icon: 'Files', adminOnly: true }
+      },
+      {
         path: 'template/list',
         name: 'TemplateList',
         component: () => import('@/views/template/index.vue'),
