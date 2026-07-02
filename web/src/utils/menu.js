@@ -22,14 +22,14 @@ const ROLE_KEYS = ['admin', 'elastic', 'lightweight']
 
 // 默认菜单（按角色各一份）—— 首次加载/回退时使用，镜像改造前各角色实际可见的菜单。
 export const defaultMenuLayouts = {
-  admin: { version: 2, nodes: [
+  admin: { version: 3, nodes: [
     { kind: 'item', key: 'home', enabled: true },
     { kind: 'group', id: 'host', title: '主机管理', icon: 'host', enabled: true, children: [
       { kind: 'item', key: 'vm-list', enabled: true },
       { kind: 'item', key: 'nodes', enabled: true },
       { kind: 'item', key: 'lxc-list', enabled: true }
     ]},
-    { kind: 'group', id: 'template', title: '模板管理', icon: 'template', enabled: true, children: [
+    { kind: 'group', id: 'template', title: '模板管理', icon: 'template-group', enabled: true, children: [
       { kind: 'item', key: 'template', enabled: true },
       { kind: 'item', key: 'lxc-template', enabled: true }
     ]},
@@ -145,6 +145,16 @@ export function composeMenu(layoutMapRaw, ctx = {}) {
         const group = item.defaultGroup ? findGroupById(working, item.defaultGroup) : null
         if (group && Array.isArray(group.children)) group.children.push({ kind: 'item', key: dnode.key, enabled: true })
         else working.push({ kind: 'item', key: dnode.key, enabled: true })
+      }
+    }
+    // 同步默认分组的外观（图标/空标题）到已存储的同 id 分组，让升级后的新组图标对老安装生效（仅渲染层；管理员保存后版本戳齐即停止）。
+    for (const dnode of defaults) {
+      if (dnode.kind === 'group' && dnode.id) {
+        const g = findGroupById(working, dnode.id)
+        if (g) {
+          if (dnode.icon) g.icon = dnode.icon
+          if (!g.title || String(g.title).trim() === '') g.title = dnode.title
+        }
       }
     }
   }

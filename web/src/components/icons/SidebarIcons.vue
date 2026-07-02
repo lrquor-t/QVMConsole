@@ -25,6 +25,12 @@
       <path d="M21 7l-9 5-9-5" />
     </svg>
 
+    <svg v-else-if="icon === 'template-group'" :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3l9 5-9 5-9-5 9-5z" />
+      <path d="M3 12l9 5 9-5" />
+      <path d="M3 17l9 5 9-5" />
+    </svg>
+
     <svg v-else-if="icon === 'network'" :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="5" r="2.5" />
       <circle cx="5" cy="19" r="2.5" />
