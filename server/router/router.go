@@ -244,6 +244,14 @@ func Setup() *gin.Engine {
 				vm.DELETE("/:name/share/:tag", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteShare)
 			}
 
+			// ==================== LXC 容器管理 ====================
+			lxcGroup := authorized.Group("/lxc")
+			lxcGroup.Use(middleware.LXCAccessMiddleware())
+			{
+				lxcGroup.GET("/list", handler.ListLXCContainers)
+				lxcGroup.GET("/:name/detail", handler.GetLXCDetail)
+			}
+
 			// ==================== 模板管理 ====================
 			tpl := authorized.Group("/template")
 			tpl.Use(middleware.ElasticCloudOnlyMiddleware())
