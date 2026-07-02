@@ -32,6 +32,12 @@ const routes = [
     meta: { title: 'VNC 控制台' }
   },
   {
+    path: '/lxc/console/:name',
+    name: 'LxcConsole',
+    component: () => import('@/views/lxc/console.vue'),
+    meta: { title: 'LXC 控制台' }
+  },
+  {
     path: '/',
     component: Layout,
     redirect: '/dashboard',
