@@ -81,7 +81,11 @@ func ResolveContainerVPCIP(name string) string {
 		return ""
 	}
 	d, _ := ParseLxcInfo(res.Stdout)
-	return strings.TrimSpace(strings.Fields(d.IP)[0])
+	fields := strings.Fields(d.IP)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fields[0])
 }
 
 // ---- helpers ----

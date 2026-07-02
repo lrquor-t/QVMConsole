@@ -388,7 +388,7 @@ func collectLXCVethStats() {
 		if err := model.DB.Where("name = ?", b.VMName).First(&row).Error; err != nil {
 			continue
 		}
-		if !strings.EqualFold(row.Status, "running") && row.Status == "" {
+		if !strings.EqualFold(row.Status, "running") || row.Status == "" {
 			continue
 		}
 		rx, tx := lxc.ReadVethCounters(row.VethName)
