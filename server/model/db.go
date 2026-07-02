@@ -84,6 +84,8 @@ func InitDB() {
 	hadLightweightRegistrationMaxRuntimeColumn := DB.Migrator().HasColumn(&LightweightVMRegistration{}, "max_runtime_hours")
 	hadVPCBindingInterfaceOrderColumn := DB.Migrator().HasColumn(&VPCVMBinding{}, "interface_order")
 	hadVPCSwitchCIDRColumn := DB.Migrator().HasColumn(&VPCSwitch{}, "cidr")
+	hadVPCBindingKindColumn := DB.Migrator().HasColumn(&VPCVMBinding{}, "kind")
+	hadUserMaxLXCCountColumn := DB.Migrator().HasColumn(&User{}, "max_lxc_count")
 
 	// 预修复: 在 AutoMigrate 之前清理 vpc_switches.cidr 重复数据并删除旧唯一索引
 	preFixVPCSwitchCIDRIndex()
@@ -92,7 +94,7 @@ func InitDB() {
 	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VmStatsRecord{}, &PortForwardIP{}, &PortForwardWhitelist{}, &PortForwardProbeState{}, &HostStatsRecord{}, &UserTrafficDaily{}, &SystemSetting{}, &VMCredential{}, &VMCache{}, &AuthActionToken{}, &SecurityChallenge{}, &SchedulerEvent{}, &VMSchedule{}, &NetworkBridge{}, &HostStoragePool{}, &HostNode{},
 		&LightweightVMQuota{}, &LightweightVMTrafficMonthly{}, &LightweightVMRegistration{},
 		&VPCSwitch{}, &VPCSecurityGroup{}, &VPCSecurityGroupRule{}, &VPCVMBinding{}, &VPCSwitchTrafficMonthly{}, &PublicIP{}, &PublicIPBinding{},
-		&VMLock{}, &UploadSession{}); err != nil {
+		&VMLock{}, &UploadSession{}, &LXCCache{}, &LXCTemplate{}); err != nil {
 		logger.App.Error("数据库迁移失败", "error", err)
 		os.Exit(1)
 	}
@@ -106,6 +108,8 @@ func InitDB() {
 	migrateVPCBindingInterfaceOrder(hadVPCBindingInterfaceOrderColumn)
 	migrateVPCBindingInterfaceOrderNormalize()
 	migrateVPCSwitchCIDRColumn(hadVPCSwitchCIDRColumn)
+	migrateVPCBindingKind(hadVPCBindingKindColumn)
+	migrateUserLXCQuota(hadUserMaxLXCCountColumn)
 
 	// 兼容旧用户：补齐默认状态，确保升级后能继续登录
 	if err := DB.Model(&User{}).Where("status = '' OR status IS NULL").Updates(map[string]interface{}{
@@ -443,6 +447,26 @@ func migrateVPCSwitchCIDRColumn(hadColumn bool) {
 	}
 
 	logger.App.Info("vpc_switches.cidr 列迁移完成")
+}
+
+// migrateVPCBindingKind 为旧 vpc_vm_bindings 表补 kind 列，历史绑定默认 vm。
+func migrateVPCBindingKind(hadColumn bool) {
+	if DB == nil || hadColumn {
+		return
+	}
+	if err := DB.Model(&VPCVMBinding{}).Where("kind = '' OR kind IS NULL").Update("kind", "vm").Error; err != nil {
+		logger.App.Warn("初始化VPC绑定kind失败", "error", err)
+	}
+}
+
+// migrateUserLXCQuota 为旧 users 表补 LXC 配额列；非管理员默认给 0（=不限由其它逻辑控制）。
+func migrateUserLXCQuota(hadColumn bool) {
+	if DB == nil || hadColumn {
+		return
+	}
+	if err := DB.Model(&User{}).Where("max_lxc_count IS NULL").Update("max_lxc_count", 0).Error; err != nil {
+		logger.App.Warn("初始化用户LXC配额失败", "error", err)
+	}
 }
 
 // initDefaultAdmin 创建默认管理员账号

@@ -29,6 +29,9 @@ type User struct {
 	MaxMemory             int            `json:"max_memory" gorm:"default:0"`        // 内存配额（GB），0=不限
 	MaxDisk               int            `json:"max_disk" gorm:"default:0"`          // 磁盘配额（GB），0=不限
 	MaxVM                 int            `json:"max_vm" gorm:"default:0"`            // 最大 VM 数量，0=不限
+	MaxLXCCount           int            `json:"max_lxc_count" gorm:"default:0"`     // 0=不限（仅 admin 真正不限）
+	MaxLXCCPU             int            `json:"max_lxc_cpu" gorm:"default:0"`       // 容器 CPU 权重合计上限（0=不限）
+	MaxLXCRAMMB           int            `json:"max_lxc_ram_mb" gorm:"default:0"`    // 容器内存合计上限 MB（0=不限）
 	MaxStorage            int            `json:"max_storage" gorm:"default:0"`       // 存储配额（GB），0=不限
 	MaxRuntimeHours       int            `json:"max_runtime_hours" gorm:"default:0"` // 总运行时长配额（小时），0=不限
 	EnablePortForward     bool           `json:"enable_port_forward" gorm:"default:true"`
