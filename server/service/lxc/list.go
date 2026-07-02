@@ -46,15 +46,23 @@ func mergeCacheRows(db *gorm.DB, items []ContainerListItem) ([]model.LXCCache, e
 			}
 		}
 	}
-	// 标记消失的
-	if err := db.Model(&model.LXCCache{}).Where("present = ? AND name NOT IN ?",
-		true, keysOf(online)).Update("present", false).Error; err != nil {
-		// online 可能为空导致 NOT IN () 语法问题，回退逐条更新
-		var all []model.LXCCache
-		db.Find(&all)
-		for _, r := range all {
-			if !online[r.Name] && r.Present {
-				db.Model(&r).Update("present", false)
+	// 标记消失的容器（当前 lxc-ls 未返回即视为离线）
+	if len(online) == 0 {
+		// lxc-ls 返回空：所有已缓存容器都标为离线
+		if err := db.Model(&model.LXCCache{}).Where("present = ?", true).Update("present", false).Error; err != nil {
+			logger.App.Warn("LXC 批量标记离线失败（online 为空）", "error", err)
+		}
+	} else {
+		if err := db.Model(&model.LXCCache{}).Where("present = ? AND name NOT IN ?", true, keysOf(online)).Update("present", false).Error; err != nil {
+			logger.App.Warn("LXC 批量标记离线失败，回退逐条", "error", err)
+			var all []model.LXCCache
+			db.Find(&all)
+			for _, r := range all {
+				if !online[r.Name] && r.Present {
+					if err := db.Model(&r).Update("present", false).Error; err != nil {
+						logger.App.Warn("LXC 逐条标记离线失败", "name", r.Name, "error", err)
+					}
+				}
 			}
 		}
 	}

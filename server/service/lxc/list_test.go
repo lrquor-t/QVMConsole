@@ -42,3 +42,25 @@ func TestMergeCacheRows_RemovesGone(t *testing.T) {
 		t.Fatalf("gone container should be Present=false")
 	}
 }
+
+func TestMergeCacheRows_AllGone(t *testing.T) {
+	db := setupDB(t)
+	db.Create(&model.LXCCache{Name: "c1", Present: true})
+	db.Create(&model.LXCCache{Name: "c2", Present: true})
+
+	// lxc-ls 返回空：所有缓存容器应被标为离线
+	merged, err := mergeCacheRows(db, []ContainerListItem{})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(merged) != 0 {
+		t.Fatalf("expected 0 online, got %d", len(merged))
+	}
+	var rows []model.LXCCache
+	db.Find(&rows)
+	for _, r := range rows {
+		if r.Present {
+			t.Fatalf("container %s should be Present=false", r.Name)
+		}
+	}
+}
