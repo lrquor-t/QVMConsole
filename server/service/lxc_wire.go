@@ -22,3 +22,23 @@ func LXCListContainers(username string, isAdmin bool) ([]any, error) {
 func LXCGetContainerDetail(name string) (lxc.ContainerDetail, error) {
 	return lxc.GetContainerDetail(name)
 }
+
+// LXCCreateContainerParams 创建容器参数（透出 lxc.CreateContainerParams，便于 handler
+// 只依赖 service 包而无需直接 import service/lxc）。
+type LXCCreateContainerParams = lxc.CreateContainerParams
+
+// LXCCreateContainer 由模板克隆创建容器。
+func LXCCreateContainer(p *lxc.CreateContainerParams, progress func(int, string)) error {
+	return lxc.CreateContainer(p, progress)
+}
+
+// LXCParseCreateContainerParams 反序列化创建容器任务参数。
+func LXCParseCreateContainerParams(s string) (*lxc.CreateContainerParams, error) {
+	return lxc.ParseCreateContainerParams(s)
+}
+
+// LXC 生命周期封装
+func LXCStartContainer(name string) error    { return lxc.StartContainer(name) }
+func LXCStopContainer(name string) error     { return lxc.StopContainer(name) }
+func LXCRestartContainer(name string) error  { return lxc.RestartContainer(name) }
+func LXCDestroyContainer(name string) error  { return lxc.DestroyContainer(name) }

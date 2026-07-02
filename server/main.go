@@ -349,6 +349,31 @@ func registerTaskHandlers() {
 		return string(resultJSON), nil
 	})
 
+	// 创建 LXC 容器任务（从模板金基底克隆）
+	taskqueue.RegisterHandler(model.TaskTypeLXCCreate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		params, err := service.LXCParseCreateContainerParams(task.Params)
+		if err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.LXCCreateContainer(params, progress); err != nil {
+			return "", err
+		}
+		return `{"name":"` + params.Name + `"}`, nil
+	})
+
+	// 销毁 LXC 容器任务
+	taskqueue.RegisterHandler(model.TaskTypeLXCDestroy, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		// task.Params 为容器名字符串（SubmitWithStruct(string) → JSON "name"）
+		var name string
+		if err := json.Unmarshal([]byte(task.Params), &name); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.LXCDestroyContainer(name); err != nil {
+			return "", err
+		}
+		return `{"name":"` + name + `"}`, nil
+	})
+
 	// 轻量云注册 VM 开通任务
 	taskqueue.RegisterHandler(model.TaskTypeLightweightVMProvision, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		params, err := service.ParseLightweightVMProvisionParams(task.Params)
