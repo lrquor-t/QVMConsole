@@ -37,7 +37,9 @@
             <el-tag :type="row.disabled ? 'info' : 'success'" size="small" effect="light">{{ row.disabled ? '禁用' : '启用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" align="center" />
+        <el-table-column label="创建时间" width="180" align="center">
+          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="100" fixed="right" align="center">
           <template #default="{ row }">
             <el-tooltip content="删除模板" placement="top">
@@ -82,7 +84,8 @@
             </template>
           </el-upload>
           <div v-if="uploading" class="upload-progress-wrap">
-            <el-progress :percentage="uploadProgress" :stroke-width="16" />
+            <div class="upload-status">{{ uploadStatus || '处理中…' }} <span class="upload-status-pct">{{ uploadProgress }}%</span></div>
+            <el-progress :percentage="uploadProgress" :stroke-width="16" :show-text="false" />
           </div>
         </el-form-item>
         <el-form-item v-else label="主机路径" required>
@@ -140,6 +143,7 @@ const uploadRef = ref(null) // el-upload 实例，重开弹窗时 clearFiles 清
 const importing = ref(false)
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const uploadStatus = ref('') // 计算校验值… / 上传中… / 校验中…
 const probing = ref(false)
 const uploadedPath = ref('')
 const rawFile = ref(null)
@@ -158,6 +162,7 @@ const resetImportState = () => {
   uploadedPath.value = ''
   uploading.value = false
   uploadProgress.value = 0
+  uploadStatus.value = ''
   uploadRef.value?.clearFiles()
   probeOk.value = false
   probeMsg.value = ''
@@ -210,6 +215,7 @@ const handleUploadAndProbe = async () => {
   }
   uploading.value = true
   uploadProgress.value = 0
+  uploadStatus.value = '计算校验值…'
   resetProbe()
   try {
     let concurrency = 3
@@ -224,9 +230,13 @@ const handleUploadAndProbe = async () => {
       { concurrency }
     )
     const { sessionKey } = await uploader.upload(rawFile.value, {}, {
-      onUploadProgress: (ratio) => { uploadProgress.value = Math.round(ratio * 100) }
+      // MD5 阶段占 0–10%，上传阶段占 10–100%；阶段标签让用户清楚当前在干嘛
+      onHashProgress: (ratio) => { uploadStatus.value = '计算校验值…'; uploadProgress.value = Math.round(ratio * 10) },
+      onUploadProgress: (ratio) => { uploadStatus.value = '上传中…'; uploadProgress.value = 10 + Math.round(ratio * 90) },
     })
     uploadedPath.value = sessionKey
+    uploadStatus.value = '校验中…'
+    uploadProgress.value = 100
     await runProbe(sessionKey)
   } catch (e) {
     // 错误由 request 拦截器提示
@@ -308,6 +318,16 @@ const formatSize = (b) => {
   const mb = b / 1024 / 1024
   if (mb < 1024) return mb.toFixed(0) + ' MB'
   return (mb / 1024).toFixed(2) + ' GB'
+}
+
+// 格式化后端返回的时间（Go time.Time 的 RFC3339Nano，如 2026-07-03T10:30:49.253794241+08:00）
+// → 2026-07-03 10:30:49。解析失败时回退原值。
+const formatTime = (t) => {
+  if (!t) return '-'
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return t
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 const distroClass = (distro) => {
@@ -471,6 +491,18 @@ html.dark .d-other { background: rgba(255, 255, 255, 0.06); color: var(--el-text
 .upload-progress-wrap {
   width: 100%;
   margin-top: 8px;
+}
+.upload-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+.upload-status-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-regular);
 }
 .upload-progress-wrap :deep(.el-progress) {
   width: 100%;
