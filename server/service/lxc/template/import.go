@@ -135,6 +135,21 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 }
 
 func writeBaseConfig(base, arch string) error {
+	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, base, "config")
+	// 读 lxc-create 生成的 config，去掉默认 net 块与我们将覆盖的标量键（避免重复），
+	// 保留 lxc.rootfs.path / lxc.uts.name / lxc.include / apparmor 等 overlay 与安全关键键，
+	// 再写入我们的覆盖项。
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return fmt.Errorf("读取基底 config 失败: %w", err)
+	}
+	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch)), 0644)
+}
+
+// composeBaseConfig 纯函数：把 lxc-create 生成的 existing 内容去重后追加我们的覆盖项。
+// 去重规则：丢弃所有 lxc.net.* 与将被覆盖的标量键（arch/cgroup2.cpu.weight/
+// cgroup2.memory.max/start.auto）及空行/注释；保留其余键（rootfs.path/uts.name/include/apparmor…）。
+func composeBaseConfig(existing, arch string) string {
 	if arch == "" {
 		arch = "amd64"
 	}
@@ -142,11 +157,30 @@ func writeBaseConfig(base, arch string) error {
 	if arch == "arm64" {
 		lxcArch = "aarch64"
 	}
-	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, base, "config")
-	// 追加覆盖项到 lxc-create 生成的 config（lxc 配置后值覆盖前值）。
-	// 不覆盖 lxc.rootfs.path / lxc.uts.name —— lxc-create 已按所选 backing（overlay）
-	// 正确设置这两项；用 dir: 路径覆盖 rootfs.path 会破坏 overlay 后端，导致克隆无法启动。
-	lines := []string{
+	overriddenExact := map[string]bool{
+		"lxc.arch":                true,
+		"lxc.cgroup2.cpu.weight":  true,
+		"lxc.cgroup2.memory.max":  true,
+		"lxc.start.auto":          true,
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(existing, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		key := trim
+		if eq := strings.IndexByte(trim, '='); eq > 0 {
+			key = strings.TrimSpace(trim[:eq])
+		}
+		// 去掉默认 net 块（lxc.net.*）与我们将覆盖的标量键，避免重复键
+		if overriddenExact[key] || strings.HasPrefix(key, "lxc.net.") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	for _, l := range []string{
 		"lxc.arch = " + lxcArch,
 		"lxc.cgroup2.cpu.weight = 256",
 		"lxc.cgroup2.memory.max = 512M",
@@ -154,26 +188,14 @@ func writeBaseConfig(base, arch string) error {
 		"lxc.net.0.type = veth",
 		"lxc.net.0.flags = up",
 		"lxc.net.0.link = br-ovs",
+	} {
+		b.WriteString(l)
+		b.WriteByte('\n')
 	}
-	content := ""
-	for _, l := range lines {
-		content += l + "\n"
-	}
-	f, err := openForAppend(cfg)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(content)
-	return err
+	return b.String()
 }
 
 // ---- helpers ----
-
-// openForAppend 以追加写方式打开文件（lxc 配置后值覆盖前值，故追加而非截断）。
-func openForAppend(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-}
 
 func orDefault(v, def string) string {
 	if strings.TrimSpace(v) == "" {

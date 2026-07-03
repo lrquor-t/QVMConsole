@@ -366,3 +366,39 @@ func TestProbeRootfsTarball(t *testing.T) {
 		}
 	})
 }
+
+// TestComposeBaseConfig 覆盖基底 config 去重：lxc-create 默认 net 块（lxcbr0）须移除，
+// 我们覆盖的标量键（arch/cgroup2/start.auto）不重复，overlay 关键键（rootfs.path/
+// uts.name/include）与 apparmor 默认项保留，我们的 br-ovs net 块仅出现一次。
+func TestComposeBaseConfig(t *testing.T) {
+	existing := `# Distribution built-in config
+lxc.net.0.type = veth
+lxc.net.0.link = lxcbr0
+lxc.net.0.flags = up
+lxc.apparmor.profile = generated
+lxc.apparmor.allow_nesting = 1
+lxc.rootfs.path = overlay:/var/lib/lxc/base/rootfs
+lxc.uts.name = base
+lxc.include = /usr/share/lxc/config/common.conf
+`
+	out := composeBaseConfig(existing, "amd64")
+	if strings.Contains(out, "lxcbr0") {
+		t.Error("默认 lxcbr0 net 块应被移除")
+	}
+	if c := strings.Count(out, "lxc.net.0.type = veth"); c != 1 {
+		t.Errorf("lxc.net.0.type 出现 %d 次，应为 1（仅我们的）", c)
+	}
+	if c := strings.Count(out, "lxc.net.0.link = br-ovs"); c != 1 {
+		t.Errorf("br-ovs 出现 %d 次，应为 1", c)
+	}
+	for _, k := range []string{"lxc.rootfs.path", "lxc.uts.name", "lxc.include", "lxc.apparmor.profile"} {
+		if !strings.Contains(out, k) {
+			t.Errorf("%s 应被保留", k)
+		}
+	}
+	for _, k := range []string{"lxc.arch = x86_64", "lxc.cgroup2.memory.max = 512M", "lxc.start.auto = 0"} {
+		if !strings.Contains(out, k) {
+			t.Errorf("缺少覆盖项 %s", k)
+		}
+	}
+}
