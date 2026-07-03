@@ -1,6 +1,7 @@
 package lxc
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,5 +74,84 @@ func TestPlanRelocateMoves(t *testing.T) {
 	}
 	if steps[1].From != "/old/c2" || steps[1].To != "/new/c2" {
 		t.Fatalf("第 2 步错误: %+v", steps[1])
+	}
+}
+
+// TestMoveDir_RecoverFromPartialTarget 重现「cp 超时后留下半成品 to」的腐败场景：
+// 旧实现见 to 存在即跳过，会把半成品当作已完成 → 重试后 lxc.conf 指向损坏容器。
+// 期望：from 仍在 + to 残留时，清掉 to 重新搬，最终 to=from 内容、from 消失。
+func TestMoveDir_RecoverFromPartialTarget(t *testing.T) {
+	tmp := t.TempDir()
+	from := filepath.Join(tmp, "c1")
+	to := filepath.Join(tmp, "c1_moved")
+
+	if err := os.MkdirAll(from, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "real.txt"), []byte("real"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟被超时杀掉的 cp 留下的半成品
+	if err := os.MkdirAll(to, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(to, "partial.txt"), []byte("partial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := moveDir(from, to); err != nil {
+		t.Fatalf("moveDir 失败: %v", err)
+	}
+	if _, err := os.Stat(from); !os.IsNotExist(err) {
+		t.Fatalf("源目录应已移走，stat err=%v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(to, "real.txt")); err != nil || string(b) != "real" {
+		t.Fatalf("目标缺少真实内容 real.txt: %v %q", err, b)
+	}
+	if _, err := os.Stat(filepath.Join(to, "partial.txt")); !os.IsNotExist(err) {
+		t.Fatalf("残留的 partial.txt 应被清理: stat err=%v", err)
+	}
+}
+
+// TestMoveDir_SameFilesystem_Renames 同文件系统走 os.Rename（瞬时），搬完源消失。
+func TestMoveDir_SameFilesystem_Renames(t *testing.T) {
+	tmp := t.TempDir()
+	from := filepath.Join(tmp, "src")
+	to := filepath.Join(tmp, "dst")
+	if err := os.MkdirAll(from, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "f.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveDir(from, to); err != nil {
+		t.Fatalf("moveDir 失败: %v", err)
+	}
+	if _, err := os.Stat(from); !os.IsNotExist(err) {
+		t.Fatal("源目录应已移走")
+	}
+	b, err := os.ReadFile(filepath.Join(to, "f.txt"))
+	if err != nil || string(b) != "x" {
+		t.Fatalf("内容不匹配: %v %q", err, b)
+	}
+}
+
+// TestMoveDir_IdempotentWhenSourceGone 源已不在 + 目标已就位 = 上次完全迁完，跳过。
+func TestMoveDir_IdempotentWhenSourceGone(t *testing.T) {
+	tmp := t.TempDir()
+	from := filepath.Join(tmp, "gone") // 不存在
+	to := filepath.Join(tmp, "present")
+	if err := os.MkdirAll(to, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(to, "keep.txt"), []byte("k"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveDir(from, to); err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(to, "keep.txt"))
+	if err != nil || string(b) != "k" {
+		t.Fatalf("目标被改动: %v %q", err, b)
 	}
 }

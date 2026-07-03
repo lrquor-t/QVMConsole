@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"kvm_console/config"
 	"kvm_console/logger"
@@ -108,34 +109,52 @@ func enumerateContainerDirs(lxcpath string) ([]string, error) {
 	return names, nil
 }
 
-// moveDir 把 from 目录搬到 to。同文件系统优先 os.Rename；失败（跨文件系统）回退 cp -a + rm -rf。
-// 幂等：to 已存在则跳过。
+// crossFsCopyTimeout 是跨文件系统 cp -a 一个容器/模板 rootfs 的超时。
+// LXC rootfs 可达数 GB，且目标常为较慢的存储（如带校验/压缩的 ZFS），
+// 默认 30s 必然不够；30 分钟覆盖大 rootfs 在慢盘上的拷贝。
+const crossFsCopyTimeout = 30 * time.Minute
+
+// moveDir 把 from 目录搬到 to。同文件系统优先 os.Rename；跨文件系统回退 cp -a + rm -rf。
+// 幂等（安全）：仅当「源已消失 且 目标已就位」时跳过（上次 cp+rm 都完成）。
+// 若 to 是上次被超时/失败 cp 留下的半成品（from 仍在），先清掉 to 再重拷，避免把半成品当完成。
 func moveDir(from, to string) error {
 	if from == to {
 		return nil
 	}
-	if _, err := os.Stat(to); err == nil {
-		return nil // 目标已存在，跳过（支持失败重试）
-	}
-	if err := os.Rename(from, to); err == nil {
+	// 幂等：源已不在。若目标也在 → 上次完全迁完，跳过。
+	if _, err := os.Stat(from); os.IsNotExist(err) {
 		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat 源目录失败: %w", err)
 	}
-	// 跨文件系统：cp -a <from> <to父目录> → 产生 <to父>/<basename(from)>
+	// 目标父目录要先在（rename/cp 都需要）。
 	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
 		return fmt.Errorf("创建目标父目录失败: %w", err)
 	}
+	// 清掉残留的半成品 to（失败重试场景），避免 cp 合并进半棵树。
+	if _, err := os.Stat(to); err == nil {
+		if rm := utils.ExecCommandLongRunning("rm", "-rf", to); rm.Error != nil {
+			return fmt.Errorf("清理残留目标目录失败: %w", rm.Error)
+		}
+	}
+	// 同文件系统：rename 瞬时完成。
+	if err := os.Rename(from, to); err == nil {
+		return nil
+	}
+	// 跨文件系统：cp -a <from> <to父目录> → 产生 <to父>/<basename(from)>。
+	// 直接传参（不走 shell），无注入面；rootfs 大，用长超时。
 	name := filepath.Base(from)
-	cp := utils.ExecShell(fmt.Sprintf("cp -a %s %s",
-		utils.ShellSingleQuote(from), utils.ShellSingleQuote(filepath.Dir(to))))
+	cp := utils.ExecCommandWithTimeout("cp", crossFsCopyTimeout, "-a", from, filepath.Dir(to))
 	if cp.Error != nil {
 		return fmt.Errorf("cp -a 失败: %w", cp.Error)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(to), name)); err != nil {
 		return fmt.Errorf("cp -a 后目标不存在: %w", err)
 	}
-	rm := utils.ExecShell("rm -rf " + utils.ShellSingleQuote(from))
+	rm := utils.ExecCommandLongRunning("rm", "-rf", from)
 	if rm.Error != nil {
-		return fmt.Errorf("删除源目录失败: %w", rm.Error)
+		// 目标已就绪；源未删。重试时幂等判定会因 from 仍在而重拷（安全，仅浪费一次拷贝）。
+		return fmt.Errorf("删除源目录失败（目标已就绪）: %w", rm.Error)
 	}
 	return nil
 }
