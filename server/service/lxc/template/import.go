@@ -137,13 +137,16 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 func writeBaseConfig(base, arch string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, base, "config")
 	// 读 lxc-create 生成的 config，去掉默认 net 块与我们将覆盖的标量键（避免重复），
-	// 保留 lxc.rootfs.path / lxc.uts.name / lxc.include / apparmor 等 overlay 与安全关键键，
-	// 再写入我们的覆盖项。
+	// 保留 lxc.uts.name / lxc.include / apparmor 等安全关键键，再写入我们的覆盖项。
 	data, err := os.ReadFile(cfg)
 	if err != nil {
 		return fmt.Errorf("读取基底 config 失败: %w", err)
 	}
-	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch)), 0644)
+	// 权威写入 lxc.rootfs.path：lxc-create -t none 不设置 rootfs（"none" 即无模板/无 rootfs），
+	// 不补这行的话后续 lxc-copy 会「No rootfs specified」失败。import 把 rootfs 解到
+	// <lxcpath>/<base>/rootfs，这里以 last-wins 追加正确路径（覆盖 lxc-create 可能写入的错误值）。
+	rootfsLine := "lxc.rootfs.path = " + filepath.Join(config.GlobalConfig.LXCLxcPath, base, "rootfs") + "\n"
+	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch)+rootfsLine), 0644)
 }
 
 // composeBaseConfig 纯函数：把 lxc-create 生成的 existing 内容去重后追加我们的覆盖项。

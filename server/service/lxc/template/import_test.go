@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"kvm_console/config"
 	"kvm_console/utils"
 )
 
@@ -400,5 +401,39 @@ lxc.include = /usr/share/lxc/config/common.conf
 		if !strings.Contains(out, k) {
 			t.Errorf("缺少覆盖项 %s", k)
 		}
+	}
+}
+
+// TestWriteBaseConfig_EnsuresRootfsPath 重现「lxc-create -t none 不写 lxc.rootfs.path」
+// 导致后续 lxc-copy「No rootfs specified」的 bug：writeBaseConfig 必须权威地写入
+// lxc.rootfs.path = <lxcpath>/<base>/rootfs（import 把 rootfs 解到这里）。
+func TestWriteBaseConfig_EnsuresRootfsPath(t *testing.T) {
+	tmp := t.TempDir()
+	orig := config.GlobalConfig.LXCLxcPath
+	config.GlobalConfig.LXCLxcPath = tmp
+	t.Cleanup(func() { config.GlobalConfig.LXCLxcPath = orig })
+
+	base := "lxc__tmpl__rocky8"
+	cfgDir := filepath.Join(tmp, base)
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(cfgDir, "config")
+	// 模拟 lxc-create -t none 的输出：**没有** lxc.rootfs.path 行
+	lxcCreateOut := "lxc.uts.name = rocky8\nlxc.include = /usr/share/lxc/config/common.conf\n"
+	if err := os.WriteFile(cfg, []byte(lxcCreateOut), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeBaseConfig(base, "amd64"); err != nil {
+		t.Fatalf("writeBaseConfig: %v", err)
+	}
+	out, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "lxc.rootfs.path = " + filepath.Join(tmp, base, "rootfs")
+	if !strings.Contains(string(out), want) {
+		t.Fatalf("基底 config 缺少 rootfs.path 行\ngot:\n%s\nwant line: %s", string(out), want)
 	}
 }
