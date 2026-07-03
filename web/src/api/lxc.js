@@ -71,3 +71,30 @@ export function buildLXCConsoleWsUrl(name, token) {
   const host = window.location.host
   return `${protocol}//${host}/api/lxc/${name}/console/ws?token=${encodeURIComponent(token)}`
 }
+
+// ==================== LXC 模板 rootfs tarball 分片上传 ====================
+export function lxcTemplateUploadInit(data) {
+  return request({ url: '/lxc/template/upload/init', method: 'post', data })
+}
+export function lxcTemplateUploadChunk(formData) {
+  return request({
+    url: '/lxc/template/upload/chunk',
+    method: 'post',
+    data: formData,
+    timeout: 0,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity
+  })
+}
+export function lxcTemplateUploadComplete(data) {
+  return request({ url: '/lxc/template/upload/complete', method: 'post', data })
+}
+// POST（非 DELETE）：后端 lxcTmpl 组已有 DELETE /:name，DELETE /upload 会通配冲突
+export function lxcTemplateUploadCancel(path) {
+  return request({ url: '/lxc/template/upload/cancel', method: 'post', params: { path } })
+}
+
+// 探测 tarball 结构 + 解析 os-release，回填 distro/release
+export function probeLXCTemplate(data) {
+  return request({ url: '/lxc/template/probe', method: 'post', data })
+}
