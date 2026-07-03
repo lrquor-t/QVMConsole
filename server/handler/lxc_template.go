@@ -7,8 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"kvm_console/model"
 	"kvm_console/service"
 	"kvm_console/service/lxc/template"
+	"kvm_console/taskqueue"
 )
 
 type finalizeLXCTemplateReq struct {
@@ -23,7 +25,8 @@ type finalizeLXCTemplateReq struct {
 	PostCreateCommand string `json:"post_create_command"`
 }
 
-// FinalizeLXCTemplate 由上传或主机路径的 tarball 创建模板。
+// FinalizeLXCTemplate 提交异步导入任务（由上传或主机路径的 tarball 创建模板）。
+// 2GB 级 rootfs 的校验+解包耗时较长，走任务队列避免 HTTP 超时；进度见任务中心。
 func FinalizeLXCTemplate(c *gin.Context) {
 	var req finalizeLXCTemplateReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -48,11 +51,12 @@ func FinalizeLXCTemplate(c *gin.Context) {
 		SourcePath: src, PostCreateCommand: req.PostCreateCommand,
 		OwnerUsername: username.(string),
 	}
-	if err := template.FinalizeImport(params); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "导入模板失败: " + err.Error()})
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCTemplateImport, params, username.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交导入任务失败: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入任务已提交", "data": gin.H{"task_id": task.ID}})
 }
 
 // ==================== LXC 模板分片上传 ====================
@@ -161,7 +165,8 @@ func ProbeLXCTemplate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 source_path 或 host_path"})
 		return
 	}
-	info, err := template.InspectRootfsTarball(src)
+	// 快速探测：仅校验 rootfs/etc/os-release 存在并解析（不算 sha256、不遍历整包），大包秒级返回。
+	distro, release, size, err := template.ProbeRootfsTarball(src)
 	if err != nil {
 		// 校验失败用 200 + ok=false 返回，便于前端读取中文错误
 		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"ok": false, "error": err.Error()}})
@@ -170,8 +175,8 @@ func ProbeLXCTemplate(c *gin.Context) {
 	// 架构由宿主机决定（跟随宿主机），随 probe 一并回填前端
 	hostArch, _ := template.HostArchLXC()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
-		"ok": true, "distro": info.Distro, "release": info.Release,
-		"size_bytes": info.SizeBytes, "arch": hostArch, "error": "",
+		"ok": true, "distro": distro, "release": release,
+		"size_bytes": size, "arch": hostArch, "error": "",
 	}})
 }
 

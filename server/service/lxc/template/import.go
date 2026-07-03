@@ -31,7 +31,14 @@ func sha256OfFile(path string) (string, error) {
 }
 
 // FinalizeImport 由已落地的 tarball 创建金基底容器 + DB 行，并删除临时 tarball。
-func FinalizeImport(params *ImportParams) error {
+// FinalizeImport 由已落地的 tarball 创建金基底容器 + DB 行，并删除临时 tarball。
+// progress 用于异步任务上报阶段进度（可为 nil，同步调用时传 nil）。
+func FinalizeImport(params *ImportParams, progress func(int, string)) error {
+	report := func(pct int, msg string) {
+		if progress != nil {
+			progress(pct, msg)
+		}
+	}
 	if err := validateImportParams(params); err != nil {
 		return err
 	}
@@ -49,6 +56,7 @@ func FinalizeImport(params *ImportParams) error {
 	base := baseContainerName(params.Name)
 
 	// 校验 tarball（结构 + os-release；sha/size 由其返回）
+	report(10, "校验 tar 包")
 	info, err := InspectRootfsTarball(params.SourcePath)
 	if err != nil {
 		return err
@@ -66,6 +74,7 @@ func FinalizeImport(params *ImportParams) error {
 	}
 
 	// 创建金基底容器：lxc-create -n <base> -t none -B <backing>
+	report(30, "创建基底容器")
 	cre := utils.ExecCommandLongRunning("lxc-create", "-n", base, "-t", "none", "-B", backing)
 	if cre.Error != nil {
 		return fmt.Errorf("创建基底容器失败: %w", cre.Error)
@@ -80,6 +89,7 @@ func FinalizeImport(params *ImportParams) error {
 	// 路径段计数：对 "./rootfs/bin/sh"，strip=1 会留下 "rootfs/bin/sh"（双重前缀 bug），故须按
 	// 成员名段数取 strip：rootfs→1，./rootfs→2，使两种存储形态最终都落在 <rootfs>/bin/sh。
 	strip := strings.Count(info.RootfsMember, "/") + 1
+	report(50, "解包 rootfs（大包较慢，请稍候）")
 	ex := utils.ExecCommandLongRunning("tar", "-xf", params.SourcePath, "-C", rootfs, "--strip-components", strconv.Itoa(strip), info.RootfsMember)
 	if ex.Error != nil {
 		_ = destroyContainerQuiet(base)
@@ -92,6 +102,7 @@ func FinalizeImport(params *ImportParams) error {
 	}
 
 	// 写 DB 行
+	report(85, "写入模板记录")
 	tpl := model.LXCTemplate{
 		Name:              params.Name,
 		DisplayName:       orDefault(params.DisplayName, params.Name),
@@ -119,6 +130,7 @@ func FinalizeImport(params *ImportParams) error {
 		}
 	}
 	logger.App.Info("LXC 模板导入完成", "name", params.Name, "base", base)
+	report(100, "导入完成")
 	return nil
 }
 
@@ -330,4 +342,51 @@ func parseOSRelease(content string) (distro, release string) {
 		}
 	}
 	return distro, release
+}
+
+// extractMemberOnce 用 tar -xf -O --occurrence=1 取首个匹配成员的内容（命中即停，
+// 不遍历整包，对大 rootfs 友好）。成员不存在时 ok=false。
+// 兼容 rootfs 与 ./rootfs 形态由调用方分别尝试两个成员名实现。
+func extractMemberOnce(abs, member string) (content string, ok bool) {
+	res := utils.ExecCommand("tar", "-xf", abs, "-O", "--occurrence=1", member)
+	if res.Error != nil {
+		return "", false
+	}
+	return res.Stdout, true
+}
+
+// ProbeRootfsTarball 快速探测 rootfs tarball：仅确认 rootfs/etc/os-release 存在并读其内容，
+// 解析 distro/release，返回文件大小。不算 sha256、不做全量 tar -tf（那些由 finalize 在
+// 异步任务里做），保证大包也秒级返回。/etc/os-release 为符号链接时回退 rootfs/usr/lib/os-release。
+func ProbeRootfsTarball(path string) (distro, release string, size int64, err error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", 0, err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("读取 tarball 失败: %w", err)
+	}
+	if st.IsDir() {
+		return "", "", 0, fmt.Errorf("模板源必须是文件而非目录")
+	}
+	// 探测 rootfs/etc/os-release（兼容 ./rootfs 存储形态）
+	content, ok := extractMemberOnce(abs, "rootfs/etc/os-release")
+	if !ok {
+		content, ok = extractMemberOnce(abs, "./rootfs/etc/os-release")
+	}
+	if !ok {
+		return "", "", 0, fmt.Errorf("rootfs 下缺少 etc/os-release，无法判定为合法 rootfs")
+	}
+	// 符号链接（/etc/os-release → /usr/lib/os-release）时 tar -O 输出空 → 回退 usr/lib
+	if strings.TrimSpace(content) == "" {
+		for _, m := range []string{"rootfs/usr/lib/os-release", "./rootfs/usr/lib/os-release"} {
+			if c, ok2 := extractMemberOnce(abs, m); ok2 && strings.TrimSpace(c) != "" {
+				content = c
+				break
+			}
+		}
+	}
+	d, r := parseOSRelease(content)
+	return d, r, st.Size(), nil
 }

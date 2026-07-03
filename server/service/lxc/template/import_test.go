@@ -301,3 +301,68 @@ func TestInspectRootfsTarball_OSReleaseSymlink(t *testing.T) {
 		t.Errorf("Release = %q, want 12", info.Release)
 	}
 }
+
+// TestProbeRootfsTarball 覆盖 probe 快路径：--occurrence=1 定向取 os-release、不算 sha256。
+// 兼容 rootfs 与 ./rootfs 存储形态、符号链接回退、缺失报错。
+func TestProbeRootfsTarball(t *testing.T) {
+	t.Run("rootfs form", func(t *testing.T) {
+		p := buildRootfsTar(t, t.TempDir(), "ok.tar.gz", "gz", false, true)
+		distro, release, size, err := ProbeRootfsTarball(p)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if distro != "ubuntu" || release != "22.04" {
+			t.Errorf("got (%q,%q), want (ubuntu,22.04)", distro, release)
+		}
+		if size <= 0 {
+			t.Error("size should be positive")
+		}
+	})
+	t.Run("dotrootfs form", func(t *testing.T) {
+		p := buildRootfsTarOpt(t, t.TempDir(), "ok.tar.gz", "gz", false, true, true)
+		distro, release, _, err := ProbeRootfsTarball(p)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if distro != "ubuntu" || release != "22.04" {
+			t.Errorf("got (%q,%q), want (ubuntu,22.04)", distro, release)
+		}
+	})
+	t.Run("symlink etc->usr/lib", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "src")
+		rootfs := filepath.Join(src, "rootfs")
+		for _, p := range []string{filepath.Join(rootfs, "etc"), filepath.Join(rootfs, "usr", "lib"), filepath.Join(rootfs, "bin")} {
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(rootfs, "usr", "lib", "os-release"), []byte("ID=debian\nVERSION_ID=\"12\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("../usr/lib/os-release", filepath.Join(rootfs, "etc", "os-release")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rootfs, "bin", "sh"), []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		archive := filepath.Join(dir, "sym.tar.gz")
+		if out, err := exec.Command("tar", "-czf", archive, "-C", src, "rootfs").CombinedOutput(); err != nil {
+			t.Fatalf("tar create: %v\n%s", err, out)
+		}
+		distro, release, _, err := ProbeRootfsTarball(archive)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if distro != "debian" || release != "12" {
+			t.Errorf("got (%q,%q), want (debian,12)", distro, release)
+		}
+	})
+	t.Run("missing os-release", func(t *testing.T) {
+		p := buildRootfsTar(t, t.TempDir(), "no.tar.gz", "gz", false, false)
+		_, _, _, err := ProbeRootfsTarball(p)
+		if err == nil || !strings.Contains(err.Error(), "os-release") {
+			t.Fatalf("want os-release error, got: %v", err)
+		}
+	})
+}

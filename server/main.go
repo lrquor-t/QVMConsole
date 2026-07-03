@@ -16,6 +16,7 @@ import (
 	"kvm_console/service"
 	clonepkg "kvm_console/service/clone"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/service/lxc/template"
 	netpkg "kvm_console/service/network"
 	"kvm_console/service/snapshot"
 	vmmemory "kvm_console/service/vm/memory"
@@ -384,6 +385,19 @@ func registerTaskHandlers() {
 			return "", err
 		}
 		return `{"name":"` + name + `"}`, nil
+	})
+
+	// 导入 LXC 模板任务（rootfs tarball → 金基底容器 + DB 行）
+	// 2GB 级 rootfs 校验+解包耗时，异步执行；progress 上报阶段进度。
+	taskqueue.RegisterHandler(model.TaskTypeLXCTemplateImport, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params template.ImportParams
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := template.FinalizeImport(&params, progress); err != nil {
+			return "", err
+		}
+		return `{"name":"` + params.Name + `"}`, nil
 	})
 
 	// 轻量云注册 VM 开通任务

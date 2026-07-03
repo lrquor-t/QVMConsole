@@ -95,6 +95,7 @@ export function lxcTemplateUploadCancel(path) {
 }
 
 // 探测 tarball 结构 + 解析 os-release，回填 distro/release
+// 大包定向探测通常秒级，但缺成员时需扫到底；取消前端 60s 超时兜底
 export function probeLXCTemplate(data) {
-  return request({ url: '/lxc/template/probe', method: 'post', data })
+  return request({ url: '/lxc/template/probe', method: 'post', data, timeout: 0 })
 }

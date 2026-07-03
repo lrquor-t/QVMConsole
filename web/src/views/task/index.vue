@@ -247,6 +247,10 @@ const typeText = (type) => {
     ovs_repair: 'OVS 修复',
     network_capture: '网络抓包',
     vm_schedule_action: '虚拟机定时任务',
+    lxc_create: '创建 LXC 容器',
+    lxc_destroy: '销毁 LXC 容器',
+    lxc_snapshot: 'LXC 容器快照',
+    lxc_template_import: '导入 LXC 模板',
   }
   return map[type] || type
 }

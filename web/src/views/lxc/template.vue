@@ -290,10 +290,11 @@ const handleImport = async () => {
     } else {
       payload.host_path = importForm.value.host_path.trim()
     }
-    await finalizeLXCTemplate(payload)
-    ElMessage.success('导入成功')
-    uploadedPath.value = '' // 已导入，临时包交给 finalize，不再清理
+    const res = await finalizeLXCTemplate(payload)
+    ElMessage.success(res.message || '导入任务已提交，请在任务中心查看进度')
+    uploadedPath.value = '' // 临时包交给异步导入任务，onImportDialogClose 不再取消清理
     importVisible.value = false
+    // 模板行在异步任务完成后才会出现；用户可在任务中心跟进，或稍后点刷新。
     fetchData()
   } catch (e) {
     // 错误由 request 拦截器提示
