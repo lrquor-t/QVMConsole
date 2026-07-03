@@ -227,3 +227,34 @@ func TestRootfsMemberStripDerivation(t *testing.T) {
 		}
 	}
 }
+
+// TestMapArchToLXC 锁定宿主机架构（uname -m 规范化值）到 LXC arch（amd64/arm64）的映射。
+// LXC 模板架构必须跟随宿主机；rootfs tarball 内容里没有可靠 arch，故由宿主机决定。
+func TestMapArchToLXC(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"x86_64", "amd64", false},
+		{"aarch64", "arm64", false},
+		{"riscv64", "", true},
+		{"mips", "", true},
+	}
+	for _, tc := range cases {
+		got, err := mapArchToLXC(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("mapArchToLXC(%q) want error, got %q", tc.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("mapArchToLXC(%q) unexpected err: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("mapArchToLXC(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

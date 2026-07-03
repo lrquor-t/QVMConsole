@@ -13,6 +13,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
+	archpkg "kvm_console/service/arch"
 	"kvm_console/utils"
 )
 
@@ -37,6 +38,13 @@ func FinalizeImport(params *ImportParams) error {
 	if params.OwnerUsername == "" {
 		params.OwnerUsername = "admin"
 	}
+	// 架构强制跟随宿主机：rootfs tarball 内容里没有可靠 arch，LXC 容器又跑在宿主机内核上，
+	// 由宿主机决定（忽略前端传入值）。最终 writeBaseConfig 与 DB 行均用此值。
+	hostArch, err := HostArchLXC()
+	if err != nil {
+		return err
+	}
+	params.Arch = hostArch
 	backing := config.GlobalConfig.LXCDefaultBacking
 	base := baseContainerName(params.Name)
 
@@ -160,6 +168,24 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// mapArchToLXC 把 arch.DetectHostArch()（uname -m 规范化值）映射为 LXC 模板用的 amd64/arm64。
+// riscv64 等当前 LXC 模板不支持，返回错误（与 validateImportParams 的 amd64/arm64 白名单一致）。
+func mapArchToLXC(a string) (string, error) {
+	switch a {
+	case archpkg.ArchX8664:
+		return "amd64", nil
+	case archpkg.ArchAarch64:
+		return "arm64", nil
+	default:
+		return "", fmt.Errorf("宿主机架构 %s 暂不支持 LXC 模板（仅 amd64/arm64）", a)
+	}
+}
+
+// HostArchLXC 返回宿主机架构对应的 LXC arch（amd64/arm64），供前端展示与 finalize 落库。
+func HostArchLXC() (string, error) {
+	return mapArchToLXC(archpkg.DetectHostArch())
 }
 
 func existsContainer(name string) bool {

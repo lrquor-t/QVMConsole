@@ -81,7 +81,9 @@
               <div class="el-upload__tip">支持 .tar / .tar.gz / .tgz / .tar.xz，需含顶层 rootfs 目录与 rootfs/etc/os-release</div>
             </template>
           </el-upload>
-          <el-progress v-if="uploading" :percentage="uploadProgress" :stroke-width="14" style="margin-top:8px" />
+          <div v-if="uploading" class="upload-progress-wrap">
+            <el-progress :percentage="uploadProgress" :stroke-width="16" />
+          </div>
         </el-form-item>
         <el-form-item v-else label="主机路径" required>
           <el-input v-model="importForm.host_path" placeholder="宿主机上 rootfs tarball 的绝对路径">
@@ -97,10 +99,11 @@
           <el-input v-model="importForm.release" placeholder="22.04 / bookworm / ...（校验后自动回填）" />
         </el-form-item>
         <el-form-item label="架构">
-          <el-select v-model="importForm.arch" style="width:100%">
+          <el-select v-model="importForm.arch" disabled placeholder="校验后自动带出" style="width:100%">
             <el-option label="amd64" value="amd64" />
             <el-option label="arm64" value="arm64" />
           </el-select>
+          <div class="arch-hint">跟随宿主机架构，不可更改</div>
         </el-form-item>
         <el-form-item label="创建后命令">
           <el-input v-model="importForm.post_create_command" type="textarea" :rows="2" placeholder="可选：首次创建容器后 lxc-attach 执行" />
@@ -142,7 +145,7 @@ const uploadedPath = ref('')
 const rawFile = ref(null)
 const probeOk = ref(false)
 const probeMsg = ref('')
-const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: 'amd64', post_create_command: '' })
+const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '' })
 
 const canImport = computed(() => {
   if (!importForm.value.name) return false
@@ -150,7 +153,7 @@ const canImport = computed(() => {
 })
 
 const resetImportState = () => {
-  importForm.value = { name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: 'amd64', post_create_command: '' }
+  importForm.value = { name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '' }
   rawFile.value = null
   uploadedPath.value = ''
   uploading.value = false
@@ -255,6 +258,8 @@ const runProbe = async (path) => {
       probeMsg.value = '校验通过' + (tag ? '：' + tag : '')
       if (d.distro && !importForm.value.distro) importForm.value.distro = d.distro
       if (d.release && !importForm.value.release) importForm.value.release = d.release
+      // 架构由宿主机决定，始终以 probe 返回为准（非用户可编辑）
+      if (d.arch) importForm.value.arch = d.arch
     } else {
       probeMsg.value = d.error || '校验失败'
     }
@@ -458,5 +463,36 @@ html.dark .d-other { background: rgba(255, 255, 255, 0.06); color: var(--el-text
   .lxc-tpl-title {
     font-size: 18px;
   }
+}
+
+/* 上传进度条：el-progress 放在 el-form-item（flex 容器）里会塌缩成只剩百分比文字，
+   故显式撑满宽度并给出可见的轨道/填充色，避免被主题变量吃掉。 */
+.upload-progress-wrap {
+  width: 100%;
+  margin-top: 8px;
+}
+.upload-progress-wrap :deep(.el-progress) {
+  width: 100%;
+}
+.upload-progress-wrap :deep(.el-progress-bar) {
+  flex: 1;
+}
+.upload-progress-wrap :deep(.el-progress-bar__outer) {
+  background-color: rgba(125, 125, 125, 0.18);
+}
+.upload-progress-wrap :deep(.el-progress-bar__inner) {
+  background-color: var(--el-color-primary, #409eff);
+  transition: width 0.2s ease;
+}
+html.dark .upload-progress-wrap :deep(.el-progress-bar__outer) {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 架构只读提示 */
+.arch-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 </style>

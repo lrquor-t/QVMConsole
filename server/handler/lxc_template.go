@@ -167,9 +167,11 @@ func ProbeLXCTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"ok": false, "error": err.Error()}})
 		return
 	}
+	// 架构由宿主机决定（跟随宿主机），随 probe 一并回填前端
+	hostArch, _ := template.HostArchLXC()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
 		"ok": true, "distro": info.Distro, "release": info.Release,
-		"size_bytes": info.SizeBytes, "error": "",
+		"size_bytes": info.SizeBytes, "arch": hostArch, "error": "",
 	}})
 }
 
