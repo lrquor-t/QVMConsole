@@ -3,9 +3,11 @@ package handler
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"kvm_console/service"
 	"kvm_console/service/lxc/template"
 )
 
@@ -51,6 +53,124 @@ func FinalizeLXCTemplate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+}
+
+// ==================== LXC 模板分片上传 ====================
+
+type lxcTemplateUploadInitReq struct {
+	FileName  string `json:"file_name"`
+	TotalSize int64  `json:"total_size"`
+	FileHash  string `json:"file_hash"`
+}
+
+// LXCTemplateUploadInit 创建/恢复 LXC rootfs tarball 分片上传会话
+// POST /api/lxc/template/upload/init
+func LXCTemplateUploadInit(c *gin.Context) {
+	var req lxcTemplateUploadInitReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 file_name/total_size/file_hash"})
+		return
+	}
+	username, _ := c.Get("username")
+	res, err := service.InitLXCTemplateUpload(username.(string), req.FileName, req.TotalSize, req.FileHash)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": gin.H{
+		"session_key":    res.SessionKey,
+		"total_chunks":   res.TotalChunks,
+		"chunk_size":     res.ChunkSize,
+		"received":       res.Received,
+		"uploaded_bytes": res.UploadedBytes,
+		"instant":        res.Instant,
+		"completed":      res.Completed,
+	}})
+}
+
+// LXCTemplateUploadChunk 上传单个分片（复用通用 receiveChunk）
+// POST /api/lxc/template/upload/chunk
+func LXCTemplateUploadChunk(c *gin.Context) {
+	if err := receiveChunk(c); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+}
+
+// LXCTemplateUploadComplete 完成上传，返回 session_key(=落地路径) 供 finalize 使用
+// POST /api/lxc/template/upload/complete
+func LXCTemplateUploadComplete(c *gin.Context) {
+	var req uploadCompleteReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.SessionKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 session_key"})
+		return
+	}
+	username, _ := c.Get("username")
+	res, err := service.CompleteUpload(req.SessionKey, username.(string), req.FileHash)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if !res.Completed {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"completed": false, "missing": res.Missing}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "上传成功", "data": gin.H{
+		"completed":   true,
+		"session_key": req.SessionKey,
+	}})
+}
+
+// LXCTemplateUploadCancel 清理已上传的临时包与会话（关弹窗未导入时调用）
+// POST /api/lxc/template/upload/cancel?path=<session_key>
+// 用 POST 而非 DELETE：lxcTmpl 组已有 DELETE /:name，DELETE /upload 会与之通配冲突。
+func LXCTemplateUploadCancel(c *gin.Context) {
+	username, _ := c.Get("username")
+	if err := service.RemoveUpload(c.Query("path"), username.(string)); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+}
+
+// ==================== Probe ====================
+
+type probeLXCTemplateReq struct {
+	SourcePath string `json:"source_path"` // 上传落地的临时 tarball 路径
+	HostPath   string `json:"host_path"`   // 或主机绝对路径
+}
+
+// ProbeLXCTemplate 校验 tarball 结构并解析 os-release，供前端回填 distro/release
+// POST /api/lxc/template/probe
+func ProbeLXCTemplate(c *gin.Context) {
+	var req probeLXCTemplateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	src := strings.TrimSpace(req.SourcePath)
+	if src == "" {
+		src = strings.TrimSpace(req.HostPath)
+		if src != "" && !filepath.IsAbs(src) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机导入路径必须为绝对路径"})
+			return
+		}
+	}
+	if src == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 source_path 或 host_path"})
+		return
+	}
+	info, err := template.InspectRootfsTarball(src)
+	if err != nil {
+		// 校验失败用 200 + ok=false 返回，便于前端读取中文错误
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"ok": false, "error": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
+		"ok": true, "distro": info.Distro, "release": info.Release,
+		"size_bytes": info.SizeBytes, "error": "",
+	}})
 }
 
 func ListLXCTemplates(c *gin.Context) {
