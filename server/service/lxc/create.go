@@ -80,7 +80,9 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 	// lxc-copy -n <base> -N <name> -B <backing>
 	res := utils.ExecCommandLongRunning("lxc-copy", "-n", tpl.BaseContainerName, "-N", params.Name, "-B", tpl.Backing)
 	if res.Error != nil {
-		return fmt.Errorf("克隆失败: %w", res.Error)
+		// lxc-copy 的真实错误常打到 stdout（stderr 多为空），res.Error 只含 stderr，
+		// 必须把 stdout 一起带出，否则排查无门。
+		return fmt.Errorf("克隆失败: %w (lxc-copy stdout: %q)", res.Error, res.Stdout)
 	}
 	progress(50, "克隆完成，写入配置")
 
