@@ -133,23 +133,28 @@
         </el-divider>
 
         <el-form-item label="LXC 容器目录">
-          <el-input v-model="form.lxc_lxc_path" disabled />
+          <el-input v-model="form.lxc_lxc_path" />
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            所有 LXC 容器与模板金基底都创建在此目录下，路径为 &lt;目录&gt;/&lt;容器名&gt;/（rootfs 在其下）| 环境变量: KVM_LXC_LXC_PATH（仅环境变量修改，重启生效）
+            所有 LXC 容器与模板金基底都创建在此目录下，路径为 &lt;目录&gt;/&lt;容器名&gt;/（rootfs 在其下）| 环境变量: KVM_LXC_LXC_PATH（修改将触发专用迁移流程：自动停止/重启运行中容器，并写 /etc/lxc/lxc.conf）
           </div>
         </el-form-item>
 
         <el-form-item label="模板导入临时目录">
-          <el-input v-model="form.lxc_template_import_dir" disabled />
+          <el-input v-model="form.lxc_template_import_dir" :disabled="lxcPathChanged" :placeholder="lxcPathChanged ? cascadedImportDir : ''" />
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            上传的 rootfs tarball 临时落盘位置（导入完成自动清理）| 环境变量: KVM_LXC_TEMPLATE_IMPORT_DIR
+            <template v-if="lxcPathChanged && cascadedImportDir">
+              将随 LXC 容器目录切换到 {{ cascadedImportDir }}
+            </template>
+            <template v-else>
+              上传的 rootfs tarball 临时落盘位置（导入完成自动清理）| 环境变量: KVM_LXC_TEMPLATE_IMPORT_DIR
+            </template>
           </div>
         </el-form-item>
 
         <el-form-item label="默认后端">
-          <el-input v-model="form.lxc_default_backing" disabled />
+          <el-input v-model="form.lxc_default_backing" />
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
             新容器/模板的后端存储：overlay（推荐，克隆快）或 dir | 环境变量: KVM_LXC_DEFAULT_BACKING
@@ -1252,6 +1257,7 @@ import { Check, Connection, CopyDocument, Cpu, Delete, Download, FirstAidKit, Fo
 import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings, getLogStatus, deleteLogs, exportLogs, trimUserStorage, getDiagnosticCategories, exportDiagnostics } from '@/api/settings'
 import MenuEditor from '@/components/MenuEditor.vue'
 import { getAllISOs } from '@/api/infra'
+import { relocateLXCStorage } from '@/api/lxc'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setSiteTitle } from '@/utils/site'
 
@@ -1365,6 +1371,21 @@ const form = reactive({
   network_wait_online_disabled: false,
   network_wait_online_summary: '',
   spice_enabled_by_default: false,
+})
+
+const originalLxcPath = ref('')
+const lxcPathChanged = computed(() => {
+  const cur = (form.lxc_lxc_path || '').trim()
+  return cur !== '' && originalLxcPath.value !== '' && cur !== originalLxcPath.value.trim()
+})
+const cascadedImportDir = computed(() => {
+  if (!lxcPathChanged.value) return ''
+  const oldBase = originalLxcPath.value.replace(/\/+$/, '')
+  const cur = (form.lxc_template_import_dir || '').replace(/\/+$/, '')
+  if (cur === `${oldBase}/_imports`) {
+    return `${(form.lxc_lxc_path || '').replace(/\/+$/, '')}/_imports`
+  }
+  return ''
 })
 
 // ISO 列表
@@ -1620,6 +1641,7 @@ const fetchData = async () => {
     }
 
     Object.assign(form, settingsResult.value.data || {})
+    originalLxcPath.value = form.lxc_lxc_path || ''
     setSiteTitle(form.site_title)
     if (!form.maintenance_service_units?.trim()) {
       form.maintenance_service_units = defaultMaintenanceServiceUnits
@@ -1762,10 +1784,40 @@ const handleSave = async () => {
 
   saving.value = true
   try {
-    const res = await updateSettings(buildPayload())
-    setSiteTitle(form.site_title)
-    ElMessage.success(res.message || '设置已保存')
-    await fetchData()
+    if (lxcPathChanged.value) {
+      // 1) 先保存其它字段（不含 lxc_lxc_path；import_dir 交给 relocate 级联）
+      const payload = buildPayload()
+      delete payload.lxc_template_import_dir
+      await updateSettings(payload)
+      // 2) 接管 lxcpath 切换
+      const res = await relocateLXCStorage({ new_lxc_path: form.lxc_lxc_path.trim(), migrate: false })
+      const data = res.data || {}
+      if (data.migrated === false) {
+        setSiteTitle(form.site_title)
+        ElMessage.success(res.message || 'LXC 容器目录已切换')
+        await fetchData()
+      } else if (data.need_migrate) {
+        try {
+          await ElMessageBox.confirm(
+            `检测到 ${data.containers} 个容器、${data.templates} 个模板，必须迁移到新路径才能更改。将自动停止并重启运行中容器。是否迁移？`,
+            'LXC 存储迁移',
+            { confirmButtonText: '迁移', cancelButtonText: '取消', type: 'warning' }
+          )
+        } catch (action) {
+          ElMessage.info('已取消迁移，LXC 容器目录未更改')
+          await fetchData()
+          return
+        }
+        const mig = await relocateLXCStorage({ new_lxc_path: form.lxc_lxc_path.trim(), migrate: true })
+        ElMessage.success(mig.message || '迁移任务已提交，请在任务中心查看进度')
+        await fetchData()
+      }
+    } else {
+      const res = await updateSettings(buildPayload())
+      setSiteTitle(form.site_title)
+      ElMessage.success(res.message || '设置已保存')
+      await fetchData()
+    }
   } catch (err) {
     console.error(err)
   } finally {
@@ -1831,6 +1883,8 @@ const buildPayload = () => ({
   spice_enabled_by_default: form.spice_enabled_by_default,
   batch_clone_max_concurrency: form.batch_clone_max_concurrency,
   chunk_upload_concurrency: form.chunk_upload_concurrency,
+  lxc_template_import_dir: form.lxc_template_import_dir,
+  lxc_default_backing: form.lxc_default_backing,
 })
 
 const handleTestSMTP = async () => {
