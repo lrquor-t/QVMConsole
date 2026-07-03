@@ -215,3 +215,107 @@ func isInDir(path, dir string) bool {
 	d, _ := filepath.Abs(dir)
 	return strings.HasPrefix(abs+string(filepath.Separator), d+string(filepath.Separator))
 }
+
+// RootfsInfo 是对 rootfs tarball 校验/探测的结果。
+type RootfsInfo struct {
+	SHA256    string
+	SizeBytes int64
+	Distro    string // 来自 os-release 的 ID（best-effort）
+	Release   string // 来自 os-release 的 VERSION_ID（best-effort）
+}
+
+// InspectRootfsTarball 校验 tarball（按内容 auto-detect 格式）顶层含 rootfs/ 目录、
+// 含 rootfs/etc/os-release，并解析 os-release 的 ID/VERSION_ID，返回 sha256 与大小。
+func InspectRootfsTarball(path string) (*RootfsInfo, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("读取 tarball 失败: %w", err)
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("模板源必须是文件而非目录")
+	}
+	// 列条目（-t 不带压缩标志，GNU tar 按内容自动识别 gzip/xz/bzip2/zstd）
+	listRes := utils.ExecCommand("tar", "-tf", abs)
+	if listRes.Error != nil {
+		return nil, fmt.Errorf("非有效 tar 包或格式不支持: %w", listRes.Error)
+	}
+	rawListing := listRes.Stdout
+	if !listingHasTopLevelRootfs(rawListing) {
+		return nil, fmt.Errorf("压缩包顶层未找到 rootfs 目录")
+	}
+	osrMember, ok := findMember(rawListing, "rootfs/etc/os-release")
+	if !ok {
+		return nil, fmt.Errorf("rootfs 下缺少 etc/os-release，无法判定为合法 rootfs")
+	}
+	// 单成员解到 stdout（auto-detect）
+	osr := utils.ExecCommand("tar", "-xf", abs, "-O", osrMember)
+	if osr.Error != nil {
+		return nil, fmt.Errorf("读取 os-release 失败: %w", osr.Error)
+	}
+	distro, release := parseOSRelease(osr.Stdout)
+	sha, err := sha256OfFile(abs)
+	if err != nil {
+		return nil, err
+	}
+	return &RootfsInfo{SHA256: sha, SizeBytes: st.Size(), Distro: distro, Release: release}, nil
+}
+
+// listingHasTopLevelRootfs 判断 tar -t 输出里是否存在顶层 rootfs 目录
+// （原始条目为 rootfs、rootfs/、./rootfs、./rootfs/ ，或以其为前缀的子路径）。
+func listingHasTopLevelRootfs(listing string) bool {
+	for _, line := range strings.Split(listing, "\n") {
+		e := strings.TrimSpace(line)
+		if e == "" {
+			continue
+		}
+		e = strings.TrimPrefix(e, "./")
+		e = strings.TrimSuffix(e, "/")
+		if e == "rootfs" || strings.HasPrefix(e, "rootfs/") {
+			return true
+		}
+	}
+	return false
+}
+
+// findMember 在 tar -t 原始输出里找规范化后等于 target 的成员，返回其原始行。
+// 用原始行（而非规范化值）传给 tar -O，以兼容 ./rootfs/... 形式的存储名。
+func findMember(listing, target string) (string, bool) {
+	for _, line := range strings.Split(listing, "\n") {
+		raw := strings.TrimSpace(line)
+		if raw == "" {
+			continue
+		}
+		norm := strings.TrimSuffix(strings.TrimPrefix(raw, "./"), "/")
+		if norm == target {
+			return raw, true
+		}
+	}
+	return "", false
+}
+
+// parseOSRelease 解析 os-release 文本，取 ID 与 VERSION_ID（去引号与首尾空白）。缺失返回空串。
+func parseOSRelease(content string) (distro, release string) {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.Trim(strings.TrimSpace(line[eq+1:]), `"'`)
+		switch key {
+		case "ID":
+			distro = val
+		case "VERSION_ID":
+			release = val
+		}
+	}
+	return distro, release
+}
