@@ -55,16 +55,46 @@
       </div>
     </div>
 
-    <el-dialog v-model="importVisible" title="导入 LXC 模板" width="520px">
+    <el-dialog v-model="importVisible" title="导入 LXC 模板" width="560px" :close-on-click-modal="false" @close="onImportDialogClose">
       <el-form :model="importForm" label-width="110px">
         <el-form-item label="模板名称" required>
           <el-input v-model="importForm.name" placeholder="如 ubuntu22（小写字母/数字/连字符）" />
         </el-form-item>
+        <el-form-item label="导入来源" required>
+          <el-radio-group v-model="importForm.mode">
+            <el-radio value="upload">上传文件</el-radio>
+            <el-radio value="host">主机绝对路径</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="importForm.mode === 'upload'" label="rootfs 包" required>
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="onFileChange"
+            :on-remove="onFileRemove"
+            :on-exceed="onFileExceed"
+            accept=".tar,.tar.gz,.tgz,.tar.xz"
+          >
+            <el-button type="primary" plain :icon="UploadFilled">选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">支持 .tar / .tar.gz / .tgz / .tar.xz，需含顶层 rootfs 目录与 rootfs/etc/os-release</div>
+            </template>
+          </el-upload>
+          <el-progress v-if="uploading" :percentage="uploadProgress" :stroke-width="14" style="margin-top:8px" />
+        </el-form-item>
+        <el-form-item v-else label="主机路径" required>
+          <el-input v-model="importForm.host_path" placeholder="宿主机上 rootfs tarball 的绝对路径">
+            <template #append>
+              <el-button :loading="probing" @click="handleProbe">校验</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
         <el-form-item label="发行版">
-          <el-input v-model="importForm.distro" placeholder="ubuntu / debian / ..." />
+          <el-input v-model="importForm.distro" placeholder="ubuntu / debian / ...（校验后自动回填）" />
         </el-form-item>
         <el-form-item label="版本">
-          <el-input v-model="importForm.release" placeholder="22.04 / bookworm / ..." />
+          <el-input v-model="importForm.release" placeholder="22.04 / bookworm / ...（校验后自动回填）" />
         </el-form-item>
         <el-form-item label="架构">
           <el-select v-model="importForm.arch" style="width:100%">
@@ -72,32 +102,200 @@
             <el-option label="arm64" value="arm64" />
           </el-select>
         </el-form-item>
-        <el-form-item label="主机 tarball 路径" required>
-          <el-input v-model="importForm.host_path" placeholder="宿主机上 rootfs tarball 的绝对路径" />
-        </el-form-item>
         <el-form-item label="创建后命令">
           <el-input v-model="importForm.post_create_command" type="textarea" :rows="2" placeholder="可选：首次创建容器后 lxc-attach 执行" />
         </el-form-item>
+        <el-alert v-if="probeMsg" :type="probeOk ? 'success' : 'error'" :title="probeMsg" :closable="false" show-icon />
       </el-form>
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="handleImport">导入</el-button>
+        <el-button v-if="importForm.mode === 'upload'" type="warning" :loading="uploading" @click="handleUploadAndProbe">
+          {{ uploadedPath ? '重新上传并校验' : '上传并校验' }}
+        </el-button>
+        <el-button type="primary" :loading="importing" :disabled="!canImport" @click="handleImport">导入</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Delete } from '@element-plus/icons-vue'
-import { getLXCTemplateList, finalizeLXCTemplate, deleteLXCTemplate } from '@/api/lxc'
+import { Plus, Refresh, Delete, UploadFilled } from '@element-plus/icons-vue'
+import { ChunkUploader } from '@/utils/chunkUploader'
+import { getSettings } from '@/api/settings'
+import {
+  getLXCTemplateList, finalizeLXCTemplate, deleteLXCTemplate,
+  lxcTemplateUploadInit, lxcTemplateUploadChunk, lxcTemplateUploadComplete, lxcTemplateUploadCancel,
+  probeLXCTemplate
+} from '@/api/lxc'
 
 const tableData = ref([])
 const loading = ref(false)
 const importVisible = ref(false)
+const uploadRef = ref(null) // el-upload 实例，重开弹窗时 clearFiles 清掉残留选择
 const importing = ref(false)
-const importForm = ref({ name: '', distro: '', release: '', arch: 'amd64', host_path: '', post_create_command: '' })
+const uploading = ref(false)
+const uploadProgress = ref(0)
+const probing = ref(false)
+const uploadedPath = ref('')
+const rawFile = ref(null)
+const probeOk = ref(false)
+const probeMsg = ref('')
+const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: 'amd64', post_create_command: '' })
+
+const canImport = computed(() => {
+  if (!importForm.value.name) return false
+  return importForm.value.mode === 'upload' ? !!uploadedPath.value : !!importForm.value.host_path.trim()
+})
+
+const resetImportState = () => {
+  importForm.value = { name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: 'amd64', post_create_command: '' }
+  rawFile.value = null
+  uploadedPath.value = ''
+  uploading.value = false
+  uploadProgress.value = 0
+  uploadRef.value?.clearFiles()
+  probeOk.value = false
+  probeMsg.value = ''
+}
+
+const resetProbe = () => {
+  probeOk.value = false
+  probeMsg.value = ''
+}
+
+const openImport = () => {
+  resetImportState()
+  importVisible.value = true
+}
+
+// 对话框关闭：清理已上传但未导入的临时包
+const onImportDialogClose = () => {
+  const p = uploadedPath.value
+  resetImportState()
+  if (p) lxcTemplateUploadCancel(p).catch(() => {})
+}
+
+const onFileChange = (file) => {
+  rawFile.value = file.raw || null
+  uploadedPath.value = ''
+  resetProbe()
+}
+const onFileRemove = () => {
+  rawFile.value = null
+  uploadedPath.value = ''
+  resetProbe()
+}
+const onFileExceed = (files) => {
+  const [f] = files
+  rawFile.value = f || null
+  uploadedPath.value = ''
+  resetProbe()
+  ElMessage.warning('一次只能选择一个文件，已替换为最新选择')
+}
+
+const handleUploadAndProbe = async () => {
+  if (!rawFile.value) {
+    ElMessage.warning('请先选择 rootfs 包')
+    return
+  }
+  // 重新上传前清理旧临时包
+  if (uploadedPath.value) {
+    await lxcTemplateUploadCancel(uploadedPath.value).catch(() => {})
+    uploadedPath.value = ''
+  }
+  uploading.value = true
+  uploadProgress.value = 0
+  resetProbe()
+  try {
+    let concurrency = 3
+    try {
+      const v = Number((await getSettings()).data?.chunk_upload_concurrency)
+      if (Number.isInteger(v) && v >= 1 && v <= 10) concurrency = v
+    } catch {
+      // 读取并发设置失败，回退默认
+    }
+    const uploader = new ChunkUploader(
+      { init: lxcTemplateUploadInit, chunk: lxcTemplateUploadChunk, complete: lxcTemplateUploadComplete },
+      { concurrency }
+    )
+    const { sessionKey } = await uploader.upload(rawFile.value, {}, {
+      onUploadProgress: (ratio) => { uploadProgress.value = Math.round(ratio * 100) }
+    })
+    uploadedPath.value = sessionKey
+    await runProbe(sessionKey)
+  } catch (e) {
+    // 错误由 request 拦截器提示
+  } finally {
+    uploading.value = false
+  }
+}
+
+const handleProbe = async () => {
+  const p = importForm.value.host_path.trim()
+  if (!p || !p.startsWith('/')) {
+    ElMessage.warning('请输入宿主机上的绝对路径')
+    return
+  }
+  await runProbe(p)
+}
+
+// path：上传模式传 sessionKey（作 source_path）；主机模式传 host_path
+const runProbe = async (path) => {
+  probing.value = true
+  resetProbe()
+  try {
+    const isUpload = importForm.value.mode === 'upload'
+    const res = await probeLXCTemplate(isUpload ? { source_path: path } : { host_path: path })
+    const d = res.data || {}
+    probeOk.value = !!d.ok
+    if (d.ok) {
+      const tag = [d.distro, d.release].filter(Boolean).join(' ')
+      probeMsg.value = '校验通过' + (tag ? '：' + tag : '')
+      if (d.distro && !importForm.value.distro) importForm.value.distro = d.distro
+      if (d.release && !importForm.value.release) importForm.value.release = d.release
+    } else {
+      probeMsg.value = d.error || '校验失败'
+    }
+  } catch (e) {
+    // 错误由 request 拦截器提示
+  } finally {
+    probing.value = false
+  }
+}
+
+const handleImport = async () => {
+  if (!importForm.value.name) {
+    ElMessage.warning('请填写模板名称')
+    return
+  }
+  importing.value = true
+  try {
+    const payload = {
+      name: importForm.value.name,
+      display_name: importForm.value.name,
+      distro: importForm.value.distro,
+      release: importForm.value.release,
+      arch: importForm.value.arch,
+      post_create_command: importForm.value.post_create_command,
+    }
+    if (importForm.value.mode === 'upload') {
+      payload.source_path = uploadedPath.value
+    } else {
+      payload.host_path = importForm.value.host_path.trim()
+    }
+    await finalizeLXCTemplate(payload)
+    ElMessage.success('导入成功')
+    uploadedPath.value = '' // 已导入，临时包交给 finalize，不再清理
+    importVisible.value = false
+    fetchData()
+  } catch (e) {
+    // 错误由 request 拦截器提示
+  } finally {
+    importing.value = false
+  }
+}
 
 const formatSize = (b) => {
   if (!b) return '-'
@@ -129,29 +327,6 @@ const fetchData = async () => {
     ElMessage.error('获取模板列表失败')
   } finally {
     loading.value = false
-  }
-}
-
-const openImport = () => {
-  importForm.value = { name: '', distro: '', release: '', arch: 'amd64', host_path: '', post_create_command: '' }
-  importVisible.value = true
-}
-
-const handleImport = async () => {
-  if (!importForm.value.name || !importForm.value.host_path) {
-    ElMessage.warning('请填写模板名称与主机 tarball 路径')
-    return
-  }
-  importing.value = true
-  try {
-    await finalizeLXCTemplate({ ...importForm.value, host_path: importForm.value.host_path })
-    ElMessage.success('导入成功')
-    importVisible.value = false
-    fetchData()
-  } catch (e) {
-    // 错误由 request 拦截器提示
-  } finally {
-    importing.value = false
   }
 }
 
