@@ -610,9 +610,9 @@ var keyToEnvVar = map[string]string{
 	"log_max_size_mb":                           "KVM_LOG_MAX_SIZE_MB",
 	"log_max_backups":                           "KVM_LOG_MAX_BACKUPS",
 	"network_wait_online_disabled":              "KVM_NETWORK_WAIT_ONLINE_DISABLED",
-	"lxc_lxc_path":            "KVM_LXC_LXC_PATH",
-	"lxc_template_import_dir": "KVM_LXC_TEMPLATE_IMPORT_DIR",
-	"lxc_default_backing":     "KVM_LXC_DEFAULT_BACKING",
+	"lxc_lxc_path":                              "KVM_LXC_LXC_PATH",
+	"lxc_template_import_dir":                   "KVM_LXC_TEMPLATE_IMPORT_DIR",
+	"lxc_default_backing":                       "KVM_LXC_DEFAULT_BACKING",
 }
 
 // LoadFromDB 从数据库加载持久化的设置覆盖当前配置
@@ -933,11 +933,11 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"log_max_size_mb":                           strconv.Itoa(c.LogMaxSizeMB),
 		"log_max_backups":                           strconv.Itoa(c.LogMaxBackups),
 		"network_wait_online_disabled":              strconv.FormatBool(c.NetworkWaitOnlineDisabled),
-		"lxc_lxc_path":						c.LXCLxcPath,
-		"lxc_template_import_dir":				c.LXCTemplateImportDir,
-		"lxc_default_backing":					c.LXCDefaultBacking,
-			"session_fingerprint_enabled":               strconv.FormatBool(c.SessionFingerprintEnabled),
-			"request_filter_enabled":                    strconv.FormatBool(c.RequestFilterEnabled),
+		"lxc_lxc_path":                              c.LXCLxcPath,
+		"lxc_template_import_dir":                   c.LXCTemplateImportDir,
+		"lxc_default_backing":                       c.LXCDefaultBacking,
+		"session_fingerprint_enabled":               strconv.FormatBool(c.SessionFingerprintEnabled),
+		"request_filter_enabled":                    strconv.FormatBool(c.RequestFilterEnabled),
 		"password_breach_check_enabled":             strconv.FormatBool(c.PasswordBreachCheckEnabled),
 	}
 }
