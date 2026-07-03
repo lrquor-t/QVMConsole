@@ -517,9 +517,13 @@ func ApplyFirmwareCompatToDomainXML(name, xmlContent string, enabled *bool) (str
 		return xmlContent, nil
 	}
 
+	// 先移除 firmware='efi' 属性和 firmware 子元素（避免 libvirt 自动匹配固件）
+	newOS := replaceOSOpenTagFirmware(osBlock, false)
+	newOS = vmBootTypeFirmwareBlockRegexp.ReplaceAllString(newOS, "")
+
 	// 替换 loader 内容
 	loaderRegexp := regexp.MustCompile(`(<loader[^>]*>)[^<]*(</loader>)`)
-	newOS := loaderRegexp.ReplaceAllString(osBlock, "${1}"+legacyLoader+"${2}")
+	newOS = loaderRegexp.ReplaceAllString(newOS, "${1}"+legacyLoader+"${2}")
 
 	// 替换 nvram template
 	nvramTemplateRegexp := regexp.MustCompile(`template='[^']*'`)
