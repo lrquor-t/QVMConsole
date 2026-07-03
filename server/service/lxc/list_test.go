@@ -7,6 +7,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"kvm_console/config"
 	"kvm_console/model"
 )
 
@@ -62,5 +63,20 @@ func TestMergeCacheRows_AllGone(t *testing.T) {
 		if r.Present {
 			t.Fatalf("container %s should be Present=false", r.Name)
 		}
+	}
+}
+
+// filterVisibleItems 从 lxc-ls 结果里剔除应隐藏的内部容器（金基底模板容器 lxc__tmpl__*），
+// 否则模板会混在容器列表里显示。
+func TestFilterVisibleItems_HidesBaseContainers(t *testing.T) {
+	items := []ContainerListItem{
+		{Name: "c1"},
+		{Name: "lxc__tmpl__rocky8-tpl"}, // 金基底模板，应隐藏
+		{Name: "c2"},
+		{Name: config.GlobalConfig.LXCBasePrefix + "ubuntu-tpl"}, // 按 config 前缀构造，应隐藏
+	}
+	got := filterVisibleItems(items)
+	if len(got) != 2 || got[0].Name != "c1" || got[1].Name != "c2" {
+		t.Fatalf("filterVisibleItems = %+v, want only [c1,c2]", got)
 	}
 }

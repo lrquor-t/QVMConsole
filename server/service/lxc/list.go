@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
 )
@@ -81,6 +82,24 @@ func keysOf(m map[string]bool) []string {
 	return ks
 }
 
+// isHiddenContainer 判断是否为应从容器列表隐藏的内部容器（金基底模板容器 lxc__tmpl__*）。
+// 这些容器与用户容器同处一个 lxcpath，lxc-ls 会一并列出，需在同步缓存时剔除。
+func isHiddenContainer(name string) bool {
+	return strings.HasPrefix(name, config.GlobalConfig.LXCBasePrefix)
+}
+
+// filterVisibleItems 从 lxc-ls 结果剔除隐藏容器（金基底模板），返回用户可见的容器。
+func filterVisibleItems(items []ContainerListItem) []ContainerListItem {
+	out := items[:0]
+	for _, it := range items {
+		if isHiddenContainer(it.Name) {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 // SyncContainerCache 执行 lxc-ls 并同步缓存。
 func SyncContainerCache() error {
 	res := LxcLsFancy()
@@ -91,7 +110,7 @@ func SyncContainerCache() error {
 	if err != nil {
 		return err
 	}
-	_, err = mergeCacheRows(model.DB, items)
+	_, err = mergeCacheRows(model.DB, filterVisibleItems(items))
 	return err
 }
 
