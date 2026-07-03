@@ -19,8 +19,8 @@ import (
 	"kvm_console/model"
 	"kvm_console/service"
 	"kvm_console/service/storage/quota"
-	"kvm_console/utils"
 	"kvm_console/taskqueue"
+	"kvm_console/utils"
 )
 
 // SettingsResponse 设置响应
@@ -95,9 +95,9 @@ type SettingsResponse struct {
 	NetworkWaitOnlineDisabled bool   `json:"network_wait_online_disabled"`
 	NetworkWaitOnlineSummary  string `json:"network_wait_online_summary"`
 	// 安全防护
-	SessionFingerprintEnabled  bool `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled       bool `json:"request_filter_enabled"`
-	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
+	SessionFingerprintEnabled  bool   `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       bool   `json:"request_filter_enabled"`
+	PasswordBreachCheckEnabled bool   `json:"password_breach_check_enabled"`
 	MenuLayout                 string `json:"menu_layout"` // 菜单树原始 JSON
 }
 
@@ -164,10 +164,14 @@ type UpdateSettingsRequest struct {
 	// 网络等待就绪检测
 	NetworkWaitOnlineDisabled *bool `json:"network_wait_online_disabled"`
 	// 安全防护
-	SessionFingerprintEnabled  *bool `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled       *bool `json:"request_filter_enabled"`
-	PasswordBreachCheckEnabled *bool `json:"password_breach_check_enabled"`
+	SessionFingerprintEnabled  *bool   `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       *bool   `json:"request_filter_enabled"`
+	PasswordBreachCheckEnabled *bool   `json:"password_breach_check_enabled"`
 	MenuLayout                 *string `json:"menu_layout"`
+	// LXC 设置（lxc_lxc_path 仅作探测，实际改动由 relocate 流程接管）
+	LXCLxcPath           *string `json:"lxc_lxc_path"`
+	LXCTemplateImportDir *string `json:"lxc_template_import_dir"`
+	LXCDefaultBacking    *string `json:"lxc_default_backing"`
 }
 
 type TestSMTPRequest struct {
@@ -327,6 +331,32 @@ func UpdateSettings(c *gin.Context) {
 		if err := model.SetSetting("menu_layout", *req.MenuLayout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存菜单配置失败"})
 			return
+		}
+	}
+	// LXC 设置收口：lxcpath 只能走专用迁移流程；import_dir/backing 走普通保存；base_prefix 只读
+	if req.LXCLxcPath != nil {
+		sent := filepath.Clean(strings.TrimSpace(*req.LXCLxcPath))
+		if sent != filepath.Clean(cfg.LXCLxcPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "LXC 容器目录需通过专用迁移流程修改"})
+			return
+		}
+	}
+	if req.LXCTemplateImportDir != nil {
+		v := strings.TrimSpace(*req.LXCTemplateImportDir)
+		if v != "" && !filepath.IsAbs(v) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "模板导入临时目录必须是绝对路径"})
+			return
+		}
+		cfg.LXCTemplateImportDir = v
+	}
+	if req.LXCDefaultBacking != nil {
+		b := strings.TrimSpace(*req.LXCDefaultBacking)
+		if b != "" && b != "overlay" && b != "dir" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "默认后端仅支持 overlay 或 dir"})
+			return
+		}
+		if b != "" {
+			cfg.LXCDefaultBacking = b
 		}
 	}
 
