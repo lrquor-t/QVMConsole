@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"kvm_console/config"
@@ -67,7 +68,11 @@ func FinalizeImport(params *ImportParams) error {
 		return fmt.Errorf("创建 rootfs 目录失败: %w", err)
 	}
 	// 只取 rootfs/ 子树，去 rootfs/ 前缀，落入 <base>/rootfs/；-xf auto-detect 压缩格式。
-	ex := utils.ExecCommandLongRunning("tar", "-xf", params.SourcePath, "-C", rootfs, "--strip-components=1", "rootfs")
+	// 成员名按归档原始形态传入（rootfs 或 ./rootfs）。GNU tar 的 --strip-components 按文件系统
+	// 路径段计数：对 "./rootfs/bin/sh"，strip=1 会留下 "rootfs/bin/sh"（双重前缀 bug），故须按
+	// 成员名段数取 strip：rootfs→1，./rootfs→2，使两种存储形态最终都落在 <rootfs>/bin/sh。
+	strip := strings.Count(info.RootfsMember, "/") + 1
+	ex := utils.ExecCommandLongRunning("tar", "-xf", params.SourcePath, "-C", rootfs, "--strip-components", strconv.Itoa(strip), info.RootfsMember)
 	if ex.Error != nil {
 		_ = destroyContainerQuiet(base)
 		return fmt.Errorf("解包 rootfs 失败: %w", ex.Error)
@@ -175,10 +180,11 @@ func isInDir(path, dir string) bool {
 
 // RootfsInfo 是对 rootfs tarball 校验/探测的结果。
 type RootfsInfo struct {
-	SHA256    string
-	SizeBytes int64
-	Distro    string // 来自 os-release 的 ID（best-effort）
-	Release   string // 来自 os-release 的 VERSION_ID（best-effort）
+	SHA256      string
+	SizeBytes   int64
+	Distro      string // 来自 os-release 的 ID（best-effort）
+	Release     string // 来自 os-release 的 VERSION_ID（best-effort）
+	RootfsMember string // 顶层 rootfs 目录在归档里的【原始】成员名（rootfs 或 ./rootfs），FinalizeImport 据此解包
 }
 
 // InspectRootfsTarball 校验 tarball（按内容 auto-detect 格式）顶层含 rootfs/ 目录、
@@ -204,6 +210,13 @@ func InspectRootfsTarball(path string) (*RootfsInfo, error) {
 	if !listingHasTopLevelRootfs(rawListing) {
 		return nil, fmt.Errorf("压缩包顶层未找到 rootfs 目录")
 	}
+	// 顶层 rootfs 校验已通过，findMember 必然命中；保留原始成员名供 finalize 解包用。
+	// 去掉目录条目的尾随 '/'（tar -t 常把目录列为 "rootfs/"），使后续 strip 推导与解包选择器稳定。
+	rootfsMember, ok := findMember(rawListing, "rootfs")
+	if !ok {
+		return nil, fmt.Errorf("压缩包顶层未找到 rootfs 目录")
+	}
+	rootfsMember = strings.TrimSuffix(rootfsMember, "/")
 	osrMember, ok := findMember(rawListing, "rootfs/etc/os-release")
 	if !ok {
 		return nil, fmt.Errorf("rootfs 下缺少 etc/os-release，无法判定为合法 rootfs")
@@ -218,7 +231,7 @@ func InspectRootfsTarball(path string) (*RootfsInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RootfsInfo{SHA256: sha, SizeBytes: st.Size(), Distro: distro, Release: release}, nil
+	return &RootfsInfo{SHA256: sha, SizeBytes: st.Size(), Distro: distro, Release: release, RootfsMember: rootfsMember}, nil
 }
 
 // listingHasTopLevelRootfs 判断 tar -t 输出里是否存在顶层 rootfs 目录

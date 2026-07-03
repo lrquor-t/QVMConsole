@@ -192,7 +192,7 @@ const onFileExceed = (files) => {
   rawFile.value = f || null
   uploadedPath.value = ''
   resetProbe()
-  ElMessage.warning('一次只能选择一个文件，已替换为最新选择')
+  ElMessage.warning('请先移除已选文件后再选择新文件')
 }
 
 const handleUploadAndProbe = async () => {
