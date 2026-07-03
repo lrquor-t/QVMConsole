@@ -1,6 +1,7 @@
 package service
 
 import (
+	"kvm_console/config"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -116,6 +117,32 @@ func InitTemplateUpload(username, fileName string, totalSize int64, fileHash str
 		AllowedDir: dir,
 		Username:   username,
 		Category:   "template",
+		FileName:   safeName,
+		TotalSize:  totalSize,
+		ChunkSize:  uploadpkg.DefaultChunkSize,
+		FileHash:   fileHash,
+	})
+}
+
+// InitLXCTemplateUpload 初始化「LXC 模板 rootfs tarball」分片上传会话，
+// 目标为 LXC 导入临时目录（/var/lib/lxc/_imports）下的唯一临时文件。
+// 与 InitTemplateUpload 同构，仅目标目录与 category 不同。
+func InitLXCTemplateUpload(username, fileName string, totalSize int64, fileHash string) (*uploadpkg.InitResult, error) {
+	safeName, err := sanitizeFileName(fileName)
+	if err != nil {
+		return nil, err
+	}
+	dir := config.GlobalConfig.LXCTemplateImportDir
+	shortHash := fileHash
+	if len(shortHash) > 12 {
+		shortHash = shortHash[:12]
+	}
+	tempName := fmt.Sprintf("lxctpl-%s-%s", shortHash, safeName)
+	return uploadpkg.InitUpload(uploadpkg.InitParams{
+		FilePath:   filepath.Join(dir, tempName),
+		AllowedDir: dir,
+		Username:   username,
+		Category:   "lxc_template",
 		FileName:   safeName,
 		TotalSize:  totalSize,
 		ChunkSize:  uploadpkg.DefaultChunkSize,
