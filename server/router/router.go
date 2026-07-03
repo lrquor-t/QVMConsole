@@ -254,8 +254,8 @@ func Setup() *gin.Engine {
 				lxcGroup.POST("/:name/operate", handler.OperateLXC)
 				lxcGroup.DELETE("/:name", handler.DeleteLXCContainer)
 				lxcGroup.POST("/batch", middleware.AdminMiddleware(), handler.BatchOperateLXC)
-			// LXC 存储目录迁移/切换（仅管理员）
-			lxcGroup.POST("/storage/relocate", middleware.AdminMiddleware(), handler.LXCRelocateStorage)
+				// LXC 存储目录迁移/切换（仅管理员）
+				lxcGroup.POST("/storage/relocate", middleware.AdminMiddleware(), handler.LXCRelocateStorage)
 				lxcGroup.GET("/:name/ip", handler.GetLXCContainerIP)
 				lxcGroup.GET("/:name/console/ws", handler.LxcConsoleWS)
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
