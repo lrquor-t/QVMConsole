@@ -31,6 +31,10 @@ type SettingsResponse struct {
 	TemplateExportDir                     string `json:"template_export_dir"`
 	CloneDir                              string `json:"clone_dir"`
 	ISODir                                string `json:"iso_dir"`
+	LXCLxcPath                            string `json:"lxc_lxc_path"`            // LXC 容器根目录（容器创建位置：<lxc_lxc_path>/<name>/）
+	LXCTemplateImportDir                  string `json:"lxc_template_import_dir"` // LXC 模板 rootfs tarball 上传临时落盘目录
+	LXCDefaultBacking                     string `json:"lxc_default_backing"`     // LXC 默认后端：overlay/dir
+	LXCBasePrefix                         string `json:"lxc_base_prefix"`         // LXC 模板金基底容器名前缀（列表隐藏）
 	DefaultNetwork                        string `json:"default_network"`
 	NetworkBackend                        string `json:"network_backend"`
 	OVSBridge                             string `json:"ovs_bridge"`
@@ -228,6 +232,10 @@ func GetSettings(c *gin.Context) {
 			TemplateExportDir:                     cfg.TemplateExportDir,
 			CloneDir:                              cfg.CloneDir,
 			ISODir:                                cfg.ISODir,
+			LXCLxcPath:                            cfg.LXCLxcPath,
+			LXCTemplateImportDir:                  cfg.LXCTemplateImportDir,
+			LXCDefaultBacking:                     cfg.LXCDefaultBacking,
+			LXCBasePrefix:                         cfg.LXCBasePrefix,
 			DefaultNetwork:                        cfg.DefaultNetwork,
 			NetworkBackend:                        cfg.NetworkBackend,
 			OVSBridge:                             cfg.OVSBridge,

@@ -117,6 +117,10 @@
     <el-dialog v-model="createVisible" title="创建 LXC 容器" width="520px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="名称" required><el-input v-model="createForm.name" /></el-form-item>
+        <el-form-item label="容器目录">
+          <el-input :model-value="containerPathPreview" disabled />
+          <div class="form-tip" style="font-size:12px;color:var(--el-text-color-secondary);margin-top:2px">容器将创建于此（rootfs 在其下）；目录由系统设置「LXC 容器目录」决定。</div>
+        </el-form-item>
         <el-form-item label="模板" required>
           <el-select v-model="createForm.template" style="width:100%">
             <el-option v-for="t in templates" :key="t.name" :label="t.display_name || t.name" :value="t.name" :disabled="t.disabled" />
@@ -179,6 +183,7 @@ import {
   updateLXCConfig, getLXCTemplateList,
   listLXCSnapshots, createLXCSnapshot, restoreLXCSnapshot, deleteLXCSnapshot
 } from '@/api/lxc'
+import { getSettings } from '@/api/settings'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -257,12 +262,19 @@ const openConsole = (row) => {
 // 创建
 const createVisible = ref(false); const creating = ref(false)
 const templates = ref([])
+const lxcLxcPath = ref('') // LXC 容器根目录，用于在创建弹窗展示容器落盘位置
 const createForm = ref({ name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '' })
 const openCreate = async () => {
   createForm.value = { name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '' }
   try { const r = await getLXCTemplateList(); templates.value = r.data || [] } catch (e) {}
+  if (!lxcLxcPath.value) { try { const s = await getSettings(); lxcLxcPath.value = s.data?.lxc_lxc_path || '' } catch (e) {} }
   createVisible.value = true
 }
+const containerPathPreview = computed(() => {
+  const base = (lxcLxcPath.value || '/var/lib/lxc').replace(/\/+$/, '')
+  const name = createForm.value.name ? createForm.value.name : '<名称>'
+  return `${base}/${name}/`
+})
 const handleCreate = async () => {
   if (!createForm.value.name || !createForm.value.template) { ElMessage.warning('请填写名称与模板'); return }
   creating.value = true

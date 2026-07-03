@@ -126,6 +126,43 @@
             环境变量: KVM_PORTFORWARD_DIR（仅通过环境变量修改）
           </div>
         </el-form-item>
+            <!-- LXC 容器与模板路径（只读，环境变量配置） -->
+        <el-divider content-position="left">
+          <el-icon style="margin-right: 4px;"><FolderOpened /></el-icon>
+          LXC 容器与模板
+        </el-divider>
+
+        <el-form-item label="LXC 容器目录">
+          <el-input v-model="form.lxc_lxc_path" disabled />
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            所有 LXC 容器与模板金基底都创建在此目录下，路径为 &lt;目录&gt;/&lt;容器名&gt;/（rootfs 在其下）| 环境变量: KVM_LXC_LXC_PATH（仅环境变量修改，重启生效）
+          </div>
+        </el-form-item>
+
+        <el-form-item label="模板导入临时目录">
+          <el-input v-model="form.lxc_template_import_dir" disabled />
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            上传的 rootfs tarball 临时落盘位置（导入完成自动清理）| 环境变量: KVM_LXC_TEMPLATE_IMPORT_DIR
+          </div>
+        </el-form-item>
+
+        <el-form-item label="默认后端">
+          <el-input v-model="form.lxc_default_backing" disabled />
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            新容器/模板的后端存储：overlay（推荐，克隆快）或 dir | 环境变量: KVM_LXC_DEFAULT_BACKING
+          </div>
+        </el-form-item>
+
+        <el-form-item label="模板基底前缀">
+          <el-input v-model="form.lxc_base_prefix" disabled />
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            模板金基底容器名前缀（如 lxc__tmpl__），带此前缀的容器不在容器列表显示 | 环境变量: KVM_LXC_BASE_PREFIX
+          </div>
+        </el-form-item>
             <!-- 网络设置 -->
         <el-divider content-position="left">
           <el-icon style="margin-right: 4px;"><Connection /></el-icon>
@@ -1266,6 +1303,10 @@ const form = reactive({
   template_export_dir: '',
   clone_dir: '',
   iso_dir: '/var/lib/libvirt/images/ISO',
+  lxc_lxc_path: '',
+  lxc_template_import_dir: '',
+  lxc_default_backing: '',
+  lxc_base_prefix: '',
   default_network: '',
   network_backend: 'ovs',
   ovs_bridge: 'br-ovs',
