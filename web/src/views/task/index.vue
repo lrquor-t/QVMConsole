@@ -251,6 +251,7 @@ const typeText = (type) => {
     lxc_destroy: '销毁 LXC 容器',
     lxc_snapshot: 'LXC 容器快照',
     lxc_template_import: '导入 LXC 模板',
+    lxc_relocate: 'LXC 存储迁移',
   }
   return map[type] || type
 }
