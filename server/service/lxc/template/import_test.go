@@ -258,3 +258,46 @@ func TestMapArchToLXC(t *testing.T) {
 		}
 	}
 }
+
+// TestInspectRootfsTarball_OSReleaseSymlink 覆盖：/etc/os-release 是指向
+// /usr/lib/os-release 的符号链接（Debian 等惯例）。tar -O 对符号链接成员输出空，
+// 故须回退读 rootfs/usr/lib/os-release 才能拿到 ID/VERSION_ID。
+func TestInspectRootfsTarball_OSReleaseSymlink(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	rootfs := filepath.Join(src, "rootfs")
+	for _, p := range []string{
+		filepath.Join(rootfs, "etc"),
+		filepath.Join(rootfs, "usr", "lib"),
+		filepath.Join(rootfs, "bin"),
+	} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(rootfs, "usr", "lib", "os-release"),
+		[]byte("NAME=\"Debian GNU/Linux\"\nID=debian\nVERSION_ID=\"12\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// etc/os-release → ../usr/lib/os-release（符号链接）
+	if err := os.Symlink("../usr/lib/os-release", filepath.Join(rootfs, "etc", "os-release")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootfs, "bin", "sh"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "symlink.tar.gz")
+	if out, err := exec.Command("tar", "-czf", archive, "-C", src, "rootfs").CombinedOutput(); err != nil {
+		t.Fatalf("tar create: %v\n%s", err, out)
+	}
+	info, err := InspectRootfsTarball(archive)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if info.Distro != "debian" {
+		t.Errorf("Distro = %q, want debian (from usr/lib/os-release via symlink fallback)", info.Distro)
+	}
+	if info.Release != "12" {
+		t.Errorf("Release = %q, want 12", info.Release)
+	}
+}

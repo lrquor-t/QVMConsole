@@ -243,21 +243,37 @@ func InspectRootfsTarball(path string) (*RootfsInfo, error) {
 		return nil, fmt.Errorf("压缩包顶层未找到 rootfs 目录")
 	}
 	rootfsMember = strings.TrimSuffix(rootfsMember, "/")
-	osrMember, ok := findMember(rawListing, "rootfs/etc/os-release")
-	if !ok {
+	if _, ok := findMember(rawListing, "rootfs/etc/os-release"); !ok {
 		return nil, fmt.Errorf("rootfs 下缺少 etc/os-release，无法判定为合法 rootfs")
 	}
-	// 单成员解到 stdout（auto-detect）
-	osr := utils.ExecCommand("tar", "-xf", abs, "-O", osrMember)
-	if osr.Error != nil {
-		return nil, fmt.Errorf("读取 os-release 失败: %w", osr.Error)
-	}
-	distro, release := parseOSRelease(osr.Stdout)
+	// 读 os-release 内容（处理符号链接回退，见 readOSRelease）。
+	distro, release := readOSRelease(abs, rawListing)
 	sha, err := sha256OfFile(abs)
 	if err != nil {
 		return nil, err
 	}
 	return &RootfsInfo{SHA256: sha, SizeBytes: st.Size(), Distro: distro, Release: release, RootfsMember: rootfsMember}, nil
+}
+
+// readOSRelease 从归档读取 os-release 文本并解析。优先 rootfs/etc/os-release；
+// 不少发行版（Debian 等）的 /etc/os-release 是指向 /usr/lib/os-release 的符号链接，
+// 而 tar -O 对符号链接成员输出为空（实测），故空则回退到 rootfs/usr/lib/os-release。
+// 两者都取不到（或无 ID/VERSION_ID）时返回空串——属 best-effort，不影响校验通过。
+func readOSRelease(abs, listing string) (distro, release string) {
+	for _, target := range []string{"rootfs/etc/os-release", "rootfs/usr/lib/os-release"} {
+		member, ok := findMember(listing, target)
+		if !ok {
+			continue
+		}
+		res := utils.ExecCommand("tar", "-xf", abs, "-O", member)
+		if res.Error != nil || strings.TrimSpace(res.Stdout) == "" {
+			continue // 符号链接成员无 stdout 内容，或读取出错——试下一个候选
+		}
+		if d, r := parseOSRelease(res.Stdout); d != "" || r != "" {
+			return d, r
+		}
+	}
+	return "", ""
 }
 
 // listingHasTopLevelRootfs 判断 tar -t 输出里是否存在顶层 rootfs 目录
