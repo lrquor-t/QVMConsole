@@ -99,3 +99,9 @@ export function lxcTemplateUploadCancel(path) {
 export function probeLXCTemplate(data) {
   return request({ url: '/lxc/template/probe', method: 'post', data, timeout: 0 })
 }
+
+// LXC 存储目录迁移/切换
+// data: { new_lxc_path: string, migrate: boolean }
+export function relocateLXCStorage(data) {
+  return request({ url: '/lxc/storage/relocate', method: 'post', data })
+}
