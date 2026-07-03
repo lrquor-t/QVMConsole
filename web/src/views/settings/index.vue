@@ -126,7 +126,7 @@
             环境变量: KVM_PORTFORWARD_DIR（仅通过环境变量修改）
           </div>
         </el-form-item>
-            <!-- LXC 容器与模板路径（只读，环境变量配置） -->
+            <!-- LXC 容器与模板路径（lxc_lxc_path 可改：触发迁移流程；lxc_base_prefix 只读） -->
         <el-divider content-position="left">
           <el-icon style="margin-right: 4px;"><FolderOpened /></el-icon>
           LXC 容器与模板
