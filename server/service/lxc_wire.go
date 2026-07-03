@@ -60,6 +60,29 @@ func LXCCheckQuota(username string, cpu, ramMB int) error {
 func LXCListSnapshots(name string) ([]string, error) {
 	return lxc.ListSnapshots(name)
 }
-func LXCCreateSnapshot(name string) error           { return lxc.CreateSnapshot(name) }
-func LXCRestoreSnapshot(name, snap string) error    { return lxc.RestoreSnapshot(name, snap) }
-func LXCDeleteSnapshot(name, snap string) error     { return lxc.DeleteSnapshot(name, snap) }
+func LXCCreateSnapshot(name string) error        { return lxc.CreateSnapshot(name) }
+func LXCRestoreSnapshot(name, snap string) error { return lxc.RestoreSnapshot(name, snap) }
+func LXCDeleteSnapshot(name, snap string) error  { return lxc.DeleteSnapshot(name, snap) }
+
+// LXCRelocateParams 透出 lxc.RelocateParams，便于 handler/main 只依赖 service 包。
+type LXCRelocateParams = lxc.RelocateParams
+
+// LXCRelocate 执行完整 LXC 存储迁移（后台任务）。
+func LXCRelocate(p lxc.RelocateParams, progress func(int, string)) error {
+	return lxc.Relocate(p, progress)
+}
+
+// LXCSwitchLxcPath 无容器时的轻量切换。
+func LXCSwitchLxcPath(newLxcPath, newImportDir string) error {
+	return lxc.SwitchLxcPath(newLxcPath, newImportDir)
+}
+
+// LXCEstimateRelocateTargets 探测迁移规模（用户容器数、模板数、待搬目录数）。
+func LXCEstimateRelocateTargets() (containers, templates, totalDirs int, err error) {
+	return lxc.EstimateRelocateTargets()
+}
+
+// LXCCascadeImportDir 计算迁移后模板导入临时目录的级联值。
+func LXCCascadeImportDir(oldLxcPath, newLxcPath, curImportDir string) string {
+	return lxc.CascadeImportDir(oldLxcPath, newLxcPath, curImportDir)
+}

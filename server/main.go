@@ -400,6 +400,18 @@ func registerTaskHandlers() {
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
+	// LXC 存储迁移任务（切换 lxcpath：停→搬→改 config→写 lxc.conf→重启→同步缓存）
+	taskqueue.RegisterHandler(model.TaskTypeLXCLxcRelocate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params service.LXCRelocateParams
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.LXCRelocate(params, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"new_lxc_path":%q}`, params.NewLxcPath), nil
+	})
+
 	// 轻量云注册 VM 开通任务
 	taskqueue.RegisterHandler(model.TaskTypeLightweightVMProvision, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		params, err := service.ParseLightweightVMProvisionParams(task.Params)

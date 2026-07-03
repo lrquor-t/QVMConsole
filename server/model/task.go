@@ -66,6 +66,7 @@ const (
 	TaskTypeLXCDestroy                      = "lxc_destroy"                        // 销毁 LXC 容器
 	TaskTypeLXCSnapshot                     = "lxc_snapshot"                       // LXC 容器快照
 	TaskTypeLXCTemplateImport               = "lxc_template_import"                // 导入 LXC 模板（rootfs tarball）
+	TaskTypeLXCLxcRelocate                  = "lxc_relocate"                       // LXC 存储迁移
 )
 
 // Task 异步任务模型（纯内存存储，不持久化）
