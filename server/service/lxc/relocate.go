@@ -182,8 +182,12 @@ func writeLxcConf(newLxcPath string) error {
 func persistLxcPaths(newLxcPath, newImportDir string) {
 	config.GlobalConfig.LXCLxcPath = newLxcPath
 	config.GlobalConfig.LXCTemplateImportDir = newImportDir
-	_ = model.SetSetting("lxc_lxc_path", newLxcPath)
-	_ = model.SetSetting("lxc_template_import_dir", newImportDir)
+	if err := model.SetSetting("lxc_lxc_path", newLxcPath); err != nil {
+		logger.App.Warn("持久化 lxc_lxc_path 到 DB 失败", "value", newLxcPath, "error", err)
+	}
+	if err := model.SetSetting("lxc_template_import_dir", newImportDir); err != nil {
+		logger.App.Warn("持久化 lxc_template_import_dir 到 DB 失败", "value", newImportDir, "error", err)
+	}
 	config.SyncEnvFile()
 }
 
@@ -231,6 +235,8 @@ func detectRunningContainers() []string {
 // 任一搬移失败立即返回错误，且不写 lxc.conf、不更新 config（数据完好但 lxc-tools 仍读旧路径，可重试）。
 func Relocate(p RelocateParams, progress func(int, string)) error {
 	progress(5, "记录运行中容器")
+	// 这里重新枚举旧路径目录（handler 的 EstimateRelocateTargets 仅用于弹窗展示与决策），
+	// 以任务执行时刻的文件系统为准，确保实际搬迁覆盖当前所有容器/模板目录。
 	names, err := enumerateContainerDirs(p.OldLxcPath)
 	if err != nil {
 		return fmt.Errorf("枚举旧路径容器失败: %w", err)
