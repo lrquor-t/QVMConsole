@@ -15,50 +15,6 @@ import (
 	"kvm_console/utils"
 )
 
-// ValidateRootfsTarball 校验 tarball 是合法 gzip 并含 rootfs 标志路径，返回 sha256 与解压后大小估算。
-func ValidateRootfsTarball(path string) (string, int64, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", 0, err
-	}
-	st, err := os.Stat(abs)
-	if err != nil {
-		return "", 0, fmt.Errorf("读取 tarball 失败: %w", err)
-	}
-	if st.IsDir() {
-		return "", 0, fmt.Errorf("模板源必须是文件而非目录")
-	}
-	// 列出条目，校验存在 rootfs 标志（/bin/sh 或 /etc/os-release）
-	listRes := utils.ExecCommand("tar", "-tzf", abs)
-	if listRes.Error != nil {
-		return "", 0, fmt.Errorf("解析 tarball 失败（非 gzip rootfs?）: %w", listRes.Error)
-	}
-	if !looksLikeRootfs(listRes.Stdout) {
-		return "", 0, fmt.Errorf("tarball 不像 rootfs：缺少 /bin 或 /etc/os-release")
-	}
-	sha, err := sha256OfFile(abs)
-	if err != nil {
-		return "", 0, err
-	}
-	return sha, st.Size(), nil
-}
-
-func looksLikeRootfs(listing string) bool {
-	up := strings.Split(listing, "\n")
-	binRoot := false
-	osRelease := false
-	for _, e := range up {
-		e = strings.TrimPrefix(strings.TrimSpace(e), "./")
-		if strings.HasPrefix(e, "bin/") || e == "bin" || strings.HasPrefix(e, "/bin") {
-			binRoot = true
-		}
-		if strings.Contains(e, "etc/os-release") {
-			osRelease = true
-		}
-	}
-	return binRoot || osRelease
-}
-
 func sha256OfFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -83,8 +39,8 @@ func FinalizeImport(params *ImportParams) error {
 	backing := config.GlobalConfig.LXCDefaultBacking
 	base := baseContainerName(params.Name)
 
-	// 校验 tarball
-	sha, size, err := ValidateRootfsTarball(params.SourcePath)
+	// 校验 tarball（结构 + os-release；sha/size 由其返回）
+	info, err := InspectRootfsTarball(params.SourcePath)
 	if err != nil {
 		return err
 	}
@@ -110,7 +66,8 @@ func FinalizeImport(params *ImportParams) error {
 	if err := os.MkdirAll(rootfs, 0755); err != nil {
 		return fmt.Errorf("创建 rootfs 目录失败: %w", err)
 	}
-	ex := utils.ExecCommandLongRunning("tar", "-xzf", params.SourcePath, "-C", rootfs, "--strip-components=0")
+	// 只取 rootfs/ 子树，去 rootfs/ 前缀，落入 <base>/rootfs/；-xf auto-detect 压缩格式。
+	ex := utils.ExecCommandLongRunning("tar", "-xf", params.SourcePath, "-C", rootfs, "--strip-components=1", "rootfs")
 	if ex.Error != nil {
 		_ = destroyContainerQuiet(base)
 		return fmt.Errorf("解包 rootfs 失败: %w", ex.Error)
@@ -131,11 +88,11 @@ func FinalizeImport(params *ImportParams) error {
 		Description:       params.Description,
 		BaseContainerName: base,
 		Backing:           backing,
-		RootfsSizeBytes:   size,
+		RootfsSizeBytes:   info.SizeBytes,
 		CloneVisible:      true,
 		OwnerUsername:     params.OwnerUsername,
 		PostCreateCommand: params.PostCreateCommand,
-		SHA256:            sha,
+		SHA256:            info.SHA256,
 	}
 	if err := model.DB.Create(&tpl).Error; err != nil {
 		_ = destroyContainerQuiet(base)
