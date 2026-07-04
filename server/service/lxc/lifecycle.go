@@ -1,6 +1,10 @@
 package lxc
 
 import (
+	"os"
+	"path/filepath"
+
+	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/utils"
@@ -37,9 +41,16 @@ func DestroyContainer(name string) error {
 	_ = DetachContainerFromVPC(name)
 	// 先停后删
 	_ = utils.ExecCommandQuiet("lxc-stop", "-n", name).Error
-	res := utils.ExecCommandLongRunning("lxc-destroy", "-n", name)
-	if res.Error != nil {
-		return res.Error
+	// 按容器实际是否 zfs dataset 分支（filesystem 检测 isZfsContainer，比 DB Backing 稳，不受孤儿/篡改影响）
+	if isZfsContainer(name) {
+		if parent, err := ZfsResolveParent(config.GlobalConfig.LXCLxcPath); err == nil {
+			_ = zfsDestroyContainer(parent, name)
+		}
+		_ = os.RemoveAll(filepath.Join(config.GlobalConfig.LXCLxcPath, name))
+	} else {
+		if res := utils.ExecCommandLongRunning("lxc-destroy", "-n", name); res.Error != nil {
+			return res.Error
+		}
 	}
 	model.DB.Where("name = ?", name).Delete(&model.LXCCache{})
 	// 清理容器写入 VmStatsRecord 的历史流量行，避免同名容器复用基线（与 VM 删除路径一致）。
