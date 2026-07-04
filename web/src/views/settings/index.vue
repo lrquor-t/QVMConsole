@@ -154,10 +154,13 @@
         </el-form-item>
 
         <el-form-item label="默认后端">
-          <el-input v-model="form.lxc_default_backing" />
+          <el-select v-model="form.lxc_default_backing" placeholder="dir" style="width: 100%">
+            <el-option label="dir（整盘拷贝，通用）" value="dir" />
+            <el-option label="zfs（快照克隆，秒级/省盘，需 lxc 目录在 zfs 上）" value="zfs" />
+          </el-select>
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            新容器/模板的后端存储：overlay（推荐，克隆快）或 dir | 环境变量: KVM_LXC_DEFAULT_BACKING
+            新容器/模板的后端存储。zfs 推荐（克隆秒级、零额外磁盘，需 lxc 目录在 zfs 上）；dir 兼容性最好但每容器整盘拷贝 | 环境变量: KVM_LXC_DEFAULT_BACKING
           </div>
         </el-form-item>
 

@@ -351,8 +351,8 @@ func UpdateSettings(c *gin.Context) {
 	}
 	if req.LXCDefaultBacking != nil {
 		b := strings.TrimSpace(*req.LXCDefaultBacking)
-		if b != "" && b != "overlay" && b != "dir" {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "默认后端仅支持 overlay 或 dir"})
+		if b != "" && b != "dir" && b != "overlay" && b != "zfs" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "LXC 默认后端仅支持 dir 或 zfs"})
 			return
 		}
 		if b != "" {
