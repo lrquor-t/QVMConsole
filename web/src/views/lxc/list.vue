@@ -114,8 +114,8 @@
     </div>
 
     <!-- 创建对话框 -->
-    <el-dialog v-model="createVisible" title="创建 LXC 容器" width="520px">
-      <el-form :model="createForm" label-width="100px">
+    <el-dialog v-model="createVisible" title="创建 LXC 容器" width="520px" append-to-body>
+      <el-form :model="createForm" label-width="100px" class="lxc-create-form">
         <el-form-item label="名称" required><el-input v-model="createForm.name" /></el-form-item>
         <el-form-item label="容器目录">
           <el-input :model-value="containerPathPreview" disabled />
@@ -356,6 +356,11 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 <style scoped>
 .lxc-list-container {
   padding: 10px;
+}
+
+/* 创建弹窗表单：与上方标题保持距离 */
+.lxc-create-form {
+  padding-top: 10px;
 }
 
 /* 页面头 */
