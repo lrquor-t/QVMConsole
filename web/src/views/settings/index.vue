@@ -162,6 +162,10 @@
             <el-icon><InfoFilled /></el-icon>
             新容器/模板的后端存储。zfs 推荐（克隆秒级、零额外磁盘，需 lxc 目录在 zfs 上）；dir 兼容性最好但每容器整盘拷贝 | 环境变量: KVM_LXC_DEFAULT_BACKING
           </div>
+          <div v-if="lxcIsZfs && form.lxc_default_backing !== 'zfs'" class="form-tip" style="color:#e6a23c">
+            <el-icon><Warning /></el-icon>
+            检测到 LXC 目录在 zfs 上：建议把默认后端设为 zfs（克隆秒级、零额外磁盘）。当前选择在 zfs 上每容器都会整盘拷贝，浪费空间且慢。
+          </div>
         </el-form-item>
 
         <el-form-item label="模板基底前缀">
@@ -1260,7 +1264,7 @@ import { Check, Connection, CopyDocument, Cpu, Delete, Download, FirstAidKit, Fo
 import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings, getLogStatus, deleteLogs, exportLogs, trimUserStorage, getDiagnosticCategories, exportDiagnostics } from '@/api/settings'
 import MenuEditor from '@/components/MenuEditor.vue'
 import { getAllISOs } from '@/api/infra'
-import { relocateLXCStorage } from '@/api/lxc'
+import { relocateLXCStorage, getLXCBackingInfo } from '@/api/lxc'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setSiteTitle } from '@/utils/site'
 
@@ -1626,15 +1630,18 @@ const handleZRAMProfileChange = async (profileKey) => {
   }
 }
 
+const lxcIsZfs = ref(false)
+
 const fetchData = async () => {
   loading.value = true
   try {
-    const [settingsResult, isoResult, kvmResult, ksmResult, zramResult] = await Promise.allSettled([
+    const [settingsResult, isoResult, kvmResult, ksmResult, zramResult, backingResult] = await Promise.allSettled([
       getSettings(),
       getAllISOs(),
       getHostKVMUnrestrictedGuestStatus(),
       getHostKSMStatus(),
-      getHostZRAMStatus()
+      getHostZRAMStatus(),
+      getLXCBackingInfo()
     ])
 
     loadAffinityPresets()
@@ -1651,6 +1658,7 @@ const fetchData = async () => {
     }
     form.smtp_password = ''
     isoList.value = isoResult.status === 'fulfilled' ? (isoResult.value.data || []) : []
+    lxcIsZfs.value = backingResult.status === 'fulfilled' && !!(backingResult.value.data && backingResult.value.data.is_zfs)
     if (kvmResult.status === 'fulfilled') {
       applyKVMUnrestrictedGuestStatus(kvmResult.value.data)
     }
