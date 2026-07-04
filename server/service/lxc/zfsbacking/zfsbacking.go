@@ -54,7 +54,14 @@ func ResolveParent(lxcpath string) (string, error) {
 
 // CreateBase 创建模板容器 dataset <parent>/<base>（rootfs 是其子目录，不再单独建 dataset）。
 func CreateBase(parent, base string) error {
-	if res := utils.ExecCommand("zfs", "create", "-p", BaseDataset(parent, base)); res.Error != nil {
+	ds := BaseDataset(parent, base)
+	// 若 dataset 已存在（上次失败残留；existsContainer 对无 config 的残留查不到）→ 先清理再建，保证导入可重试。
+	if res := utils.ExecCommand("zfs", "list", "-Ho", "name", ds); res.Error == nil {
+		if err := renameAndDestroy(ds); err != nil {
+			return fmt.Errorf("清理残留基底 dataset 失败: %w", err)
+		}
+	}
+	if res := utils.ExecCommand("zfs", "create", "-p", ds); res.Error != nil {
 		return fmt.Errorf("zfs create 模板 dataset 失败: %w", res.Error)
 	}
 	return nil

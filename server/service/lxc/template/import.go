@@ -160,7 +160,12 @@ func writeBaseConfig(base, arch string) error {
 	// 保留 lxc.uts.name / lxc.include / apparmor 等安全关键键，再写入我们的覆盖项。
 	data, err := os.ReadFile(cfg)
 	if err != nil {
-		return fmt.Errorf("读取基底 config 失败: %w", err)
+		// zfs backing 无 lxc-create 生成的 config（zfs create 不写 config）→ 用最小基底前缀从头写；
+		// dir/overlay 由 lxc-create 生成 config，正常读取后去重。
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("读取基底 config 失败: %w", err)
+		}
+		data = []byte("lxc.uts.name = " + base + "\nlxc.apparmor.profile = generated\nlxc.apparmor.allow_nesting = 1\n")
 	}
 	// 权威写入 lxc.rootfs.path：lxc-create -t none 不设置 rootfs（"none" 即无模板/无 rootfs），
 	// 不补这行的话后续 lxc-copy 会「No rootfs specified」失败。import 把 rootfs 解到
