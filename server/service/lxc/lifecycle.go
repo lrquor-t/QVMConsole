@@ -44,7 +44,9 @@ func DestroyContainer(name string) error {
 	// 按容器实际是否 zfs dataset 分支（filesystem 检测 isZfsContainer，比 DB Backing 稳，不受孤儿/篡改影响）
 	if isZfsContainer(name) {
 		if parent, err := ZfsResolveParent(config.GlobalConfig.LXCLxcPath); err == nil {
-			_ = zfsDestroyContainer(parent, name)
+			if err := zfsDestroyContainer(parent, name); err != nil {
+				logger.App.Warn("zfs 销毁容器 dataset 失败（dataset 可能残留）", "name", name, "error", err)
+			}
 		}
 		_ = os.RemoveAll(filepath.Join(config.GlobalConfig.LXCLxcPath, name))
 	} else {

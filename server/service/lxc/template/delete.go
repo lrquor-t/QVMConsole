@@ -18,9 +18,8 @@ func DeleteTemplate(name string) error {
 	if cnt > 0 {
 		return errors.New("存在使用该模板的容器，请先删除相关容器")
 	}
-	if err := destroyContainerQuiet(tpl.BaseContainerName); err != nil {
-		return errors.New("销毁基底容器失败: " + err.Error())
-	}
+	// destroyBaseQuiet 按 backing 分支销毁：zfs → DestroyBase（含 @base 快照）；dir/overlay → lxc-destroy。
+	destroyBaseQuiet(tpl.BaseContainerName, tpl.Backing)
 	if err := model.DB.Delete(tpl).Error; err != nil {
 		return err
 	}

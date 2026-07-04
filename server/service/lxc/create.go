@@ -143,7 +143,7 @@ func cloneContainer(name string, tpl *model.LXCTemplate) error {
 	if tpl.Backing == "zfs" {
 		parent, err := ZfsResolveParent(lxcpath)
 		if err != nil {
-			return err
+			return fmt.Errorf("zfs 克隆失败: %w", err)
 		}
 		if err := zfsCloneContainer(parent, tpl.BaseContainerName, name); err != nil {
 			return fmt.Errorf("zfs 克隆失败: %w", err)
@@ -162,6 +162,7 @@ func cloneContainer(name string, tpl *model.LXCTemplate) error {
 		}
 		return nil
 	}
+	// lxc-copy 的真实错误常打到 stdout（stderr 多为空），错误必须带 stdout，否则排查无门。
 	res := utils.ExecCommandLongRunning("lxc-copy", "-n", tpl.BaseContainerName, "-N", name, "-B", tpl.Backing)
 	if res.Error != nil {
 		return fmt.Errorf("克隆失败: %w (lxc-copy stdout: %q)", res.Error, res.Stdout)

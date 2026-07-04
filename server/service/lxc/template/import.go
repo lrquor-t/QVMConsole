@@ -32,7 +32,6 @@ func sha256OfFile(path string) (string, error) {
 }
 
 // FinalizeImport 由已落地的 tarball 创建金基底容器 + DB 行，并删除临时 tarball。
-// FinalizeImport 由已落地的 tarball 创建金基底容器 + DB 行，并删除临时 tarball。
 // progress 用于异步任务上报阶段进度（可为 nil，同步调用时传 nil）。
 func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 	report := func(pct int, msg string) {
