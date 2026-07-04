@@ -57,8 +57,8 @@
       </div>
     </div>
 
-    <el-dialog v-model="importVisible" title="导入 LXC 模板" width="560px" :close-on-click-modal="false" @close="onImportDialogClose">
-      <el-form :model="importForm" label-width="110px">
+    <el-dialog v-model="importVisible" title="导入 LXC 模板" width="560px" append-to-body :close-on-click-modal="false" @close="onImportDialogClose">
+      <el-form :model="importForm" label-width="110px" class="import-form">
         <el-form-item label="模板名称" required>
           <el-input v-model="importForm.name" placeholder="如 ubuntu22（小写字母/数字/连字符）" />
         </el-form-item>
@@ -95,13 +95,13 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item label="发行版">
+        <el-form-item v-if="probeOk" label="发行版">
           <el-input v-model="importForm.distro" placeholder="ubuntu / debian / ...（校验后自动回填）" />
         </el-form-item>
-        <el-form-item label="版本">
+        <el-form-item v-if="probeOk" label="版本">
           <el-input v-model="importForm.release" placeholder="22.04 / bookworm / ...（校验后自动回填）" />
         </el-form-item>
-        <el-form-item label="架构">
+        <el-form-item v-if="probeOk" label="架构">
           <el-select v-model="importForm.arch" disabled placeholder="校验后自动带出" style="width:100%">
             <el-option label="amd64" value="amd64" />
             <el-option label="arm64" value="arm64" />
@@ -185,10 +185,25 @@ const onImportDialogClose = () => {
   if (p) lxcTemplateUploadCancel(p).catch(() => {})
 }
 
+// 从文件名推导模板名：去 .tar/.tar.gz/.tgz/.tar.xz 后缀，小写，非 [a-z0-9-] 换成 -，去首尾 -。
+// 结果须满足容器名规则 ^[a-z0-9][a-z0-9-]{1,62}$，否则返回空串（不回填）。
+const deriveNameFromFile = (filename) => {
+  if (!filename) return ''
+  let n = filename.replace(/\.(tar(?:\.gz|\.xz)?|tgz)$/i, '')
+  n = n.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+/, '').replace(/-+$/, '')
+  if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(n)) return ''
+  return n
+}
+
 const onFileChange = (file) => {
   rawFile.value = file.raw || null
   uploadedPath.value = ''
   resetProbe()
+  // 默认用文件名（去后缀）作模板名；用户已手动填写则保留。
+  if (!importForm.value.name) {
+    const derived = deriveNameFromFile(file.name)
+    if (derived) importForm.value.name = derived
+  }
 }
 const onFileRemove = () => {
   rawFile.value = null
@@ -371,6 +386,11 @@ onMounted(fetchData)
 <style scoped>
 .lxc-tpl-container {
   padding: 10px;
+}
+
+/* 导入弹窗表单：与上方标题保持距离 */
+.import-form {
+  padding-top: 10px;
 }
 
 /* 页面头 */
