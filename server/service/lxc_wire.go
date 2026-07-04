@@ -1,6 +1,9 @@
 package service
 
-import "kvm_console/service/lxc"
+import (
+	"kvm_console/service/lxc"
+	"kvm_console/service/lxc/zfsbacking"
+)
 
 // LXCSyncContainerCache 同步 LXC 容器缓存。
 func LXCSyncContainerCache() error { return lxc.SyncContainerCache() }
@@ -85,4 +88,9 @@ func LXCEstimateRelocateTargets() (containers, templates, totalDirs int, err err
 // LXCCascadeImportDir 计算迁移后模板导入临时目录的级联值。
 func LXCCascadeImportDir(oldLxcPath, newLxcPath, curImportDir string) string {
 	return lxc.CascadeImportDir(oldLxcPath, newLxcPath, curImportDir)
+}
+
+// LXCIsLxcpathZfs 报告 lxcpath 是否在 zfs 上（前端据此给"dir on zfs 用 zfs 更优"提示）。
+func LXCIsLxcpathZfs(lxcpath string) bool {
+	return zfsbacking.IsLxcpathZfs(lxcpath)
 }

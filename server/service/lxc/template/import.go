@@ -56,6 +56,12 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 	if backing == "" {
 		backing = config.GlobalConfig.LXCDefaultBacking
 	}
+	// backing=zfs 时先验证 lxcpath 在 zfs 上：失败比慢速 tarball inspect 后才崩更友好。
+	if backing == "zfs" {
+		if _, err := zfsbacking.ResolveParent(config.GlobalConfig.LXCLxcPath); err != nil {
+			return fmt.Errorf("backing=zfs 校验失败（lxc 目录不在 zfs 上？改用 dir，或把 lxc 目录迁到 zfs）: %w", err)
+		}
+	}
 	base := baseContainerName(params.Name)
 
 	// 校验 tarball（结构 + os-release；sha/size 由其返回）

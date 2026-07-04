@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"kvm_console/config"
 	"kvm_console/utils"
@@ -67,12 +68,9 @@ func SnapshotBase(parent, base string) error {
 	return nil
 }
 
-// DestroyBase 销毁模板 dataset（-r 连带 @base 快照；有克隆时 zfs 会拒绝）。
+// DestroyBase 销毁模板 dataset（rename 到回收名后 destroy -r，连带 @base 快照；有克隆时 zfs 会拒绝）。
 func DestroyBase(parent, base string) error {
-	if res := utils.ExecCommand("zfs", "destroy", "-r", BaseDataset(parent, base)); res.Error != nil {
-		return fmt.Errorf("zfs destroy 模板失败: %w", res.Error)
-	}
-	return nil
+	return renameAndDestroy(BaseDataset(parent, base))
 }
 
 // CloneContainer 从 <parent>/<base>@base 克隆出 <parent>/<name>，mountpoint 设到 <lxcpath>/<name>。
@@ -88,12 +86,34 @@ func CloneContainer(parent, base, name string) error {
 	return nil
 }
 
-// DestroyContainer 销毁容器 dataset <parent>/<name>（调用方再 rm 残留空目录）。
+// DestroyContainer 销毁容器 dataset <parent>/<name>（rename 到回收名后 destroy -r，连带其快照）。
+// 调用方再 os.RemoveAll 清理残留空目录。
 func DestroyContainer(parent, name string) error {
-	if res := utils.ExecCommand("zfs", "destroy", ContainerDataset(parent, name)); res.Error != nil {
-		return fmt.Errorf("zfs destroy 容器失败: %w", res.Error)
+	return renameAndDestroy(ContainerDataset(parent, name))
+}
+
+// renameAndDestroy 先把 dataset rename 到 .del-<ts> 回收名（释放原名、隔离失败），
+// 再 zfs destroy -r（连带快照/子 dataset）。直接 destroy 在有快照（lxc-snapshot）时会失败。
+// rename 失败（dataset 已不存在等）则兜底直接 destroy -r 原名。
+func renameAndDestroy(ds string) error {
+	trash := ds + ".del-" + time.Now().UTC().Format("20060102-150405")
+	if res := utils.ExecCommand("zfs", "rename", ds, trash); res.Error == nil {
+		if res := utils.ExecCommand("zfs", "destroy", "-r", trash); res.Error != nil {
+			return fmt.Errorf("zfs destroy -r %s 失败: %w", trash, res.Error)
+		}
+		return nil
+	}
+	// rename 失败 → 兜底直接 destroy -r 原名（dataset 可能已不存在，错误由调用方记录）
+	if res := utils.ExecCommand("zfs", "destroy", "-r", ds); res.Error != nil {
+		return fmt.Errorf("zfs destroy -r %s 失败: %w", ds, res.Error)
 	}
 	return nil
+}
+
+// IsLxcpathZfs 报告 lxcpath 是否挂载在一个 zfs dataset 上（用于前端给"dir on zfs"提示）。
+func IsLxcpathZfs(lxcpath string) bool {
+	res := utils.ExecCommand("zfs", "list", "-Ho", "name", lxcpath)
+	return res.Error == nil && strings.TrimSpace(res.Stdout) != ""
 }
 
 // IsZfsContainer 判断 <lxcpath>/<name> 是否本身就是 zfs dataset 挂载点（zfs 容器），

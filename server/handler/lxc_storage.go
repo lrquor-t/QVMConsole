@@ -83,3 +83,16 @@ func LXCRelocateStorage(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "迁移任务已提交", "data": gin.H{"task_id": task.ID}})
 }
+
+// LXCStorageBackingInfo 返回 lxc 目录路径、是否在 zfs 上、默认 backing，供前端导入页给提示。
+func LXCStorageBackingInfo(c *gin.Context) {
+	cfg := config.GlobalConfig
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200, "message": "ok",
+		"data": gin.H{
+			"lxcpath":         cfg.LXCLxcPath,
+			"is_zfs":          service.LXCIsLxcpathZfs(cfg.LXCLxcPath),
+			"default_backing": cfg.LXCDefaultBacking,
+		},
+	})
+}

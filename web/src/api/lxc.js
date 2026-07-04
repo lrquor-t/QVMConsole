@@ -105,3 +105,8 @@ export function probeLXCTemplate(data) {
 export function relocateLXCStorage(data) {
   return request({ url: '/lxc/storage/relocate', method: 'post', data })
 }
+
+// lxc 目录是否在 zfs 上 + 默认 backing（导入页提示用）
+export function getLXCBackingInfo() {
+  return request({ url: '/lxc/storage/backing-info', method: 'get' })
+}
