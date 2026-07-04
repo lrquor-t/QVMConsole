@@ -110,3 +110,8 @@ export function relocateLXCStorage(data) {
 export function getLXCBackingInfo() {
   return request({ url: '/lxc/storage/backing-info', method: 'get' })
 }
+
+// lxc-create -t download 官方镜像清单（distro/release/arch）
+export function getLXCDownloadList() {
+  return request({ url: '/lxc/download/list', method: 'get' })
+}

@@ -121,11 +121,34 @@
           <el-input :model-value="containerPathPreview" disabled />
           <div class="form-tip" style="font-size:12px;color:var(--el-text-color-secondary);margin-top:2px">容器将创建于此（rootfs 在其下）；目录由系统设置「LXC 容器目录」决定。</div>
         </el-form-item>
-        <el-form-item label="模板" required>
+        <el-form-item label="来源">
+          <el-radio-group v-model="createForm.source">
+            <el-radio value="clone">克隆模板</el-radio>
+            <el-radio value="download">官方镜像下载</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="createForm.source === 'clone'" label="模板" required>
           <el-select v-model="createForm.template" style="width:100%">
             <el-option v-for="t in templates" :key="t.name" :label="t.display_name || t.name" :value="t.name" :disabled="t.disabled" />
           </el-select>
         </el-form-item>
+        <template v-else>
+          <el-form-item label="发行版" required>
+            <el-select v-model="createForm.distro" filterable :loading="downloadLoading" placeholder="选择发行版" style="width:100%">
+              <el-option v-for="d in dlDistros" :key="d" :label="d" :value="d" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="版本" required>
+            <el-select v-model="createForm.release" filterable :disabled="!createForm.distro" placeholder="选择版本" style="width:100%">
+              <el-option v-for="r in dlReleases" :key="r" :label="r" :value="r" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="架构" required>
+            <el-select v-model="createForm.arch" :disabled="!createForm.release" placeholder="选择架构" style="width:100%">
+              <el-option v-for="a in dlArches" :key="a" :label="a" :value="a" />
+            </el-select>
+          </el-form-item>
+        </template>
         <el-form-item label="CPU 权重"><el-input-number v-model="createForm.cpu_shares" :min="0" /></el-form-item>
         <el-form-item label="内存(MB)"><el-input-number v-model="createForm.memory_mb" :min="0" /></el-form-item>
         <el-form-item label="自动启动"><el-switch v-model="createForm.autostart" /></el-form-item>
@@ -173,14 +196,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Refresh, VideoPlay, SwitchButton, Monitor, MoreFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import {
   getLXCList, createLXC, operateLXC, deleteLXC, batchOperateLXC,
-  updateLXCConfig, getLXCTemplateList,
+  updateLXCConfig, getLXCTemplateList, getLXCDownloadList,
   listLXCSnapshots, createLXCSnapshot, restoreLXCSnapshot, deleteLXCSnapshot
 } from '@/api/lxc'
 import { getSettings } from '@/api/settings'
@@ -263,9 +286,9 @@ const openConsole = (row) => {
 const createVisible = ref(false); const creating = ref(false)
 const templates = ref([])
 const lxcLxcPath = ref('') // LXC 容器根目录，用于在创建弹窗展示容器落盘位置
-const createForm = ref({ name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '' })
+const createForm = ref({ name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '', source: 'clone', distro: '', release: '', arch: '' })
 const openCreate = async () => {
-  createForm.value = { name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '' }
+  createForm.value = { name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '', source: 'clone', distro: '', release: '', arch: '' }
   try { const r = await getLXCTemplateList(); templates.value = r.data || [] } catch (e) {}
   if (!lxcLxcPath.value) { try { const s = await getSettings(); lxcLxcPath.value = s.data?.lxc_lxc_path || '' } catch (e) {} }
   createVisible.value = true
@@ -275,8 +298,36 @@ const containerPathPreview = computed(() => {
   const name = createForm.value.name ? createForm.value.name : '<名称>'
   return `${base}/${name}/`
 })
+
+// 官方镜像下载（source=download）
+const downloadList = ref([])
+const downloadLoading = ref(false)
+const fetchDownloadList = async () => {
+  if (downloadList.value.length || downloadLoading.value) return
+  downloadLoading.value = true
+  try { const r = await getLXCDownloadList(); downloadList.value = r.data || [] }
+  catch (e) { ElMessage.error('获取镜像清单失败（需宿主机外网）') }
+  finally { downloadLoading.value = false }
+}
+const dlDistros = computed(() => [...new Set(downloadList.value.map(e => e.distro))].sort())
+const dlReleases = computed(() => [...new Set(downloadList.value.filter(e => e.distro === createForm.value.distro).map(e => e.release))].sort())
+const dlArches = computed(() => downloadList.value.filter(e => e.distro === createForm.value.distro && e.release === createForm.value.release).map(e => e.arch))
+// 切发行版时重置下游版本/架构，避免选了不存在的组合
+watch(() => createForm.value.distro, () => { createForm.value.release = ''; createForm.value.arch = '' })
+watch(() => createForm.value.release, () => {
+  // 默认 amd64（x86_64 原生；arm64 经 qemu/binfmt 也可跑）；该 distro+release 没有则取首个
+  createForm.value.arch = dlArches.value.includes('amd64') ? 'amd64' : (dlArches.value[0] || '')
+})
+// 切到 download 时懒加载清单
+watch(() => createForm.value.source, (s) => { if (s === 'download') fetchDownloadList() })
+
 const handleCreate = async () => {
-  if (!createForm.value.name || !createForm.value.template) { ElMessage.warning('请填写名称与模板'); return }
+  if (!createForm.value.name) { ElMessage.warning('请填写名称'); return }
+  if (createForm.value.source === 'clone') {
+    if (!createForm.value.template) { ElMessage.warning('请选择模板'); return }
+  } else {
+    if (!createForm.value.distro || !createForm.value.release || !createForm.value.arch) { ElMessage.warning('请选择发行版/版本/架构'); return }
+  }
   creating.value = true
   try { await createLXC(createForm.value); ElMessage.success('创建任务已提交'); createVisible.value = false; fetchData() } catch (e) {} finally { creating.value = false }
 }
