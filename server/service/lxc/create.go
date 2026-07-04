@@ -27,6 +27,10 @@ type CreateContainerParams struct {
 	Autostart       bool   `json:"autostart"`
 	SwitchID        uint   `json:"switch_id"`
 	SecurityGroupID uint   `json:"security_group_id"`
+	Source          string `json:"source"`  // clone（默认/空）| download
+	Distro          string `json:"distro"`  // download 模式：发行版
+	Release         string `json:"release"` // download 模式：版本
+	Arch            string `json:"arch"`    // download 模式：架构
 }
 
 // ParseCreateContainerParams 反序列化任务参数 JSON。
@@ -60,6 +64,9 @@ func isReservedName(name string) bool {
 
 // CreateContainer 由模板克隆创建容器（异步任务调用）。progress 上报进度。
 func CreateContainer(params *CreateContainerParams, progress func(int, string)) error {
+	if params.Source == "download" {
+		return createFromDownload(params, progress)
+	}
 	if progress == nil {
 		progress = func(int, string) {}
 	}
@@ -213,4 +220,104 @@ func autoVal(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// createFromDownload 用 lxc-create -t download 从官方镜像建容器（一次性，非模板克隆）。
+// backing 跟随 LXCDefaultBacking：zfs 先建 dataset 再 lxc-create；dir 直接 lxc-create。
+func createFromDownload(params *CreateContainerParams, progress func(int, string)) error {
+	if progress == nil {
+		progress = func(int, string) {}
+	}
+	if err := validateContainerName(params.Name); err != nil {
+		return err
+	}
+	if params.OwnerUsername == "" {
+		params.OwnerUsername = "admin"
+	}
+	lxcpath := config.GlobalConfig.LXCLxcPath
+	backing := config.GlobalConfig.LXCDefaultBacking
+
+	// zfs：先建容器 dataset（lxc-create -t download 会把 config+rootfs 填进去）
+	zfsParent := ""
+	if backing == "zfs" {
+		p, err := ZfsResolveParent(lxcpath)
+		if err != nil {
+			return err
+		}
+		zfsParent = p
+		if err := zfsCreateContainerDataset(zfsParent, params.Name); err != nil {
+			return err
+		}
+	}
+
+	progress(20, "下载镜像并创建容器…")
+	cr := utils.ExecCommandLongRunning("lxc-create", "-t", "download", "-n", params.Name, "--",
+		"-d", params.Distro, "-r", params.Release, "-a", params.Arch)
+	if cr.Error != nil {
+		if zfsParent != "" {
+			_ = zfsDestroyContainer(zfsParent, params.Name) // 回滚 dataset
+		}
+		return fmt.Errorf("lxc-create -t download 失败: %w (stdout: %q)", cr.Error, cr.Stdout)
+	}
+
+	mac := genMacByName(params.Name)
+	if err := applyDownloadConfig(params, mac); err != nil {
+		_ = DestroyContainer(params.Name)
+		return err
+	}
+
+	row := model.LXCCache{
+		Name:          params.Name,
+		OwnerUsername: params.OwnerUsername,
+		Status:        "STOPPED",
+		Template:      "download:" + params.Distro,
+		Backing:       backing,
+		CPUShares:     params.CPUShares,
+		MemoryMB:      params.MemoryMB,
+		Autostart:     params.Autostart,
+		Remark:        params.Remark,
+		GroupName:     params.GroupName,
+		MacAddress:    mac,
+		Present:       true,
+	}
+	if err := model.DB.Create(&row).Error; err != nil {
+		_ = DestroyContainer(params.Name)
+		return fmt.Errorf("保存容器记录失败: %w", err)
+	}
+
+	progress(80, "启动容器")
+	if err := StartContainer(params.Name); err != nil {
+		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)
+	}
+	progress(90, "接入 VPC 网络")
+	if err := AttachContainerToVPC(params.Name, params.SwitchID, params.SecurityGroupID); err != nil {
+		logger.App.Warn("容器 VPC 接入失败", "name", params.Name, "error", err)
+	}
+	_ = RefreshRuntimeFields(params.Name)
+	progress(100, "完成")
+	return nil
+}
+
+// applyDownloadConfig 给 lxc-create -t download 生成的容器 config 追加：net.0.link=br-ovs
+// （覆盖默认 lxcbr0，last-wins）+ per-container mac/cgroup/autostart。
+func applyDownloadConfig(p *CreateContainerParams, mac string) error {
+	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
+	lines := []string{
+		"lxc.net.0.link = br-ovs",
+		"lxc.net.0.hwaddr = " + mac,
+		"lxc.cgroup2.cpu.weight = " + itoaDefault(p.CPUShares, 256),
+		"lxc.cgroup2.memory.max = " + memMax(p.MemoryMB),
+		"lxc.start.auto = " + autoVal(p.Autostart),
+	}
+	content := ""
+	for _, l := range lines {
+		content += l + "\n"
+	}
+	f, err := openForAppend(cfg)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
 }

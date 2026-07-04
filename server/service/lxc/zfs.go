@@ -33,4 +33,7 @@ func zfsCloneContainer(parent, base, name string) error {
 	return zfsbacking.CloneContainer(parent, base, name)
 }
 func zfsDestroyContainer(parent, name string) error { return zfsbacking.DestroyContainer(parent, name) }
-func isZfsContainer(name string) bool               { return zfsbacking.IsZfsContainer(name) }
+func zfsCreateContainerDataset(parent, name string) error {
+	return zfsbacking.CreateContainerDataset(parent, name)
+}
+func isZfsContainer(name string) bool { return zfsbacking.IsZfsContainer(name) }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -12,7 +13,7 @@ import (
 
 type createLXCReq struct {
 	Name            string `json:"name" binding:"required"`
-	Template        string `json:"template" binding:"required"`
+	Template        string `json:"template"`
 	Remark          string `json:"remark"`
 	GroupName       string `json:"group_name"`
 	CPUShares       int    `json:"cpu_shares"`
@@ -20,13 +21,36 @@ type createLXCReq struct {
 	Autostart       bool   `json:"autostart"`
 	SwitchID        uint   `json:"switch_id"`
 	SecurityGroupID uint   `json:"security_group_id"`
+	Source          string `json:"source"` // clone（默认/空）| download
+	Distro          string `json:"distro"`
+	Release         string `json:"release"`
+	Arch            string `json:"arch"`
 }
 
 // CreateLXCContainer 提交异步创建容器任务（克隆模板金基底）。
 func CreateLXCContainer(c *gin.Context) {
 	var req createLXCReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: name/template 必填"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: name 必填"})
+		return
+	}
+	source := req.Source
+	if source == "" {
+		source = "clone"
+	}
+	switch source {
+	case "clone":
+		if req.Template == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "克隆模式必须选择模板"})
+			return
+		}
+	case "download":
+		if strings.TrimSpace(req.Distro) == "" || strings.TrimSpace(req.Release) == "" || strings.TrimSpace(req.Arch) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "镜像下载模式必须填写发行版/版本/架构"})
+			return
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未知来源: " + req.Source})
 		return
 	}
 	username, _ := c.Get("username")
@@ -41,6 +65,10 @@ func CreateLXCContainer(c *gin.Context) {
 		Autostart:       req.Autostart,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID,
+		Source:          req.Source,
+		Distro:          req.Distro,
+		Release:         req.Release,
+		Arch:            req.Arch,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCCreate, params, username.(string))
 	if err != nil {

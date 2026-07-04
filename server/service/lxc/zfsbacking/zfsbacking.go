@@ -99,6 +99,15 @@ func DestroyContainer(parent, name string) error {
 	return renameAndDestroy(ContainerDataset(parent, name))
 }
 
+// CreateContainerDataset 创建容器 dataset <parent>/<name>（download 模式 zfs backing 用：
+// 先建 dataset，再 lxc-create -t download 把 rootfs 填进去）。
+func CreateContainerDataset(parent, name string) error {
+	if res := utils.ExecCommand("zfs", "create", "-p", ContainerDataset(parent, name)); res.Error != nil {
+		return fmt.Errorf("zfs create 容器 dataset 失败: %w", res.Error)
+	}
+	return nil
+}
+
 // renameAndDestroy 先把 dataset rename 到 .del-<ts> 回收名（释放原名、隔离失败），
 // 再 zfs destroy -r（连带快照/子 dataset）。直接 destroy 在有快照（lxc-snapshot）时会失败。
 // rename 失败（dataset 已不存在等）则兜底直接 destroy -r 原名。
