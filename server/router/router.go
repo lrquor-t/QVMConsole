@@ -257,6 +257,8 @@ func Setup() *gin.Engine {
 				// LXC 存储目录迁移/切换（仅管理员）
 				lxcGroup.POST("/storage/relocate", middleware.AdminMiddleware(), handler.LXCRelocateStorage)
 				lxcGroup.GET("/storage/backing-info", middleware.AdminMiddleware(), handler.LXCStorageBackingInfo)
+				// LXC 官方镜像清单（仅管理员）
+				lxcGroup.GET("/download/list", middleware.AdminMiddleware(), handler.LXCDownloadList)
 				lxcGroup.GET("/:name/ip", handler.GetLXCContainerIP)
 				lxcGroup.GET("/:name/console/ws", handler.LxcConsoleWS)
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)

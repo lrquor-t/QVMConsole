@@ -94,3 +94,11 @@ func LXCCascadeImportDir(oldLxcPath, newLxcPath, curImportDir string) string {
 func LXCIsLxcpathZfs(lxcpath string) bool {
 	return zfsbacking.IsLxcpathZfs(lxcpath)
 }
+
+// LXCDownloadImageEntry 透出 lxc.DownloadImageEntry。
+type LXCDownloadImageEntry = lxc.DownloadImageEntry
+
+// LXCDownloadList 拉取官方镜像清单（带缓存）。
+func LXCDownloadList() ([]lxc.DownloadImageEntry, error) {
+	return lxc.DownloadImageList()
+}
