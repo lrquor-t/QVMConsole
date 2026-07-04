@@ -15,8 +15,8 @@ func TestLXCConfigDefaults(t *testing.T) {
 	if GlobalConfig.LXCLxcPath != "/var/lib/lxc" {
 		t.Fatalf("LXCLxcPath default = %q, want /var/lib/lxc", GlobalConfig.LXCLxcPath)
 	}
-	if GlobalConfig.LXCDefaultBacking != "overlay" {
-		t.Fatalf("LXCDefaultBacking default = %q, want overlay", GlobalConfig.LXCDefaultBacking)
+	if GlobalConfig.LXCDefaultBacking != "dir" {
+		t.Fatalf("LXCDefaultBacking default = %q, want dir", GlobalConfig.LXCDefaultBacking)
 	}
 	if GlobalConfig.LXCBasePrefix != "lxc__tmpl__" {
 		t.Fatalf("LXCBasePrefix default = %q, want lxc__tmpl__", GlobalConfig.LXCBasePrefix)

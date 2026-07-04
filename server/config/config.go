@@ -307,7 +307,7 @@ func Init() {
 		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
 		LXCLxcPath:                            getEnv("KVM_LXC_LXC_PATH", "/var/lib/lxc"),
 		LXCTemplateImportDir:                  getEnv("KVM_LXC_TEMPLATE_IMPORT_DIR", filepath.Join("/var/lib/lxc", "_imports")),
-		LXCDefaultBacking:                     getEnv("KVM_LXC_DEFAULT_BACKING", "overlay"),
+		LXCDefaultBacking:                     getEnv("KVM_LXC_DEFAULT_BACKING", "dir"),
 		LXCBasePrefix:                         getEnv("KVM_LXC_BASE_PREFIX", "lxc__tmpl__"),
 	}
 	// 解析可信代理列表

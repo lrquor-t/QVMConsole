@@ -20,9 +20,10 @@ type finalizeLXCTemplateReq struct {
 	Release           string `json:"release"`
 	Arch              string `json:"arch"`
 	Description       string `json:"description"`
-	SourcePath        string `json:"source_path"`        // 上传落地的临时 tarball 路径
-	HostPath          string `json:"host_path"`          // 或主机绝对路径
+	SourcePath        string `json:"source_path"` // 上传落地的临时 tarball 路径
+	HostPath          string `json:"host_path"`   // 或主机绝对路径
 	PostCreateCommand string `json:"post_create_command"`
+	Backing           string `json:"backing"` // dir / overlay / zfs（空=全局默认）
 }
 
 // FinalizeLXCTemplate 提交异步导入任务（由上传或主机路径的 tarball 创建模板）。
@@ -49,7 +50,7 @@ func FinalizeLXCTemplate(c *gin.Context) {
 		Name: req.Name, DisplayName: req.DisplayName, Distro: req.Distro,
 		Release: req.Release, Arch: req.Arch, Description: req.Description,
 		SourcePath: src, PostCreateCommand: req.PostCreateCommand,
-		OwnerUsername: username.(string),
+		Backing: req.Backing, OwnerUsername: username.(string),
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCTemplateImport, params, username.(string))
 	if err != nil {
