@@ -133,7 +133,7 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 		SHA256:            info.SHA256,
 	}
 	if err := model.DB.Create(&tpl).Error; err != nil {
-		destroyBaseQuiet(base, backing)
+		_ = destroyBase(base, backing)
 		return fmt.Errorf("保存模板记录失败: %w", err)
 	}
 
@@ -177,15 +177,16 @@ func extractRootfsInto(rootfs, src, member string, report func(int, string)) err
 	return nil
 }
 
-// destroyBaseQuiet 失败回滚：zfs 销毁 dataset；dir/overlay 走 destroyContainerQuiet。
-func destroyBaseQuiet(base, backing string) {
+// destroyBase 按 backing 销毁基底：zfs → DestroyBase（含 @base 快照）；dir/overlay → destroyContainerQuiet。
+func destroyBase(base, backing string) error {
 	if backing == "zfs" {
-		if parent, err := zfsbacking.ResolveParent(config.GlobalConfig.LXCLxcPath); err == nil {
-			_ = zfsbacking.DestroyBase(parent, base)
+		parent, err := zfsbacking.ResolveParent(config.GlobalConfig.LXCLxcPath)
+		if err != nil {
+			return err
 		}
-		return
+		return zfsbacking.DestroyBase(parent, base)
 	}
-	_ = destroyContainerQuiet(base)
+	return destroyContainerQuiet(base)
 }
 
 // composeBaseConfig 纯函数：把 lxc-create 生成的 existing 内容去重后追加我们的覆盖项。
