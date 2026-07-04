@@ -108,17 +108,6 @@
           </el-select>
           <div class="arch-hint">跟随宿主机架构，不可更改</div>
         </el-form-item>
-        <el-form-item label="存储后端">
-          <el-select v-model="importForm.backing" placeholder="留空=用系统默认" style="width:100%">
-            <el-option label="dir（整盘拷贝，通用）" value="dir" />
-            <el-option label="zfs（快照克隆，秒级/省盘，需 lxc 目录在 zfs 上）" value="zfs" />
-            <el-option label="overlay（LXC 5.0+ 克隆不可用）" value="overlay" disabled />
-          </el-select>
-          <div class="form-tip">zfs 推荐：克隆秒级、零额外磁盘。dir 兼容性最好但每容器整盘拷贝。overlay 在 LXC 5.0.2 上克隆会被拒。</div>
-          <div v-if="lxcIsZfs && importForm.backing !== 'zfs'" class="form-tip" style="color:#e6a23c">
-            检测到 LXC 目录在 zfs 上：选 zfs 后端克隆秒级、零额外磁盘，更省资源。
-          </div>
-        </el-form-item>
         <el-form-item label="创建后命令">
           <el-input v-model="importForm.post_create_command" type="textarea" :rows="2" placeholder="可选：首次创建容器后 lxc-attach 执行" />
         </el-form-item>
@@ -144,7 +133,7 @@ import { getSettings } from '@/api/settings'
 import {
   getLXCTemplateList, finalizeLXCTemplate, deleteLXCTemplate,
   lxcTemplateUploadInit, lxcTemplateUploadChunk, lxcTemplateUploadComplete, lxcTemplateUploadCancel,
-  probeLXCTemplate, getLXCBackingInfo
+  probeLXCTemplate
 } from '@/api/lxc'
 
 const tableData = ref([])
@@ -160,8 +149,7 @@ const uploadedPath = ref('')
 const rawFile = ref(null)
 const probeOk = ref(false)
 const probeMsg = ref('')
-const lxcIsZfs = ref(false)
-const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '', backing: '' })
+const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '' })
 
 const canImport = computed(() => {
   if (!importForm.value.name) return false
@@ -169,7 +157,7 @@ const canImport = computed(() => {
 })
 
 const resetImportState = () => {
-  importForm.value = { name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '', backing: '' }
+  importForm.value = { name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '' }
   rawFile.value = null
   uploadedPath.value = ''
   uploading.value = false
@@ -306,7 +294,6 @@ const handleImport = async () => {
       release: importForm.value.release,
       arch: importForm.value.arch,
       post_create_command: importForm.value.post_create_command,
-      backing: importForm.value.backing,
     }
     if (importForm.value.mode === 'upload') {
       payload.source_path = uploadedPath.value
@@ -379,7 +366,6 @@ const handleDelete = async (row) => {
 }
 
 onMounted(fetchData)
-getLXCBackingInfo().then(res => { lxcIsZfs.value = !!(res.data && res.data.is_zfs) }).catch(() => {})
 </script>
 
 <style scoped>
