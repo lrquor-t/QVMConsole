@@ -102,8 +102,13 @@ func DestroyContainer(parent, name string) error {
 // CreateContainerDataset 创建容器 dataset <parent>/<name>（download 模式 zfs backing 用：
 // 先建 dataset，再 lxc-create -t download 把 rootfs 填进去）。
 func CreateContainerDataset(parent, name string) error {
-	if res := utils.ExecCommand("zfs", "create", "-p", ContainerDataset(parent, name)); res.Error != nil {
+	ds := ContainerDataset(parent, name)
+	if res := utils.ExecCommand("zfs", "create", "-p", ds); res.Error != nil {
 		return fmt.Errorf("zfs create 容器 dataset 失败: %w", res.Error)
+	}
+	// 显式设 mountpoint（不依赖父 dataset 的 mountpoint 继承），确保 dataset 挂在 <lxcpath>/<name>
+	if res := utils.ExecCommand("zfs", "set", "mountpoint="+ContainerMountpoint(config.GlobalConfig.LXCLxcPath, name), ds); res.Error != nil {
+		return fmt.Errorf("zfs set mountpoint 失败: %w", res.Error)
 	}
 	return nil
 }

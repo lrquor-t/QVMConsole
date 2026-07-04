@@ -311,7 +311,7 @@ const fetchDownloadList = async () => {
 }
 const dlDistros = computed(() => [...new Set(downloadList.value.map(e => e.distro))].sort())
 const dlReleases = computed(() => [...new Set(downloadList.value.filter(e => e.distro === createForm.value.distro).map(e => e.release))].sort())
-const dlArches = computed(() => downloadList.value.filter(e => e.distro === createForm.value.distro && e.release === createForm.value.release).map(e => e.arch))
+const dlArches = computed(() => [...new Set(downloadList.value.filter(e => e.distro === createForm.value.distro && e.release === createForm.value.release).map(e => e.arch))].sort())
 // 切发行版时重置下游版本/架构，避免选了不存在的组合
 watch(() => createForm.value.distro, () => { createForm.value.release = ''; createForm.value.arch = '' })
 watch(() => createForm.value.release, () => {

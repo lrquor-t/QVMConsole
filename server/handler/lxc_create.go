@@ -65,7 +65,7 @@ func CreateLXCContainer(c *gin.Context) {
 		Autostart:       req.Autostart,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID,
-		Source:          req.Source,
+		Source:          source,
 		Distro:          req.Distro,
 		Release:         req.Release,
 		Arch:            req.Arch,
