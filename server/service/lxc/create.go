@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 
@@ -77,12 +78,10 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 	}
 	progress(10, "校验完成，开始克隆")
 
-	// lxc-copy -n <base> -N <name> -B <backing>
-	res := utils.ExecCommandLongRunning("lxc-copy", "-n", tpl.BaseContainerName, "-N", params.Name, "-B", tpl.Backing)
-	if res.Error != nil {
-		// lxc-copy 的真实错误常打到 stdout（stderr 多为空），res.Error 只含 stderr，
-		// 必须把 stdout 一起带出，否则排查无门。
-		return fmt.Errorf("克隆失败: %w (lxc-copy stdout: %q)", res.Error, res.Stdout)
+	// 克隆（按 backing 分支）：zfs 走手动 clone（CoW）+ 改 config；dir/overlay 走 lxc-copy。
+	progress(20, "克隆容器（"+tpl.Backing+"）")
+	if err := cloneContainer(params.Name, tpl); err != nil {
+		return err
 	}
 	progress(50, "克隆完成，写入配置")
 
@@ -132,6 +131,41 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		_ = utils.ExecCommandQuiet("bash", "-c", "lxc-attach -n "+utils.ShellSingleQuote(params.Name)+" -- "+tpl.PostCreateCommand)
 	}
 	progress(100, "完成")
+	return nil
+}
+
+// cloneContainer 按 backing 克隆基底。
+// zfs：zfs clone <parent>/<base>@base → <parent>/<name>（mountpoint <lxcpath>/<name>），克隆继承基底
+// config+rootfs（CoW），把 config 的 rootfs.path 改成 <lxcpath>/<name>/rootfs。
+// dir/overlay：lxc-copy（overlay 在 LXC 5.0.2 克隆会失败，错误带 stdout）。
+func cloneContainer(name string, tpl *model.LXCTemplate) error {
+	lxcpath := config.GlobalConfig.LXCLxcPath
+	if tpl.Backing == "zfs" {
+		parent, err := ZfsResolveParent(lxcpath)
+		if err != nil {
+			return err
+		}
+		if err := zfsCloneContainer(parent, tpl.BaseContainerName, name); err != nil {
+			return fmt.Errorf("zfs 克隆失败: %w", err)
+		}
+		// 克隆 dataset 已挂载在 <lxcpath>/<name>，config 继承自基底；改 rootfs.path 指向自己的 rootfs。
+		cfgPath := filepath.Join(lxcpath, name, "config")
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return fmt.Errorf("读克隆 config 失败: %w", err)
+		}
+		rewritten := rewriteRootfsPathForClone(string(data),
+			filepath.Join(lxcpath, tpl.BaseContainerName, "rootfs"),
+			filepath.Join(lxcpath, name, "rootfs"))
+		if err := os.WriteFile(cfgPath, []byte(rewritten), 0644); err != nil {
+			return fmt.Errorf("写克隆 config 失败: %w", err)
+		}
+		return nil
+	}
+	res := utils.ExecCommandLongRunning("lxc-copy", "-n", tpl.BaseContainerName, "-N", name, "-B", tpl.Backing)
+	if res.Error != nil {
+		return fmt.Errorf("克隆失败: %w (lxc-copy stdout: %q)", res.Error, res.Stdout)
+	}
 	return nil
 }
 
