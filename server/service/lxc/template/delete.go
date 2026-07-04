@@ -18,9 +18,12 @@ func DeleteTemplate(name string) error {
 	if cnt > 0 {
 		return errors.New("存在使用该模板的容器，请先删除相关容器")
 	}
-	// destroyBase 按 backing 分支销毁：zfs → DestroyBase（含 @base 快照）；dir/overlay → lxc-destroy。
-	if err := destroyBase(tpl.BaseContainerName, tpl.Backing); err != nil {
-		return errors.New("销毁基底容器失败: " + err.Error())
+	// 基底可能已被手工删除（lxc-info 找不到 config）→ 跳过 destroy 直接删 DB 行；存在才 destroy。
+	// existsContainer 用 lxc-info，对 dir/zfs backing 都适用（两者 config 都在 <lxcpath>/<base>/config）。
+	if existsContainer(tpl.BaseContainerName) {
+		if err := destroyBase(tpl.BaseContainerName, tpl.Backing); err != nil {
+			return errors.New("销毁基底容器失败: " + err.Error())
+		}
 	}
 	if err := model.DB.Delete(tpl).Error; err != nil {
 		return err
