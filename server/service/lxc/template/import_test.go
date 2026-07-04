@@ -38,6 +38,26 @@ func TestValidateImportParams(t *testing.T) {
 	}
 }
 
+func TestValidateImportParams_Backing(t *testing.T) {
+	cases := []struct {
+		b  string
+		ok bool
+	}{
+		{"", true}, {"dir", true}, {"overlay", true}, {"zfs", true},
+		{"btrfs", false}, {"ZFS", false},
+	}
+	for _, c := range cases {
+		p := &ImportParams{Name: "tm", SourcePath: "/x.tar", Backing: c.b}
+		err := validateImportParams(p)
+		if c.ok && err != nil {
+			t.Errorf("backing=%q 应通过，错误: %v", c.b, err)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("backing=%q 应被拒", c.b)
+		}
+	}
+}
+
 // buildRootfsTar 用 GNU tar 在 dir 下打出含 rootfs/ 的压缩包。
 // compress: "gz" | "xz" | "none"。flat=true 时不套 rootfs/ 层（造缺 rootfs 用例）。
 // dotPrefix=true 时打包成 ./rootfs/ 形态（社区 rootfs 常见：tar -C dir ./rootfs）。

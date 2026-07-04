@@ -14,6 +14,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	archpkg "kvm_console/service/arch"
+	"kvm_console/service/lxc/zfsbacking"
 	"kvm_console/utils"
 )
 
@@ -52,7 +53,10 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 		return err
 	}
 	params.Arch = hostArch
-	backing := config.GlobalConfig.LXCDefaultBacking
+	backing := strings.TrimSpace(params.Backing)
+	if backing == "" {
+		backing = config.GlobalConfig.LXCDefaultBacking
+	}
 	base := baseContainerName(params.Name)
 
 	// 校验 tarball（结构 + os-release；sha/size 由其返回）
@@ -73,32 +77,43 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 		return fmt.Errorf("基底容器 %s 已存在", base)
 	}
 
-	// 创建金基底容器：lxc-create -n <base> -t none -B <backing>
-	report(30, "创建基底容器")
-	cre := utils.ExecCommandLongRunning("lxc-create", "-n", base, "-t", "none", "-B", backing)
-	if cre.Error != nil {
-		return fmt.Errorf("创建基底容器失败: %w", cre.Error)
-	}
-	// 解包 tarball 到 rootfs（清空后解包）
+	// 创建基底 + 解包 + 写 config（按 backing 分支）。zfs：zfs create 一个 dataset；dir/overlay：lxc-create -t none。
+	// 两者 rootfs.path 都是普通目录 <lxcpath>/<base>/rootfs，故 config 写入共用 writeBaseConfig。
 	rootfs := filepath.Join(config.GlobalConfig.LXCLxcPath, base, "rootfs")
-	if err := os.MkdirAll(rootfs, 0755); err != nil {
-		return fmt.Errorf("创建 rootfs 目录失败: %w", err)
-	}
-	// 只取 rootfs/ 子树，去 rootfs/ 前缀，落入 <base>/rootfs/；-xf auto-detect 压缩格式。
-	// 成员名按归档原始形态传入（rootfs 或 ./rootfs）。GNU tar 的 --strip-components 按文件系统
-	// 路径段计数：对 "./rootfs/bin/sh"，strip=1 会留下 "rootfs/bin/sh"（双重前缀 bug），故须按
-	// 成员名段数取 strip：rootfs→1，./rootfs→2，使两种存储形态最终都落在 <rootfs>/bin/sh。
-	strip := strings.Count(info.RootfsMember, "/") + 1
-	report(50, "解包 rootfs（大包较慢，请稍候）")
-	ex := utils.ExecCommandLongRunning("tar", "-xf", params.SourcePath, "-C", rootfs, "--strip-components", strconv.Itoa(strip), info.RootfsMember)
-	if ex.Error != nil {
-		_ = destroyContainerQuiet(base)
-		return fmt.Errorf("解包 rootfs 失败: %w", ex.Error)
-	}
-	// 写基底 config 默认值（lxc-copy 继承）
-	if err := writeBaseConfig(base, params.Arch); err != nil {
-		_ = destroyContainerQuiet(base)
-		return err
+	report(30, "创建基底容器（"+backing+"）")
+	if backing == "zfs" {
+		parent, err := zfsbacking.ResolveParent(config.GlobalConfig.LXCLxcPath)
+		if err != nil {
+			return err
+		}
+		if err := zfsbacking.CreateBase(parent, base); err != nil {
+			return err
+		}
+		if err := extractRootfsInto(rootfs, params.SourcePath, info.RootfsMember, report); err != nil {
+			_ = zfsbacking.DestroyBase(parent, base)
+			return err
+		}
+		if err := writeBaseConfig(base, params.Arch); err != nil {
+			_ = zfsbacking.DestroyBase(parent, base)
+			return err
+		}
+		if err := zfsbacking.SnapshotBase(parent, base); err != nil {
+			_ = zfsbacking.DestroyBase(parent, base)
+			return err
+		}
+	} else {
+		cre := utils.ExecCommandLongRunning("lxc-create", "-n", base, "-t", "none", "-B", backing)
+		if cre.Error != nil {
+			return fmt.Errorf("创建基底容器失败: %w", cre.Error)
+		}
+		if err := extractRootfsInto(rootfs, params.SourcePath, info.RootfsMember, report); err != nil {
+			_ = destroyContainerQuiet(base)
+			return err
+		}
+		if err := writeBaseConfig(base, params.Arch); err != nil {
+			_ = destroyContainerQuiet(base)
+			return err
+		}
 	}
 
 	// 写 DB 行
@@ -119,7 +134,7 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 		SHA256:            info.SHA256,
 	}
 	if err := model.DB.Create(&tpl).Error; err != nil {
-		_ = destroyContainerQuiet(base)
+		destroyBaseQuiet(base, backing)
 		return fmt.Errorf("保存模板记录失败: %w", err)
 	}
 
@@ -149,6 +164,31 @@ func writeBaseConfig(base, arch string) error {
 	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch)+rootfsLine), 0644)
 }
 
+// extractRootfsInto 把 tarball 解到 rootfs（dir 普通目录 / zfs dataset 内子目录都一样）。
+func extractRootfsInto(rootfs, src, member string, report func(int, string)) error {
+	if err := os.MkdirAll(rootfs, 0755); err != nil {
+		return fmt.Errorf("创建 rootfs 目录失败: %w", err)
+	}
+	strip := strings.Count(member, "/") + 1
+	report(50, "解包 rootfs（大包较慢，请稍候）")
+	ex := utils.ExecCommandLongRunning("tar", "-xf", src, "-C", rootfs, "--strip-components", strconv.Itoa(strip), member)
+	if ex.Error != nil {
+		return fmt.Errorf("解包 rootfs 失败: %w", ex.Error)
+	}
+	return nil
+}
+
+// destroyBaseQuiet 失败回滚：zfs 销毁 dataset；dir/overlay 走 destroyContainerQuiet。
+func destroyBaseQuiet(base, backing string) {
+	if backing == "zfs" {
+		if parent, err := zfsbacking.ResolveParent(config.GlobalConfig.LXCLxcPath); err == nil {
+			_ = zfsbacking.DestroyBase(parent, base)
+		}
+		return
+	}
+	_ = destroyContainerQuiet(base)
+}
+
 // composeBaseConfig 纯函数：把 lxc-create 生成的 existing 内容去重后追加我们的覆盖项。
 // 去重规则：丢弃所有 lxc.net.* 与将被覆盖的标量键（arch/cgroup2.cpu.weight/
 // cgroup2.memory.max/start.auto）及空行/注释；保留其余键（rootfs.path/uts.name/include/apparmor…）。
@@ -161,10 +201,10 @@ func composeBaseConfig(existing, arch string) string {
 		lxcArch = "aarch64"
 	}
 	overriddenExact := map[string]bool{
-		"lxc.arch":                true,
-		"lxc.cgroup2.cpu.weight":  true,
-		"lxc.cgroup2.memory.max":  true,
-		"lxc.start.auto":          true,
+		"lxc.arch":               true,
+		"lxc.cgroup2.cpu.weight": true,
+		"lxc.cgroup2.memory.max": true,
+		"lxc.start.auto":         true,
 	}
 	var b strings.Builder
 	for _, line := range strings.Split(existing, "\n") {
@@ -243,10 +283,10 @@ func isInDir(path, dir string) bool {
 
 // RootfsInfo 是对 rootfs tarball 校验/探测的结果。
 type RootfsInfo struct {
-	SHA256      string
-	SizeBytes   int64
-	Distro      string // 来自 os-release 的 ID（best-effort）
-	Release     string // 来自 os-release 的 VERSION_ID（best-effort）
+	SHA256       string
+	SizeBytes    int64
+	Distro       string // 来自 os-release 的 ID（best-effort）
+	Release      string // 来自 os-release 的 VERSION_ID（best-effort）
 	RootfsMember string // 顶层 rootfs 目录在归档里的【原始】成员名（rootfs 或 ./rootfs），FinalizeImport 据此解包
 }
 

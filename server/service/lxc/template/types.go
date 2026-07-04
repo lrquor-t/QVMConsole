@@ -24,6 +24,7 @@ type ImportParams struct {
 	SourcePath        string `json:"source_path"`
 	PostCreateCommand string `json:"post_create_command"`
 	OwnerUsername     string `json:"owner_username"`
+	Backing           string `json:"backing"` // dir / overlay / zfs（空=用全局默认）
 }
 
 func baseContainerName(name string) string {
@@ -53,6 +54,9 @@ func validateImportParams(p *ImportParams) error {
 	}
 	if p.Arch != "" && p.Arch != "amd64" && p.Arch != "arm64" {
 		return errors.New("架构仅支持 amd64/arm64")
+	}
+	if p.Backing != "" && p.Backing != "dir" && p.Backing != "overlay" && p.Backing != "zfs" {
+		return errors.New("后端仅支持 dir / overlay / zfs")
 	}
 	return nil
 }
