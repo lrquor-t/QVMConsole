@@ -154,6 +154,18 @@ func DestroyContainerSnapshot(parent, name, snap string) error {
 
 // ListContainerSnapshots 列出容器 dataset 的用户快照（zfs 默认旧→新）。
 // 用 -H 制表符分隔，按 \t 切列（creation 含空格、comment 可含空格都安全），剥 ds@ 前缀得快照名。
+// normalizeZfsCreation 把 zfs creation 列在 LANG=C 下的英文格式（如 "Sun Jul  5 13:26 2026"）
+// 规整为 "2006-01-02 15:04:05"，与 dir 路径（lxc-snapshot -L）的输出一致，便于前端统一展示。
+// 解析失败则原样返回（去首尾空白）。
+func normalizeZfsCreation(s string) string {
+	collapsed := strings.Join(strings.Fields(s), " ") // 折叠多空格（zfs 单日会留双空格）
+	t, err := time.Parse("Mon Jan 2 15:04 2006", collapsed)
+	if err != nil {
+		return strings.TrimSpace(s)
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
 func ListContainerSnapshots(parent, name string) ([]ZfsSnapshot, error) {
 	ds := ContainerDataset(parent, name)
 	res := utils.ExecCommand("zfs", "list", "-H", "-t", "snapshot",
@@ -178,7 +190,7 @@ func ListContainerSnapshots(parent, name string) ([]ZfsSnapshot, error) {
 		}
 		out = append(out, ZfsSnapshot{
 			Name:      strings.TrimPrefix(f[0], prefix),
-			CreatedAt: f[1],
+			CreatedAt: normalizeZfsCreation(f[1]),
 			Comment:   comment,
 		})
 	}
