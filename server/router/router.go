@@ -250,7 +250,7 @@ func Setup() *gin.Engine {
 			{
 				lxcGroup.GET("/list", handler.ListLXCContainers)
 				lxcGroup.GET("/:name/detail", handler.GetLXCDetail)
-				lxcGroup.POST("/create", middleware.AdminMiddleware(), handler.CreateLXCContainer)
+				lxcGroup.POST("/create", middleware.ElasticCloudOnlyMiddleware(), handler.CreateLXCContainer)
 				lxcGroup.POST("/:name/operate", handler.OperateLXC)
 				lxcGroup.DELETE("/:name", handler.DeleteLXCContainer)
 				lxcGroup.POST("/batch", middleware.AdminMiddleware(), handler.BatchOperateLXC)

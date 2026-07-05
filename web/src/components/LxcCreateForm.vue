@@ -71,7 +71,7 @@
             <div v-if="extraNics.length" class="form-section-card-body">
               <div v-for="(nic, i) in extraNics" :key="i" class="extra-nic-row">
                 <div class="extra-nic-header">
-                  <el-tag size="small" type="info">网口 #{{ i + 1 }}{{ i === 0 ? '（主）' : '' }}</el-tag>
+                  <el-tag size="small" type="info">网口 #{{ i + 1 }}{{ i === primaryNicIndex ? '（主）' : '' }}</el-tag>
                   <el-button size="small" type="danger" text @click="extraNics.splice(i, 1)">删除</el-button>
                 </div>
                 <el-row :gutter="16">
@@ -84,7 +84,7 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="安全组" label-width="70px">
+                    <el-form-item label="安全组" label-width="100px">
                       <el-select v-model="nic.security_group_id" clearable filterable placeholder="可选" style="width:100%">
                         <el-option v-for="g in sgsForSwitch(nic.switch_id)" :key="g.id" :label="g.is_default ? `${g.name}（默认）` : g.name" :value="g.id" />
                       </el-select>
@@ -185,6 +185,8 @@ watch(() => form.source, (s) => { if (s === 'download') fetchDownloadList() })
 
 // 网口
 const extraNics = ref([]) // [{switch_id, security_group_id}]
+// 主网卡 = 首个有效（含 switch_id）网口；与 buildAllNicsPayload 提升逻辑保持一致，避免标签与实际主网卡错位
+const primaryNicIndex = computed(() => extraNics.value.findIndex(n => n.switch_id))
 const vpcSwitches = ref([])
 const vpcSecurityGroups = ref([])
 const loadVPCOptions = async () => {

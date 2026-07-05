@@ -238,7 +238,7 @@ func resolveNIC0LinkPure(switchID uint, sw model.VPCSwitch, found bool, fallback
 	if !found || strings.TrimSpace(sw.BridgeName) == "" {
 		return "br-ovs"
 	}
-	return sw.BridgeName
+	return strings.TrimSpace(sw.BridgeName)
 }
 
 // resolveNIC0Link 查交换机后决定主网卡 lxc.net.0.link 写入值。
