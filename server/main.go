@@ -359,6 +359,15 @@ func registerTaskHandlers() {
 		if err := service.LXCCreateContainer(params, progress); err != nil {
 			return "", err
 		}
+		// 附加网卡（order 从 1 起；主卡 order0 由 CreateContainer→AttachContainerToVPC 处理）
+		for i, nic := range params.ExtraNics {
+			if nic.SwitchID == 0 {
+				continue
+			}
+			if err := service.LXCAddContainerInterface(params.Name, nic); err != nil {
+				logger.App.Warn("创建时添加附加网口失败", "container", params.Name, "order", i+1, "switchID", nic.SwitchID, "error", err)
+			}
+		}
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 

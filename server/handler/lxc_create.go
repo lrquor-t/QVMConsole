@@ -25,6 +25,7 @@ type createLXCReq struct {
 	Distro          string `json:"distro"`
 	Release         string `json:"release"`
 	Arch            string `json:"arch"`
+	ExtraNics       []service.LXCAddInterfaceRequest `json:"extra_nics"`
 }
 
 // CreateLXCContainer 提交异步创建容器任务（克隆模板金基底）。
@@ -54,6 +55,13 @@ func CreateLXCContainer(c *gin.Context) {
 		return
 	}
 	username, _ := c.Get("username")
+	role, _ := c.Get("role")
+	if role != "admin" {
+		if err := service.LXCCheckQuota(username.(string), req.CPUShares, req.MemoryMB); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+	}
 	params := &service.LXCCreateContainerParams{
 		Name:            req.Name,
 		Template:        req.Template,
@@ -69,6 +77,7 @@ func CreateLXCContainer(c *gin.Context) {
 		Distro:          req.Distro,
 		Release:         req.Release,
 		Arch:            req.Arch,
+		ExtraNics:       req.ExtraNics,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCCreate, params, username.(string))
 	if err != nil {

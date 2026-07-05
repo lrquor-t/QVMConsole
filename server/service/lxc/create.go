@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"kvm_console/config"
 	"kvm_console/logger"
@@ -31,6 +32,7 @@ type CreateContainerParams struct {
 	Distro          string `json:"distro"`  // download 模式：发行版
 	Release         string `json:"release"` // download 模式：版本
 	Arch            string `json:"arch"`    // download 模式：架构
+	ExtraNics       []AddLXCInterfaceRequest `json:"extra_nics"`
 }
 
 // ParseCreateContainerParams 反序列化任务参数 JSON。
@@ -186,6 +188,10 @@ func applyCloneConfig(p *CreateContainerParams, mac string) error {
 		"lxc.start.auto = " + autoVal(p.Autostart),
 		"lxc.net.0.hwaddr = " + mac,
 	}
+	// 选定交换机时显式写 link（覆盖基底模板继承值）；未选则继承基底（保持现状）
+	if link := resolveNIC0Link(p.SwitchID, ""); link != "" {
+		lines = append(lines, "lxc.net.0.link = "+link)
+	}
 	content := ""
 	for _, l := range lines {
 		content += l + "\n"
@@ -220,6 +226,26 @@ func autoVal(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// resolveNIC0LinkPure 是 resolveNIC0Link 的纯逻辑核心（便于单测，无 DB 副作用）。
+// switchID==0 → fallback（clone 传 "" 表示继承基底、download 传 "br-ovs"）；
+// 选定交换机：查到且 BridgeName 非空 → sw.BridgeName；否则回退 br-ovs。
+func resolveNIC0LinkPure(switchID uint, sw model.VPCSwitch, found bool, fallback string) string {
+	if switchID == 0 {
+		return fallback
+	}
+	if !found || strings.TrimSpace(sw.BridgeName) == "" {
+		return "br-ovs"
+	}
+	return sw.BridgeName
+}
+
+// resolveNIC0Link 查交换机后决定主网卡 lxc.net.0.link 写入值。
+func resolveNIC0Link(switchID uint, fallback string) string {
+	var sw model.VPCSwitch
+	err := model.DB.First(&sw, switchID).Error
+	return resolveNIC0LinkPure(switchID, sw, err == nil, fallback)
 }
 
 // createFromDownload 用 lxc-create -t download 从官方镜像建容器（一次性，非模板克隆）。
@@ -303,7 +329,7 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 func applyDownloadConfig(p *CreateContainerParams, mac string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
 	lines := []string{
-		"lxc.net.0.link = br-ovs",
+		"lxc.net.0.link = " + resolveNIC0Link(p.SwitchID, "br-ovs"),
 		"lxc.net.0.hwaddr = " + mac,
 		"lxc.cgroup2.cpu.weight = " + itoaDefault(p.CPUShares, 256),
 		"lxc.cgroup2.memory.max = " + memMax(p.MemoryMB),
