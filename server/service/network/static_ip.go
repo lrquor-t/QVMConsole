@@ -469,6 +469,13 @@ func BindStaticIP(vmName, ipAddr string) (string, error) {
 
 // refreshNIC 拔插网卡以强制刷新 DHCP（仅运行中的虚拟机）
 func refreshNIC(vmName, mac, network string) {
+	// LXC 容器：在容器内刷新 DHCP（无 libvirt 域）
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).First(&b).Error; err == nil && strings.TrimSpace(b.Kind) == "lxc" {
+		refreshLXCContainerDHCP(vmName)
+		return
+	}
+
 	state, err := libvirt_rpc.GetDomainStateRPC(vmName)
 	if err != nil || state != "running" {
 		return
@@ -507,6 +514,23 @@ func refreshNIC(vmName, mac, network string) {
 		time.Sleep(1 * time.Second)
 		libvirt_rpc.AttachDeviceFlagsRPC(vmName, detachXML, 1)
 	}
+}
+
+// refreshLXCContainerDHCP 在运行中的 LXC 容器内释放并重新获取 DHCP（best-effort）。
+func refreshLXCContainerDHCP(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	// 仅运行中容器才有意义
+	res := utils.ExecCommand("lxc-info", "-n", name, "-s")
+	if res.Error != nil || !strings.Contains(res.Stdout, "RUNNING") {
+		return
+	}
+	// best-effort：容器内未必有 dhclient，忽略错误
+	utils.ExecShell(fmt.Sprintf(
+		"lxc-attach -n %s -- sh -c 'dhclient -r 2>/dev/null; dhclient 2>/dev/null; true' 2>/dev/null",
+		utils.ShellSingleQuote(name)))
 }
 
 // UnbindStaticIP 解绑静态 IP
