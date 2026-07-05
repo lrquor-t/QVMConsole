@@ -326,7 +326,7 @@ export const endpointGroups = [
       ep('GET', '/lxc/:name/interfaces', '列出容器全部网卡', { pathParams: ['name'], notes: [apiCompatible, '返回 LXCInterfaceInfo[]：每张网卡含 order/is_primary/mac/switch_id/vlan_id/security_group_id/bandwidth 限速及运行态 ip/rx_bytes/tx_bytes。普通用户只能访问归属自己的容器。'] }),
       ep('POST', '/lxc/:name/interfaces', '追加容器网卡', { pathParams: ['name'], body: 'JSON: switch_id(必填), security_group_id, bandwidth_inbound_avg(Mbps,0=不限), bandwidth_outbound_avg', notes: [admin, '热插拔：运行中容器即时生效；离线容器写入 config 持久化。MAC 由容器名+order 确定性派生。'] }),
       ep('PUT', '/lxc/:name/interfaces/:order', '编辑容器网卡', { pathParams: ['name', 'order'], body: 'JSON: switch_id(必填), security_group_id, bandwidth_inbound_avg, bandwidth_outbound_avg', notes: [admin, 'order=0 为主网卡，可改交换机/安全组/限速但 MAC 不变（静态 IP 绑定依赖）。改完后自动重建 VPC ACL。'] }),
-      ep('DELETE', '/lxc/:name/interfaces/:order', '删除容器网卡', { pathParams: ['name', 'order'], body: 'JSON: force(bool,删除主网卡 order=0 时必传 true)', notes: [admin, '删除 order=0 主网卡需 force=true（会断网，前端二次确认）；删除后剩余网卡 order 紧凑重排。已绑静态 IP 的网卡需先解绑。'], highRisk: 'delete_lxc_interface' })
+      ep('DELETE', '/lxc/:name/interfaces/:order', '删除容器网卡', { pathParams: ['name', 'order'], body: 'JSON: force(bool,删除主网卡 order=0 时必传 true)', notes: [admin, '删除 order=0 主网卡需 force=true（会断网，前端二次确认）；删除后剩余网卡 order 紧凑重排。已绑静态 IP 的网卡需先解绑。'] })
     ]
   },
   {

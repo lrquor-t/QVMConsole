@@ -346,7 +346,7 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 	}
 	// 运行中：热插拔；已停：下次启动由 ReconcileContainerNICs 施加
 	if containerRunning(name) {
-		return hotplugNic(name, next, blocks[next]["hwaddr"], sw, binding)
+		return hotplugNic(name, next, sw)
 	}
 	return nil
 }
@@ -365,20 +365,46 @@ func UpdateContainerInterface(name string, order int, req AddLXCInterfaceRequest
 	if blocks[order] == nil {
 		return fmt.Errorf("网卡 order=%d 不存在", order)
 	}
+	// Fix A: order 0 主网卡换交换机时，若旧交换机已按 MAC 绑定静态 IP，阻止切换 ——
+	// 旧 dhcp-hosts-<oldSwitchID> 条目不会随切换迁移/清理，会留下孤立条目导致容器丢静态 IP。
+	if order == 0 {
+		var cur model.VPCVMBinding
+		model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, 0, "lxc").First(&cur)
+		if cur.SwitchID != req.SwitchID {
+			mac := blocks[order]["hwaddr"]
+			if mac == "" {
+				mac = NICMAC(name, order)
+			}
+			if GetVPCStaticIPByMACExported(cur.SwitchID, mac) != "" {
+				return fmt.Errorf("主网卡已绑定静态 IP，请先在网络 tab 解绑后再更换交换机")
+			}
+		}
+	}
 	bridge := sw.BridgeName
 	if strings.TrimSpace(bridge) == "" {
 		bridge = defaultBridge()
 	}
 	blocks[order]["link"] = bridge // 仅换 link，hwaddr/type/flags 保留
-	if err := writeConfig(name, other, blocks); err != nil {
-		return err
-	}
+	// Fix B: 先更新 DB，再写 config；config 写失败时按 prior 回滚 binding 字段，
+	// 避免出现「config 已写新桥 + binding 仍是旧交换机」的错位（下次 Reconcile 会用旧 VLAN/限速施加到新桥 veth）。
+	var prior model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").First(&prior)
 	updates := map[string]interface{}{
 		"switch_id": req.SwitchID, "security_group_id": req.SecurityGroupID,
 		"bandwidth_inbound_avg": req.BandwidthInboundAvg, "bandwidth_outbound_avg": req.BandwidthOutboundAvg,
 	}
 	if err := model.DB.Model(&model.VPCVMBinding{}).
 		Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").Updates(updates).Error; err != nil {
+		return err
+	}
+	if err := writeConfig(name, other, blocks); err != nil {
+		// 配置写失败：best-effort 把 binding 字段回滚到 prior，与未变更的 config 保持一致
+		model.DB.Model(&model.VPCVMBinding{}).
+			Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").
+			Updates(map[string]interface{}{
+				"switch_id": prior.SwitchID, "security_group_id": prior.SecurityGroupID,
+				"bandwidth_inbound_avg": prior.BandwidthInboundAvg, "bandwidth_outbound_avg": prior.BandwidthOutboundAvg,
+			})
 		return err
 	}
 	// 重新施加运行态（VLAN/限速随交换机变化）
@@ -403,6 +429,16 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 	mac := blocks[order]["hwaddr"]
 	if mac == "" {
 		mac = NICMAC(name, order)
+	}
+	// Fix C: 在 delete/compact 前深拷贝 blocks，作为事务失败时 best-effort 回滚 config 的 pre-compaction 快照。
+	// （other 不会被改动，复用同一变量即可。）
+	origBlocks := make(map[int]map[string]string, len(blocks))
+	for o, blk := range blocks {
+		cp := make(map[string]string, len(blk))
+		for k, v := range blk {
+			cp[k] = v
+		}
+		origBlocks[o] = cp
 	}
 	// 已绑静态 IP 的卡：必须先解绑（直接按 binding.SwitchID 查，避免 switch 行缺失时绕过校验）
 	var b model.VPCVMBinding
@@ -447,6 +483,8 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 		}
 		return nil
 	}); err != nil {
+		// 事务失败：binding 未变更，best-effort 把 config 回滚到 pre-compaction 状态以保持一致
+		writeConfig(name, other, origBlocks)
 		return fmt.Errorf("重排网卡绑定失败: %w", err)
 	}
 	return nil
@@ -497,7 +535,7 @@ func containerRunning(name string) bool {
 }
 
 // hotplugNic / hotunplugNic：运行中容器的 veth 热加/热拔（best-effort，失败返回 needs_restart 语义见 handler）。
-func hotplugNic(name string, order int, mac string, sw model.VPCSwitch, b model.VPCVMBinding) error {
+func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	pid := containerPID(name)
 	if pid == "" {
 		return fmt.Errorf("无法获取容器 PID，请重启容器使配置生效")
@@ -508,6 +546,7 @@ func hotplugNic(name string, order int, mac string, sw model.VPCSwitch, b model.
 		return fmt.Errorf("热插拔建 veth 失败，请重启容器: %s", r.Stderr)
 	}
 	utils.ExecCommandQuiet("ip", "link", "set", c, "netns", pid)
+	// a/c derive from validated container name → injection-safe by construction
 	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c 'ip link set %s name eth%d; ip link set eth%d up' 2>/dev/null",
 		utils.ShellSingleQuote(name), c, order+1, order+1))
 	bridge := sw.BridgeName
