@@ -43,18 +43,23 @@
               </el-select>
             </el-form-item>
           </template>
-          <el-form-item label="容器目录">
-            <el-input :model-value="containerPathPreview" disabled />
-            <div class="form-tip">容器将创建于此；目录由系统设置「LXC 容器目录」决定。</div>
-          </el-form-item>
         </div>
 
         <!-- 步骤 1：基本配置 -->
         <div v-show="step === 1" class="step-pane">
           <div class="step-pane-header"><div class="step-pane-title">基本配置</div><div class="step-pane-desc">名称与资源</div></div>
-          <el-form-item label="名称" prop="name"><el-input v-model="form.name" /></el-form-item>
+          <el-form-item label="名称" prop="name">
+            <el-input v-model="form.name">
+              <template #append><el-button @click="handleGenerateName">随机生成</el-button></template>
+            </el-input>
+            <div class="form-tip">小写字母/数字/-，2-63 字符，开头字母/数字。</div>
+          </el-form-item>
+          <el-form-item label="容器目录">
+            <el-input :model-value="containerPathPreview" disabled />
+            <div class="form-tip">容器将创建于此；目录随名称变化，由系统设置「LXC 容器目录」决定。</div>
+          </el-form-item>
           <el-form-item label="CPU 权重"><el-input-number v-model="form.cpu_shares" :min="0" /></el-form-item>
-          <el-form-item label="内存(MB)"><el-input-number v-model="form.memory_mb" :min="0" /></el-form-item>
+          <el-form-item label="内存(MB)"><el-input-number v-model="form.memory_mb" :min="0" :step="512" /></el-form-item>
           <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
           <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
           <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
@@ -106,7 +111,7 @@
             <el-descriptions-item label="来源">{{ form.source === 'clone' ? '克隆模板' : '官方镜像下载' }}</el-descriptions-item>
             <el-descriptions-item label="模板/镜像">{{ form.source === 'clone' ? (form.template || '-') : `${form.distro}/${form.release}/${form.arch}` }}</el-descriptions-item>
             <el-descriptions-item label="名称">{{ form.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="CPU/内存">{{ form.cpu_shares }} / {{ form.memory_mb }}MB }}</el-descriptions-item>
+            <el-descriptions-item label="CPU/内存">{{ form.cpu_shares }} / {{ form.memory_mb }}MB</el-descriptions-item>
             <el-descriptions-item label="自动启动">{{ form.autostart ? '是' : '否' }}</el-descriptions-item>
             <el-descriptions-item label="分组/备注">{{ form.group_name || '-' }} / {{ form.remark || '-' }}</el-descriptions-item>
             <el-descriptions-item label="网口" :span="2">{{ nicsSummary }}</el-descriptions-item>
@@ -246,15 +251,30 @@ const nicsSummary = computed(() => {
 })
 
 // 导航
+const lcCharset = 'abcdefghijklmnopqrstuvwxyz0123456789'
+const getRandomInt = (max) => {
+  const c = globalThis.crypto
+  if (c && typeof c.getRandomValues === 'function') { const a = new Uint32Array(1); c.getRandomValues(a); return a[0] % max }
+  return Math.floor(Math.random() * max)
+}
+const randomStringFrom = (charset, n) => Array.from({ length: n }, () => charset[getRandomInt(charset.length)]).join('')
+// 随机容器名：lxc-<6 位小写字母/数字>，匹配名称正则 ^[a-z0-9][a-z0-9-]{1,62}$
+const generateRandomName = () => `lxc-${randomStringFrom(lcCharset, 6)}`
+const handleGenerateName = async () => {
+  form.name = generateRandomName()
+  await formRef.value?.validateField('name').catch(() => false)
+}
 const prevStep = () => { if (step.value > 0) step.value-- }
-const nextStep = () => {
+const nextStep = async () => {
+  if (!formRef.value) return
   const validateFields = step.value === 0
     ? (form.source === 'clone' ? ['template'] : ['distro', 'release', 'arch'])
     : step.value === 1 ? ['name'] : []
-  if (!validateFields.length) { if (step.value < steps.length - 1) step.value++; return }
-  formRef.value.validateField(validateFields, (err) => {
-    if (!err) { if (step.value < steps.length - 1) step.value++ }
-  })
+  let valid = true
+  if (validateFields.length) {
+    try { await formRef.value.validateField(validateFields) } catch (e) { valid = false }
+  }
+  if (valid && step.value < steps.length - 1) step.value++
 }
 const allRequiredFilled = computed(() => {
   if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(form.name)) return false
@@ -264,6 +284,7 @@ const allRequiredFilled = computed(() => {
 
 const open = async () => {
   Object.assign(form, defaultForm())
+  form.name = generateRandomName() // 打开时先随机生成一个名称，用户可改
   extraNics.value = []
   step.value = 0
   try { const r = await getLXCTemplateList(); templates.value = r.data || [] } catch (e) {}
