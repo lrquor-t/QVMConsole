@@ -29,7 +29,7 @@ func GetStaticIPList(c *gin.Context) {
 	role, _ := c.Get("role")
 	if role != "admin" {
 		username, _ := c.Get("username")
-		userVMs := service.GetUserVMList(username.(string))
+		userVMs := service.GetUserVMandContainerList(username.(string))
 		vmSet := make(map[string]bool)
 		for _, vm := range userVMs {
 			vmSet[vm] = true
@@ -83,7 +83,7 @@ func BindStaticIP(c *gin.Context) {
 	if role != "admin" {
 		username, _ := c.Get("username")
 		usernameStr := strings.TrimSpace(fmt.Sprint(username))
-		if !service.UserOwnsVM(usernameStr, req.VMName) {
+		if !service.UserOwnsVMorLXC(usernameStr, req.VMName) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"code":    403,
 				"message": "无权操作此虚拟机",
@@ -148,7 +148,7 @@ func UnbindStaticIP(c *gin.Context) {
 	role, _ := c.Get("role")
 	if role != "admin" {
 		username, _ := c.Get("username")
-		if !service.UserOwnsVM(username.(string), req.VMName) {
+		if !service.UserOwnsVMorLXC(username.(string), req.VMName) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"code":    403,
 				"message": "无权操作此虚拟机",

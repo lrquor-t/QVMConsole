@@ -295,6 +295,42 @@ func UserOwnsVM(username, vmName string) bool {
 	return false
 }
 
+// UserOwnsVMorLXC 检查用户是否拥有某个 VM 或 LXC 容器。
+// 仅供静态 IP 绑定/解绑等非 admin 属主校验使用：VM 走访问列表文件，LXC 走 lxc_containers 缓存。
+// 不改 GetUserVMList（后者被配额统计等 ~15 处复用，混入 LXC 会虚增 UsedVM）。
+func UserOwnsVMorLXC(username, name string) bool {
+	if name = strings.TrimSpace(name); name == "" {
+		return false
+	}
+	if UserOwnsVM(username, name) {
+		return true
+	}
+	var count int64
+	model.DB.Model(&model.LXCCache{}).
+		Where("name = ? AND owner_username = ? AND present = ?", name, username, true).
+		Count(&count)
+	return count > 0
+}
+
+// GetUserVMandContainerList 返回用户拥有的 VM 名 + LXC 容器名（去重）。
+// 仅供静态 IP 列表过滤使用；配额统计请继续用 GetUserVMList（仅 VM）。
+func GetUserVMandContainerList(username string) []string {
+	names := GetUserVMList(username)
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		seen[n] = true
+	}
+	var containers []model.LXCCache
+	model.DB.Where("owner_username = ? AND present = ?", username, true).Find(&containers)
+	for _, c := range containers {
+		if !seen[c.Name] {
+			names = append(names, c.Name)
+			seen[c.Name] = true
+		}
+	}
+	return names
+}
+
 // UpdateUserQuota 更新用户配额
 func UpdateUserQuota(username string, maxCPU, maxMemory, maxDisk, maxVM, maxStorage, maxRuntimeHours int, enablePortForward bool, maxPortForwards, maxSnapshots int, maxBandwidthUp, maxBandwidthDown, maxTrafficDown, maxTrafficUp float64, maxPublicIPs int) error {
 	result := model.DB.Model(&model.User{}).Where("username = ?", username).Updates(map[string]interface{}{

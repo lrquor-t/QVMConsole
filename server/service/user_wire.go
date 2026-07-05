@@ -294,6 +294,14 @@ func UserOwnsVM(username, vmName string) bool {
 	return userpkg.UserOwnsVM(username, vmName)
 }
 
+func UserOwnsVMorLXC(username, name string) bool {
+	return userpkg.UserOwnsVMorLXC(username, name)
+}
+
+func GetUserVMandContainerList(username string) []string {
+	return userpkg.GetUserVMandContainerList(username)
+}
+
 func UpdateUserQuota(username string, maxCPU, maxMemory, maxDisk, maxVM, maxStorage, maxRuntimeHours int, enablePortForward bool, maxPortForwards, maxSnapshots int, maxBandwidthUp, maxBandwidthDown, maxTrafficDown, maxTrafficUp float64, maxPublicIPs int) error {
 	return userpkg.UpdateUserQuota(username, maxCPU, maxMemory, maxDisk, maxVM, maxStorage, maxRuntimeHours, enablePortForward, maxPortForwards, maxSnapshots, maxBandwidthUp, maxBandwidthDown, maxTrafficDown, maxTrafficUp, maxPublicIPs)
 }
