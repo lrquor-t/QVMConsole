@@ -1,28 +1,58 @@
 <template>
   <div class="lxc-list-container">
     <!-- 页面头 -->
-    <div class="lxc-header">
-      <div class="lxc-header-left">
-        <h2 class="lxc-title">LXC 容器</h2>
+    <div class="page-header-bar">
+      <div class="page-header-left">
+        <el-icon class="page-icon"><Monitor /></el-icon>
+        <div class="page-header-text">
+          <h2>LXC 容器</h2>
+          <p>共 {{ total }} 个 · 运行中 {{ running }}</p>
+        </div>
       </div>
-      <div class="lxc-header-center">
+      <div class="page-header-right">
         <el-input
           v-model="lxcSearchText"
           placeholder="搜索名称、模板、备注、分组..."
           clearable
           :prefix-icon="Search"
-          class="lxc-search-input"
+          class="header-search"
         />
-      </div>
-      <div class="lxc-header-right">
-        <el-switch
-          v-model="autoRefresh"
-          active-text="自动刷新"
-          class="auto-refresh-switch"
-        />
+        <el-switch v-model="autoRefresh" active-text="自动刷新" />
         <el-button type="success" :icon="Refresh" :loading="loading" @click="fetchData">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">创建容器</el-button>
       </div>
+    </div>
+
+    <!-- KPI 统计 -->
+    <div class="kpi-row">
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-primary)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><Monitor /></el-icon><span>容器总数</span></div>
+          <div class="kpi-value">{{ total }}</div>
+        </div>
+      </el-card>
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-success)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><VideoPlay /></el-icon><span>运行中</span></div>
+          <div class="kpi-value">{{ running }}</div>
+        </div>
+      </el-card>
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-info)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><VideoPause /></el-icon><span>已停止</span></div>
+          <div class="kpi-value">{{ stopped }}</div>
+        </div>
+      </el-card>
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-danger)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><Warning /></el-icon><span>异常</span></div>
+          <div class="kpi-value">{{ abnormal }}</div>
+        </div>
+      </el-card>
     </div>
 
     <!-- 批量操作条（仅选中时出现） -->
@@ -113,17 +143,25 @@
             </el-dropdown>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无容器">
+            <el-button type="primary" :icon="Plus" @click="openCreate">创建第一个容器</el-button>
+          </el-empty>
+        </template>
       </el-table>
     </div>
 
     <!-- 创建对话框 -->
-    <el-dialog v-model="createVisible" title="创建 LXC 容器" width="520px" append-to-body>
+    <el-dialog v-model="createVisible" title="创建 LXC 容器" width="560px" append-to-body>
       <el-form :model="createForm" label-width="100px" class="lxc-create-form">
+        <div class="section-title">基本信息</div>
         <el-form-item label="名称" required><el-input v-model="createForm.name" /></el-form-item>
         <el-form-item label="容器目录">
           <el-input :model-value="containerPathPreview" disabled />
-          <div class="form-tip" style="font-size:12px;color:var(--el-text-color-secondary);margin-top:2px">容器将创建于此（rootfs 在其下）；目录由系统设置「LXC 容器目录」决定。</div>
+          <div class="form-tip">容器将创建于此（rootfs 在其下）；目录由系统设置「LXC 容器目录」决定。</div>
         </el-form-item>
+
+        <div class="section-title">来源</div>
         <el-form-item label="来源">
           <el-radio-group v-model="createForm.source">
             <el-radio value="clone">克隆模板</el-radio>
@@ -152,6 +190,8 @@
             </el-select>
           </el-form-item>
         </template>
+
+        <div class="section-title">资源与元数据</div>
         <el-form-item label="CPU 权重"><el-input-number v-model="createForm.cpu_shares" :min="0" /></el-form-item>
         <el-form-item label="内存(MB)"><el-input-number v-model="createForm.memory_mb" :min="0" /></el-form-item>
         <el-form-item label="自动启动"><el-switch v-model="createForm.autostart" /></el-form-item>
@@ -174,7 +214,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus, Refresh, VideoPlay, SwitchButton, Monitor, MoreFilled, Operation } from '@element-plus/icons-vue'
+import { Search, Plus, Refresh, VideoPlay, VideoPause, Warning, SwitchButton, Monitor, MoreFilled, Operation } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import {
   getLXCList, createLXC, operateLXC, deleteLXC, batchOperateLXC,
@@ -208,6 +248,12 @@ const filteredData = computed(() => {
     (r.group_name || '').toLowerCase().includes(q)
   )
 })
+
+// KPI 统计（从列表数据派生）
+const total = computed(() => tableData.value.length)
+const running = computed(() => tableData.value.filter(r => r.status === 'RUNNING').length)
+const stopped = computed(() => tableData.value.filter(r => r.status === 'STOPPED').length)
+const abnormal = computed(() => tableData.value.filter(r => r.status !== 'RUNNING' && r.status !== 'STOPPED').length)
 
 const statusType = (status) => {
   if (status === 'RUNNING') return 'success'
@@ -318,47 +364,89 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   padding: 10px;
 }
 
-/* 创建弹窗表单：与上方标题保持距离 */
-.lxc-create-form {
-  padding-top: 10px;
-}
-
-/* 页面头 */
-.lxc-header {
+/* 页面头 page-header-bar */
+.page-header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  padding: 20px 4px 16px;
 }
-.lxc-header-left {
+.page-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex-shrink: 0;
 }
-.lxc-title {
+.page-icon {
+  font-size: 22px;
+  color: var(--el-color-primary);
+}
+.page-header-text h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--el-text-color-primary);
-  white-space: nowrap;
 }
-.lxc-header-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  max-width: 460px;
-  margin: 0 auto;
+.page-header-text p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
-.lxc-search-input {
-  width: 100%;
-}
-.lxc-header-right {
+.page-header-right {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
-.auto-refresh-switch {
-  margin-right: 4px;
+.header-search {
+  width: 240px;
+}
+
+/* KPI 统计卡 */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  padding: 0 4px 16px;
+}
+.kpi-card {
+  border-radius: 12px;
+  border: none;
+  transition: transform 0.2s var(--app-transition-fast, 0.15s), box-shadow 0.2s;
+}
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--app-shadow-lg);
+}
+.kpi-card :deep(.el-card__body) {
+  padding: 0;
+}
+.kpi-accent {
+  height: 3px;
+  border-radius: 12px 12px 0 0;
+}
+.kpi-body {
+  padding: 14px 16px;
+}
+.kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.kpi-head .el-icon {
+  font-size: 15px;
+}
+.kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 4px;
+  color: var(--el-text-color-primary);
 }
 
 /* 批量操作条 */
@@ -368,9 +456,10 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   gap: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
-  border-radius: var(--app-radius-md, 10px);
+  border-radius: 12px;
   background: var(--el-color-warning-light-9);
   border: 1px solid var(--el-color-warning-light-7);
+  box-shadow: var(--app-shadow-md);
 }
 .lxc-batch-info {
   margin-right: auto;
@@ -378,15 +467,41 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   color: var(--el-text-color-regular);
 }
 
-/* 表格容器 */
+/* 表格容器（hover-lift） */
 .lxc-table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--app-bg-card);
-  border-radius: var(--app-radius-md, 10px);
+  border-radius: 12px;
   box-shadow: var(--app-shadow-sm);
   border: 1px solid var(--app-border-light);
   padding: 2px;
+  transition: box-shadow 0.2s var(--app-transition-fast, 0.15s);
+}
+.lxc-table-wrap:hover {
+  box-shadow: var(--app-shadow-lg);
+}
+
+/* 创建弹窗表单 + section 标题 */
+.lxc-create-form {
+  padding-top: 6px;
+}
+.form-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  padding-left: 10px;
+  border-left: 4px solid var(--el-color-primary);
+  margin: 18px 0 14px;
+  color: var(--el-text-color-primary);
+}
+.section-title:first-child {
+  margin-top: 4px;
 }
 
 /* 单元格样式 */
@@ -462,17 +577,19 @@ html.dark .lxc-status.is-success .lxc-status-dot {
 
 /* ===== 移动端 ===== */
 @media (max-width: 768px) {
-  .lxc-header {
+  .page-header-bar {
     flex-wrap: wrap;
     gap: 10px;
   }
-  .lxc-header-center {
+  .page-header-right {
     order: 3;
-    max-width: none;
     width: 100%;
   }
-  .lxc-title {
-    font-size: 18px;
+  .header-search {
+    width: 100%;
+  }
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

@@ -1,20 +1,48 @@
 <template>
   <div class="lxc-tpl-container">
     <!-- 页面头 -->
-    <div class="lxc-tpl-header">
-      <div class="lxc-tpl-header-left">
-        <h2 class="lxc-tpl-title">LXC 模板</h2>
-        <span class="lxc-tpl-sub">共 {{ tableData.length }} 个模板</span>
+    <div class="page-header-bar">
+      <div class="page-header-left">
+        <el-icon class="page-icon"><Files /></el-icon>
+        <div class="page-header-text">
+          <h2>LXC 模板</h2>
+          <p>共 {{ total }} 个 · 总大小 {{ totalSize }}</p>
+        </div>
       </div>
-      <div class="lxc-tpl-header-right">
+      <div class="page-header-right">
         <el-button type="success" :icon="Refresh" :loading="loading" @click="fetchData">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openImport">导入模板</el-button>
       </div>
     </div>
 
+    <!-- KPI 统计 -->
+    <div class="kpi-row kpi-row-3">
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-primary)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><Files /></el-icon><span>模板总数</span></div>
+          <div class="kpi-value">{{ total }}</div>
+        </div>
+      </el-card>
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-success)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><Coin /></el-icon><span>总大小</span></div>
+          <div class="kpi-value">{{ totalSize }}</div>
+        </div>
+      </el-card>
+      <el-card shadow="hover" class="kpi-card">
+        <div class="kpi-accent" style="background:var(--el-color-warning)"></div>
+        <div class="kpi-body">
+          <div class="kpi-head"><el-icon><Collection /></el-icon><span>发行版数</span></div>
+          <div class="kpi-value">{{ distroCount }}</div>
+        </div>
+      </el-card>
+    </div>
+
     <!-- 表格 -->
     <div class="lxc-tpl-wrap" v-loading="loading">
-      <el-table :data="tableData" style="width: 100%" v-if="tableData.length">
+      <el-table :data="tableData" style="width: 100%">
         <el-table-column label="名称" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="tpl-name">{{ row.name }}</span>
@@ -22,7 +50,7 @@
         </el-table-column>
         <el-table-column label="系统" min-width="150">
           <template #default="{ row }">
-            <span class="distro-tag" :class="distroClass(row.distro)">
+            <span class="distro-tag" :style="distroStyle(row.distro)">
               {{ [row.distro, row.release].filter(Boolean).join(' ') || '-' }}
             </span>
           </template>
@@ -47,21 +75,22 @@
             </el-tooltip>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无模板">
+            <el-button type="primary" :icon="Plus" @click="openImport">导入第一个模板</el-button>
+          </el-empty>
+        </template>
       </el-table>
-
-      <!-- 空状态 -->
-      <div v-else class="tpl-empty">
-        <div class="tpl-empty-icon">📦</div>
-        <div class="tpl-empty-text">暂无模板</div>
-        <div class="tpl-empty-hint">点击右上角「导入模板」导入宿主机上的 rootfs tarball</div>
-      </div>
     </div>
 
     <el-dialog v-model="importVisible" title="导入 LXC 模板" width="560px" append-to-body :close-on-click-modal="false" @close="onImportDialogClose">
       <el-form :model="importForm" label-width="110px" class="import-form">
+        <div class="section-title">基本信息</div>
         <el-form-item label="模板名称" required>
           <el-input v-model="importForm.name" placeholder="如 ubuntu22（小写字母/数字/连字符）" />
         </el-form-item>
+
+        <div class="section-title">来源</div>
         <el-form-item label="导入来源" required>
           <el-radio-group v-model="importForm.mode">
             <el-radio value="upload">上传文件</el-radio>
@@ -108,6 +137,8 @@
           </el-select>
           <div class="arch-hint">跟随宿主机架构，不可更改</div>
         </el-form-item>
+
+        <div class="section-title">元数据</div>
         <el-form-item label="创建后命令">
           <el-input v-model="importForm.post_create_command" type="textarea" :rows="2" placeholder="可选：首次创建容器后 lxc-attach 执行" />
         </el-form-item>
@@ -127,7 +158,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Delete, UploadFilled } from '@element-plus/icons-vue'
+import { Plus, Refresh, Delete, UploadFilled, Files, Coin, Collection } from '@element-plus/icons-vue'
 import { ChunkUploader } from '@/utils/chunkUploader'
 import { getSettings } from '@/api/settings'
 import {
@@ -345,19 +376,35 @@ const formatTime = (t) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-const distroClass = (distro) => {
-  const d = (distro || '').toLowerCase()
-  if (d.includes('ubuntu')) return 'd-ubuntu'
-  if (d.includes('debian')) return 'd-debian'
-  if (d.includes('alpine')) return 'd-alpine'
-  if (d.includes('centos')) return 'd-centos'
-  if (d.includes('rocky')) return 'd-rocky'
-  if (d.includes('alma')) return 'd-alma'
-  if (d.includes('fedora')) return 'd-fedora'
-  if (d.includes('arch')) return 'd-arch'
-  if (d.includes('suse') || d.includes('opensuse')) return 'd-suse'
-  return 'd-other'
+// 发行版品牌色（Material 500 量级，亮色，深浅背景均可读）；
+// alpha-tint 背景随卡背自适应，免去浅/深双套 CSS。
+const DISTRO_COLORS = {
+  ubuntu: '#E95420', debian: '#D32F2F', alpine: '#29B6F6', centos: '#AB47BC',
+  rocky: '#10B981', alma: '#EF5350', fedora: '#5C6BC0', arch: '#26C6DA',
+  suse: '#42A5F5', other: '#909399',
 }
+const distroKey = (distro) => {
+  const d = (distro || '').toLowerCase()
+  if (d.includes('ubuntu')) return 'ubuntu'
+  if (d.includes('debian')) return 'debian'
+  if (d.includes('alpine')) return 'alpine'
+  if (d.includes('centos')) return 'centos'
+  if (d.includes('rocky')) return 'rocky'
+  if (d.includes('alma')) return 'alma'
+  if (d.includes('fedora')) return 'fedora'
+  if (d.includes('arch')) return 'arch'
+  if (d.includes('suse') || d.includes('opensuse')) return 'suse'
+  return 'other'
+}
+const distroStyle = (distro) => {
+  const c = DISTRO_COLORS[distroKey(distro)]
+  return { color: c, backgroundColor: c + '1f', border: '1px solid ' + c + '3d' }
+}
+
+// KPI 统计（从列表数据派生；totalSize 引用 formatSize，computed 懒求值，渲染时 formatSize 已就绪）
+const total = computed(() => tableData.value.length)
+const totalSize = computed(() => formatSize(tableData.value.reduce((s, r) => s + (r.rootfs_size_bytes || 0), 0)))
+const distroCount = computed(() => new Set(tableData.value.map(r => r.distro).filter(Boolean)).size)
 
 const fetchData = async () => {
   loading.value = true
@@ -388,51 +435,102 @@ onMounted(fetchData)
   padding: 10px;
 }
 
-/* 导入弹窗表单：与上方标题保持距离 */
-.import-form {
-  padding-top: 10px;
-}
-
-/* 页面头 */
-.lxc-tpl-header {
+/* 页面头 page-header-bar */
+.page-header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  padding: 20px 4px 16px;
 }
-.lxc-tpl-header-left {
+.page-header-left {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   flex-shrink: 0;
 }
-.lxc-tpl-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  white-space: nowrap;
+.page-icon {
+  font-size: 22px;
+  color: var(--el-color-primary);
 }
-.lxc-tpl-sub {
+.page-header-text h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--el-text-color-primary);
+}
+.page-header-text p {
+  margin: 2px 0 0;
   font-size: 13px;
   color: var(--el-text-color-secondary);
 }
-.lxc-tpl-header-right {
+.page-header-right {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
 }
 
-/* 表格容器 */
+/* KPI 统计卡 */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  padding: 0 4px 16px;
+}
+.kpi-row-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.kpi-card {
+  border-radius: 12px;
+  border: none;
+  transition: transform 0.2s var(--app-transition-fast, 0.15s), box-shadow 0.2s;
+}
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--app-shadow-lg);
+}
+.kpi-card :deep(.el-card__body) {
+  padding: 0;
+}
+.kpi-accent {
+  height: 3px;
+  border-radius: 12px 12px 0 0;
+}
+.kpi-body {
+  padding: 14px 16px;
+}
+.kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.kpi-head .el-icon {
+  font-size: 15px;
+}
+.kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 4px;
+  color: var(--el-text-color-primary);
+}
+
+/* 表格容器（hover-lift） */
 .lxc-tpl-wrap {
   background: var(--app-bg-card);
-  border-radius: var(--app-radius-md, 10px);
+  border-radius: 12px;
   box-shadow: var(--app-shadow-sm);
   border: 1px solid var(--app-border-light);
   padding: 2px;
   overflow: hidden;
+  transition: box-shadow 0.2s var(--app-transition-fast, 0.15s);
+}
+.lxc-tpl-wrap:hover {
+  box-shadow: var(--app-shadow-lg);
 }
 
 .tpl-name {
@@ -440,7 +538,7 @@ onMounted(fetchData)
   color: var(--el-text-color-primary);
 }
 
-/* 发行版标签 */
+/* 发行版标签（颜色由 distroStyle 内联，alpha-tint 深浅模式自适应） */
 .distro-tag {
   display: inline-flex;
   align-items: center;
@@ -449,61 +547,23 @@ onMounted(fetchData)
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2px;
-  border: 1px solid transparent;
   white-space: nowrap;
 }
-.d-ubuntu { background: #e8f5e9; color: #2e7d32; border-color: #c8e6c9; }
-.d-debian { background: #fce4ec; color: #c62828; border-color: #f8bbd0; }
-.d-alpine { background: #e3f2fd; color: #1565c0; border-color: #bbdefb; }
-.d-centos { background: #fff3e0; color: #e65100; border-color: #ffe0b2; }
-.d-rocky  { background: #fff3e0; color: #e65100; border-color: #ffe0b2; }
-.d-alma   { background: #fff3e0; color: #e65100; border-color: #ffe0b2; }
-.d-fedora { background: #ede7f6; color: #4527a0; border-color: #d1c4e9; }
-.d-arch   { background: #e0f7fa; color: #00838f; border-color: #b2ebf2; }
-.d-suse   { background: #e8eaf6; color: #283593; border-color: #c5cae9; }
-.d-other  { background: #f5f5f5; color: #666; border-color: #e0e0e0; }
 
-/* 空状态 */
-.tpl-empty {
-  text-align: center;
-  padding: 64px 20px;
-  color: var(--el-text-color-secondary);
+/* 导入弹窗 + section 标题 */
+.import-form {
+  padding-top: 6px;
 }
-.tpl-empty-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  padding-left: 10px;
+  border-left: 4px solid var(--el-color-primary);
+  margin: 18px 0 14px;
+  color: var(--el-text-color-primary);
 }
-.tpl-empty-text {
-  font-size: 15px;
-  color: var(--el-text-color-regular);
-}
-.tpl-empty-hint {
-  font-size: 12px;
-  margin-top: 8px;
-  color: var(--el-text-color-placeholder);
-}
-
-/* ===== 深色模式 ===== */
-html.dark .d-ubuntu { background: rgba(46, 125, 50, 0.2); color: #81c784; border-color: rgba(46, 125, 50, 0.3); }
-html.dark .d-debian { background: rgba(198, 40, 40, 0.2); color: #e57373; border-color: rgba(198, 40, 40, 0.3); }
-html.dark .d-alpine { background: rgba(21, 101, 192, 0.2); color: #64b5f6; border-color: rgba(21, 101, 192, 0.3); }
-html.dark .d-centos,
-html.dark .d-rocky,
-html.dark .d-alma { background: rgba(230, 81, 0, 0.2); color: #ffb74d; border-color: rgba(230, 81, 0, 0.3); }
-html.dark .d-fedora { background: rgba(69, 39, 160, 0.2); color: #b39ddb; border-color: rgba(69, 39, 160, 0.3); }
-html.dark .d-arch { background: rgba(0, 131, 143, 0.2); color: #80cbc4; border-color: rgba(0, 131, 143, 0.3); }
-html.dark .d-suse { background: rgba(40, 53, 147, 0.2); color: #9fa8da; border-color: rgba(40, 53, 147, 0.3); }
-html.dark .d-other { background: rgba(255, 255, 255, 0.06); color: var(--el-text-color-secondary); border-color: var(--app-border-light); }
-
-/* ===== 移动端 ===== */
-@media (max-width: 768px) {
-  .lxc-tpl-header {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .lxc-tpl-title {
-    font-size: 18px;
-  }
+.section-title:first-child {
+  margin-top: 4px;
 }
 
 /* 上传进度条：el-progress 放在 el-form-item（flex 容器）里会塌缩成只剩百分比文字，
@@ -547,5 +607,17 @@ html.dark .upload-progress-wrap :deep(.el-progress-bar__outer) {
   color: var(--el-text-color-secondary);
   margin-top: 4px;
   line-height: 1.4;
+}
+
+/* ===== 移动端 ===== */
+@media (max-width: 768px) {
+  .page-header-bar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .kpi-row,
+  .kpi-row-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style>
