@@ -267,6 +267,12 @@ func Setup() *gin.Engine {
 				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)
 				lxcGroup.DELETE("/:name/snapshot/:snap", handler.DeleteLXCSnapshot)
 
+				// LXC 多网卡管理（查询全员可访问；增删改仅管理员）
+				lxcGroup.GET("/:name/interfaces", handler.ListLXCInterfaces)
+				lxcGroup.POST("/:name/interfaces", middleware.AdminMiddleware(), handler.AddLXCInterface)
+				lxcGroup.PUT("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.UpdateLXCInterface)
+				lxcGroup.DELETE("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.RemoveLXCInterface)
+
 				// LXC 模板（仅管理员）
 				lxcTmpl := lxcGroup.Group("/template")
 				lxcTmpl.Use(middleware.AdminMiddleware())

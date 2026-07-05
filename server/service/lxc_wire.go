@@ -111,3 +111,20 @@ type LXCDownloadImageEntry = lxc.DownloadImageEntry
 func LXCDownloadList() ([]lxc.DownloadImageEntry, error) {
 	return lxc.DownloadImageList()
 }
+
+// LXC 多网卡管理
+type LXCAddInterfaceRequest = lxc.AddLXCInterfaceRequest
+type LXCInterfaceInfo = lxc.LXCInterfaceInfo
+
+func LXCListContainerInterfaces(name string) ([]lxc.LXCInterfaceInfo, error) {
+	return lxc.ListContainerInterfaces(name)
+}
+func LXCAddContainerInterface(name string, req lxc.AddLXCInterfaceRequest) error {
+	return lxc.AddContainerInterface(name, req)
+}
+func LXCUpdateContainerInterface(name string, order int, req lxc.AddLXCInterfaceRequest) error {
+	return lxc.UpdateContainerInterface(name, order, req)
+}
+func LXCRemoveContainerInterface(name string, order int, force bool) error {
+	return lxc.RemoveContainerInterface(name, order, force)
+}
