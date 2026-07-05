@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"kvm_console/model"
@@ -117,6 +118,16 @@ func genMacByName(seed string) string {
 	h := sha1.Sum([]byte(seed))
 	hx := hex.EncodeToString(h[:5])
 	return "02:" + hx[0:2] + ":" + hx[2:4] + ":" + hx[4:6] + ":" + hx[6:8] + ":" + hx[8:10]
+}
+
+// NICMAC 返回容器某网卡 order 的确定性 MAC。
+// order 0 与创建流程一致（genMacByName(name)），order≥1 用 name+"#"+order 派生，
+// 保证同容器不同网卡 MAC 互不冲突且稳定。
+func NICMAC(name string, order int) string {
+	if order <= 0 {
+		return genMacByName(name)
+	}
+	return genMacByName(name + "#" + strconv.Itoa(order))
 }
 
 // openForAppend 以追加写方式打开文件。

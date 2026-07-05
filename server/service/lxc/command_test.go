@@ -45,3 +45,25 @@ func TestParseLxcInfo(t *testing.T) {
 		t.Fatalf("detail mismatch: %+v", got)
 	}
 }
+
+func TestNICMACOrderZeroMatchesExisting(t *testing.T) {
+	// order 0 必须等于现有创建流程用的 genMacByName(name)，保证旧容器 MAC 不变
+	if NICMAC("demo", 0) != genMacByName("demo") {
+		t.Fatal("order 0 的 MAC 应等于 genMacByName(name)")
+	}
+}
+
+func TestNICMACPerOrderDistinctAndStable(t *testing.T) {
+	m0 := NICMAC("demo", 0)
+	m1 := NICMAC("demo", 1)
+	m2 := NICMAC("demo", 2)
+	if m0 == m1 || m1 == m2 || m0 == m2 {
+		t.Fatalf("不同 order 的 MAC 不应重复: %s %s %s", m0, m1, m2)
+	}
+	if NICMAC("demo", 1) != m1 {
+		t.Fatal("同 name+order 的 MAC 应稳定")
+	}
+	if len(m1) != 17 || m1[:3] != "02:" {
+		t.Fatalf("MAC 格式/前缀异常: %s", m1)
+	}
+}
