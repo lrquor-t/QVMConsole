@@ -1203,9 +1203,28 @@ const leafPools = computed(() => collectLeafNodes(tableData.value))
 
 const mountedLeafPools = computed(() => leafPools.value.filter(p => p.mountpoints && p.mountpoints.length > 0))
 
+// 存储单元（总览/图表用）：zpool 用 pool 级总量（zpool list），不递归子数据集；
+// 非 zfs（物理盘/分区）递归取叶子。避免 zfs 数据集共享池空间导致逐个加总重复计算。
+const storageUnits = computed(() => {
+  const units = []
+  for (const node of tableData.value) {
+    if (node.type === 'zpool') {
+      units.push(node)
+    } else {
+      // 非 zpool 节点递归取叶子，跳过 zfs 挂载点（它们由 zpool 节点代表，避免重复）
+      units.push(...collectLeafNodes([node]).filter(p => !p.fstype?.startsWith('zfs')))
+    }
+  }
+  return units
+})
+const mountedStorageUnits = computed(() =>
+  storageUnits.value.filter(p => p.type === 'zpool' || (p.mountpoints && p.mountpoints.length > 0))
+)
+
 const overviewStats = computed(() => {
-  const mounted = mountedLeafPools.value
-  const totalSize = leafPools.value.reduce((sum, p) => sum + (p.size || 0), 0)
+  const all = storageUnits.value
+  const mounted = mountedStorageUnits.value
+  const totalSize = all.reduce((sum, p) => sum + (p.size || 0), 0)
   const totalUsed = mounted.reduce((sum, p) => sum + (p.used || 0), 0)
   const totalAvail = mounted.reduce((sum, p) => sum + (p.available || 0), 0)
   return {
@@ -1218,7 +1237,7 @@ const overviewStats = computed(() => {
 })
 
 const pieChartData = computed(() => {
-  return leafPools.value
+  return storageUnits.value
     .filter(p => p.size > 0)
     .map(p => ({
       name: p.display_name,
@@ -1230,7 +1249,7 @@ const pieChartData = computed(() => {
 })
 
 const barChartData = computed(() => {
-  return mountedLeafPools.value
+  return mountedStorageUnits.value
     .filter(p => p.size > 0)
     .map(p => ({
       name: p.display_name,

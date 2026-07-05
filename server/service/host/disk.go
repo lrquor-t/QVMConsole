@@ -2,6 +2,7 @@ package host
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"regexp"
 	"slices"
@@ -160,6 +161,11 @@ func GetHostDiskInfos() ([]HostDiskInfo, error) {
 		if fsType == "tmpfs" || fsType == "devtmpfs" || fsType == "efivarfs" || device == "none" || device == "tmpfs" {
 			continue
 		}
+		// zfs 数据集从 df 枚举会每个子数据集一条（LXC 容器多时刷屏 + 容量重复计算），
+		// 改用 zpool list 出 pool 级别条目（下面追加），这里跳过 df 的 zfs 行。
+		if fsType == "zfs" {
+			continue
+		}
 
 		totalKB, _ := strconv.ParseInt(fields[3], 10, 64)
 		usedKB, _ := strconv.ParseInt(fields[4], 10, 64)
@@ -176,5 +182,41 @@ func GetHostDiskInfos() ([]HostDiskInfo, error) {
 			UsePercent: usePercent,
 		})
 	}
+
+	// zfs 存储池：每个 pool 一条（来自 zpool list），不枚举子数据集。
+	// zpool list -H -p 输出字节；转为 KB。
+	if zp := utils.ExecCommandQuiet("zpool", "list", "-H", "-p", "-o", "name,size,alloc,free"); zp.Error == nil {
+		for _, line := range strings.Split(strings.TrimSpace(zp.Stdout), "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" {
+				continue
+			}
+			f := strings.Fields(t)
+			if len(f) < 4 {
+				continue
+			}
+			poolName := f[0]
+			sizeBytes, _ := strconv.ParseInt(f[1], 10, 64)
+			allocBytes, _ := strconv.ParseInt(f[2], 10, 64)
+			freeBytes, _ := strconv.ParseInt(f[3], 10, 64)
+			totalKB := sizeBytes / 1024
+			usedKB := allocBytes / 1024
+			freeKB := freeBytes / 1024
+			pct := "0%"
+			if totalKB > 0 {
+				pct = fmt.Sprintf("%d%%", int(float64(usedKB)/float64(totalKB)*100))
+			}
+			disks = append(disks, HostDiskInfo{
+				MountPoint: poolName,
+				Device:     poolName,
+				FSType:     "zfs",
+				TotalKB:    totalKB,
+				UsedKB:     usedKB,
+				FreeKB:     freeKB,
+				UsePercent: pct,
+			})
+		}
+	}
+
 	return disks, nil
 }

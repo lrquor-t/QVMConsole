@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"kvm_console/config"
 	"kvm_console/model"
 	"kvm_console/utils"
 )
@@ -551,13 +552,29 @@ func scanZPoolTopology(pool string) (vdev string, members []string) {
 	return
 }
 
-// scanZFSDatasets 扫描指定 zpool 下所有数据集。
+// scanZFSDatasets 扫描指定 zpool 下所有数据集。LXC 容器/模板数据集聚合为一个节点
+// （不逐个展示——容器多时刷屏 + 容量重复计算）。
 func scanZFSDatasets(pool string) []ZFSDatasetInfo {
 	r := utils.ExecCommandQuiet("zfs", "list", "-H", "-p", "-o", "name,mountpoint,mounted,used,avail", "-r", pool)
 	if r.Error != nil {
 		return nil
 	}
+
+	// 解析 LXC 根 dataset（如 zp01/lxc）—— 只聚合属于当前 pool 的 LXC 子树
+	lxcParent := ""
+	if lxcpath := config.GlobalConfig.LXCLxcPath; lxcpath != "" {
+		if lr := utils.ExecCommandQuiet("zfs", "list", "-Ho", "name", lxcpath); lr.Error == nil {
+			lp := strings.TrimSpace(lr.Stdout)
+			if lp != "" && strings.HasPrefix(lp, pool+"/") {
+				lxcParent = lp
+			}
+		}
+	}
+
 	var ds []ZFSDatasetInfo
+	var lxcUsed int64
+	var lxcAvail int64
+	lxcAggregated := false
 	for _, line := range strings.Split(r.Stdout, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" {
@@ -569,6 +586,17 @@ func scanZFSDatasets(pool string) []ZFSDatasetInfo {
 		}
 		used, _ := strconv.ParseInt(f[3], 10, 64)
 		avail, _ := strconv.ParseInt(f[4], 10, 64)
+
+		// LXC 根 + 子数据集 → 聚合到一个节点（容器多时不逐个展示）
+		if lxcParent != "" && (f[0] == lxcParent || strings.HasPrefix(f[0], lxcParent+"/")) {
+			lxcUsed += used
+			if !lxcAggregated {
+				lxcAvail = avail // zfs 共享池：所有 dataset 的 avail 相同（= 池剩余）
+			}
+			lxcAggregated = true
+			continue
+		}
+
 		ds = append(ds, ZFSDatasetInfo{
 			Name:       f[0],
 			Mountpoint: f[1],
@@ -577,6 +605,18 @@ func scanZFSDatasets(pool string) []ZFSDatasetInfo {
 			Avail:      avail,
 		})
 	}
+
+	// 追加聚合后的 LXC 节点（一个，汇总 used/avail）
+	if lxcAggregated {
+		ds = append(ds, ZFSDatasetInfo{
+			Name:       lxcParent,
+			Mountpoint: config.GlobalConfig.LXCLxcPath,
+			Mounted:    true,
+			Used:       lxcUsed,
+			Avail:      lxcAvail,
+		})
+	}
+
 	return ds
 }
 
