@@ -294,6 +294,45 @@ func CreateZFSPool(c *gin.Context) {
 	})
 }
 
+type createZFSDatasetReq struct {
+	Pool string `json:"pool" binding:"required"`
+	Name string `json:"name" binding:"required"`
+}
+
+// CreateZFSDataset 在已有 ZFS 存储池下创建数据集（如 zp01/vm-storage）。
+// POST /api/storage-pool/zfs-dataset
+func CreateZFSDataset(c *gin.Context) {
+	var req createZFSDatasetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要指定 pool 和 name"})
+		return
+	}
+	if err := service.CreateZFSDataset(req.Pool, req.Name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "数据集 " + req.Pool + "/" + req.Name + " 已创建"})
+}
+
+type deleteZFSDatasetReq struct {
+	Name string `json:"name" binding:"required"`
+}
+
+// DeleteZFSDataset 删除 ZFS 数据集。
+// DELETE /api/storage-pool/zfs-dataset
+func DeleteZFSDataset(c *gin.Context) {
+	var req deleteZFSDatasetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要指定 name"})
+		return
+	}
+	if err := service.DeleteZFSDataset(req.Name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "数据集 " + req.Name + " 已删除"})
+}
+
 // DeleteZFSPool 提交销毁 ZFS 存储池任务
 func DeleteZFSPool(c *gin.Context) {
 	if !requireHighRiskVerification(c, "delete_zfs_pool") {

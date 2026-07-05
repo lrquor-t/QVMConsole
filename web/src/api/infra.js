@@ -120,6 +120,24 @@ export function createZFSPool(data) {
   })
 }
 
+// 在已有 ZFS 存储池下创建数据集
+export function createZFSDataset(data) {
+  return request({
+    url: '/storage-pool/zfs-dataset',
+    method: 'post',
+    data
+  })
+}
+
+// 删除 ZFS 数据集
+export function deleteZFSDataset(data) {
+  return request({
+    url: '/storage-pool/zfs-dataset',
+    method: 'delete',
+    data
+  })
+}
+
 // 销毁 ZFS 存储池
 export function deleteZFSPool(poolName) {
   return request({

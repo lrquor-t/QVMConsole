@@ -458,6 +458,47 @@ func clearZFSPoolConfigs(poolName string, datasets []ZFSDatasetInfo) {
 	}
 }
 
+// CreateZFSDataset 在已有 ZFS 存储池下创建数据集（如 zp01/vm-storage）。
+func CreateZFSDataset(pool, name string) error {
+	pool = strings.TrimSpace(pool)
+	name = strings.TrimSpace(name)
+	if pool == "" || name == "" {
+		return fmt.Errorf("存储池名称和数据集名称不能为空")
+	}
+	// 校验名称（支持嵌套如 vm-storage/sub，逐段校验）
+	for _, seg := range strings.Split(name, "/") {
+		if !zfsPoolNameRe.MatchString(seg) {
+			return fmt.Errorf("数据集名称段 %q 无效（字母开头，含字母/数字/连字符/下划线/点，最长 63 字符）", seg)
+		}
+	}
+	// 校验 pool 存在
+	if r := utils.ExecCommandQuiet("zpool", "list", "-Ho", "name", pool); r.Error != nil {
+		return fmt.Errorf("ZFS 存储池 %s 不存在", pool)
+	}
+	// 创建数据集（-p 自动建父数据集；数据集已存在则 zfs create 报错）
+	fullDS := pool + "/" + name
+	if r := utils.ExecCommand("zfs", "create", "-p", fullDS); r.Error != nil {
+		return fmt.Errorf("创建数据集 %s 失败: %w", fullDS, r.Error)
+	}
+	return nil
+}
+
+// DeleteZFSDataset 删除已有 ZFS 数据集（如 zp01/vm-storage）。不删 pool 根。
+func DeleteZFSDataset(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || !strings.Contains(name, "/") {
+		return fmt.Errorf("无效的数据集路径（需 pool/dataset 形式）")
+	}
+	parts := strings.SplitN(name, "/", 2)
+	if !zfsPoolNameRe.MatchString(parts[0]) {
+		return fmt.Errorf("无效的存储池名称")
+	}
+	if r := utils.ExecCommand("zfs", "destroy", name); r.Error != nil {
+		return fmt.Errorf("删除数据集 %s 失败: %w", name, r.Error)
+	}
+	return nil
+}
+
 // ── ZFS 信息扫描 ──
 
 // ListZPools 扫描宿主机所有 ZFS 存储池。

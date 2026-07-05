@@ -158,6 +158,7 @@
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">删除存储卷</el-button>
               </template>
               <template v-if="disk.is_zfs_pool">
+                <el-button size="small" plain type="success" @click="openCreateDataset(disk.name)">创建数据集</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
             </div>
@@ -315,6 +316,7 @@
               <el-button size="small" plain @click="openConfig(part)">配置</el-button>
               <el-button size="small" plain type="primary" :disabled="!part.can_use_for_vm || part.is_default" @click="handleSetDefault(part)">设为默认</el-button>
               <el-button size="small" plain type="warning" :disabled="!part.can_format" @click="openFormat(part)">格式化挂载</el-button>
+              <el-button v-if="part.type === 'zdataset'" size="small" plain type="danger" @click="openDeleteDataset(part)">删除数据集</el-button>
             </div>
           </div>
           </div>
@@ -745,6 +747,25 @@
         <el-button type="danger" :disabled="!deleteVolumeConfirmed" :loading="deletingVolume" @click="submitDeleteVolume">提交任务</el-button>
       </template>
     </el-dialog>
+
+    <!-- 创建 ZFS 数据集对话框 -->
+    <el-dialog title="创建 ZFS 数据集" v-model="createDatasetVisible" width="480px" append-to-body :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item label="存储池" required>
+          <el-select v-model="datasetForm.pool" placeholder="选择 ZFS 存储池" style="width:100%">
+            <el-option v-for="p in zpoolList" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数据集名称" required>
+          <el-input v-model="datasetForm.name" placeholder="如 vm-storage 或 a/b/c（支持嵌套）" />
+        </el-form-item>
+        <div style="font-size:12px;color:var(--el-text-color-secondary);margin-left:100px;">将在所选存储池下创建数据集（如 zp01/vm-storage），可用于 VM 落盘。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDatasetVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creatingDataset" @click="handleCreateDataset">创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -752,7 +773,7 @@
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
-import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, deleteZFSPool } from '@/api/infra'
+import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool } from '@/api/infra'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -765,6 +786,40 @@ const formatting = ref(false)
 const formatConfirmed = ref(false)
 const formatFSType = ref('ext4')
 const currentRow = ref(null)
+
+// 创建 ZFS 数据集
+const createDatasetVisible = ref(false)
+const creatingDataset = ref(false)
+const datasetForm = ref({ pool: '', name: '' })
+const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))
+const openCreateDataset = (poolName) => {
+  datasetForm.value = { pool: poolName || zpoolList.value[0] || '', name: '' }
+  createDatasetVisible.value = true
+}
+const handleCreateDataset = async () => {
+  if (!datasetForm.value.pool || !datasetForm.value.name.trim()) {
+    ElMessage.warning('请选择存储池并填写数据集名称')
+    return
+  }
+  creatingDataset.value = true
+  try {
+    const res = await createZFSDataset({ pool: datasetForm.value.pool, name: datasetForm.value.name.trim() })
+    ElMessage.success(res.message || '数据集已创建')
+    createDatasetVisible.value = false
+    fetchData()
+  } catch (e) {} finally { creatingDataset.value = false }
+}
+
+const openDeleteDataset = async (part) => {
+  try {
+    await ElMessageBox.confirm(`确认删除数据集 ${part.display_name}？其数据将不可恢复！`, '删除数据集', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  try {
+    const res = await deleteZFSDataset({ name: part.display_name })
+    ElMessage.success(res.message || '数据集已删除')
+    fetchData()
+  } catch (e) {}
+}
 
 // 折叠状态：记录哪些磁盘卡片被折叠
 const collapsedDisks = reactive(new Set())
