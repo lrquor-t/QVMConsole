@@ -12,6 +12,8 @@ import (
 	"kvm_console/model"
 	"kvm_console/service/bandwidth"
 	"kvm_console/utils"
+
+	"gorm.io/gorm"
 )
 
 // AttachContainerToVPC 建立 VPCVMBinding（Kind=lxc）并在容器启动后把 host veth
@@ -319,9 +321,6 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 		"hwaddr": NICMAC(name, next),
 		"flags":  "up",
 	}
-	if err := writeConfig(name, other, blocks); err != nil {
-		return err
-	}
 	binding := model.VPCVMBinding{
 		VMName: name, Username: ownerOf(name), SwitchID: req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID, InterfaceOrder: next, Kind: "lxc",
@@ -330,6 +329,12 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 	if err := model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, next, "lxc").
 		Assign(binding).FirstOrCreate(&binding).Error; err != nil {
 		return fmt.Errorf("写入 VPC 绑定失败: %w", err)
+	}
+	if err := writeConfig(name, other, blocks); err != nil {
+		// 回滚刚写入的绑定，避免悬挂的 config 缺失
+		model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, next, "lxc").
+			Delete(&model.VPCVMBinding{})
+		return err
 	}
 	// 运行中：热插拔；已停：下次启动由 ReconcileContainerNICs 施加
 	if containerRunning(name) {
@@ -388,14 +393,15 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 		return fmt.Errorf("网卡 order=%d 不存在", order)
 	}
 	mac := blocks[order]["hwaddr"]
-	// 已绑静态 IP 的卡：必须先解绑
+	if mac == "" {
+		mac = NICMAC(name, order)
+	}
+	// 已绑静态 IP 的卡：必须先解绑（直接按 binding.SwitchID 查，避免 switch 行缺失时绕过校验）
 	var b model.VPCVMBinding
 	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").First(&b)
-	if mac != "" && b.SwitchID != 0 {
-		if sw, e := lookupSwitch(b.SwitchID); e == nil {
-			if GetVPCStaticIPByMACExported(sw.ID, mac) != "" {
-				return fmt.Errorf("该网卡已绑定静态 IP，请先在网络 tab 解绑后再删除")
-			}
+	if b.SwitchID != 0 && mac != "" {
+		if GetVPCStaticIPByMACExported(b.SwitchID, mac) != "" {
+			return fmt.Errorf("该网卡已绑定静态 IP，请先在网络 tab 解绑后再删除")
 		}
 	}
 	if order == 0 && !force {
@@ -410,20 +416,30 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 	if err := writeConfig(name, other, blocks); err != nil {
 		return err
 	}
-	// 删旧绑定 + 重排其余绑定 interface_order
+	// 删旧绑定 + 重排其余绑定 interface_order（事务内原子完成）
 	var all []model.VPCVMBinding
 	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Order("interface_order ASC").Find(&all)
-	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").
-		Delete(&model.VPCVMBinding{})
-	newIdx := 0
-	for _, bb := range all {
-		if bb.InterfaceOrder == order {
-			continue
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").
+			Delete(&model.VPCVMBinding{}).Error; err != nil {
+			return err
 		}
-		if bb.InterfaceOrder != newIdx {
-			model.DB.Model(&model.VPCVMBinding{}).Where("id = ?", bb.ID).Update("interface_order", newIdx)
+		newIdx := 0
+		for _, bb := range all {
+			if bb.InterfaceOrder == order {
+				continue
+			}
+			if bb.InterfaceOrder != newIdx {
+				if err := tx.Model(&model.VPCVMBinding{}).Where("id = ?", bb.ID).
+					Update("interface_order", newIdx).Error; err != nil {
+					return err
+				}
+			}
+			newIdx++
 		}
-		newIdx++
+		return nil
+	}); err != nil {
+		return fmt.Errorf("重排网卡绑定失败: %w", err)
 	}
 	return nil
 }
@@ -480,11 +496,12 @@ func hotplugNic(name string, order int, mac string, sw model.VPCSwitch, b model.
 	}
 	a := fmt.Sprintf("vxc%d_%s_a", order, name)
 	c := fmt.Sprintf("vxc%d_%s_b", order, name)
-	if r := utils.ExecShell(fmt.Sprintf("ip link add %s type veth peer name %s", a, c)); r.Error != nil {
+	if r := utils.ExecCommand("ip", "link", "add", a, "type", "veth", "peer", "name", c); r.Error != nil {
 		return fmt.Errorf("热插拔建 veth 失败，请重启容器: %s", r.Stderr)
 	}
-	utils.ExecShell(fmt.Sprintf("ip link set %s netns %s", c, pid))
-	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c 'ip link set %s name eth%d; ip link set eth%d up' 2>/dev/null", name, c, order+1, order+1))
+	utils.ExecCommandQuiet("ip", "link", "set", c, "netns", pid)
+	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c 'ip link set %s name eth%d; ip link set eth%d up' 2>/dev/null",
+		utils.ShellSingleQuote(name), c, order+1, order+1))
 	bridge := sw.BridgeName
 	if strings.TrimSpace(bridge) == "" {
 		bridge = defaultBridge()
