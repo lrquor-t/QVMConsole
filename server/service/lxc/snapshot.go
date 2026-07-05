@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"kvm_console/config"
 	"kvm_console/utils"
@@ -73,6 +74,44 @@ func listDirSnapshots(name string) ([]LXCSnapshot, error) {
 	return snaps, nil
 }
 
+// sanitizeSnapshotComment 清洗快照备注：把连续的 \n/\r/\t 折叠成单个空格，并截到 200 runes（与前端 maxlength 一致）。
+// 纯函数；CreateSnapshot 在两条分支前的单一 chokepoint 调用，防止控制符进入 zfs user property（导致 strings.Split("\n") 错位）
+// 或 dir 备注（导致 parseSnapshotList 的 strings.Fields 错切），从而引发列表静默丢/截。
+func sanitizeSnapshotComment(s string) string {
+	// 1) 把每个 \n/\r/\t 视为分隔符，相邻连续运行折叠成单个空格（保留单词间不粘连）。
+	var b strings.Builder
+	b.Grow(len(s))
+	inRun := false
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			inRun = true
+			continue
+		}
+		if inRun {
+			b.WriteByte(' ')
+			inRun = false
+		}
+		b.WriteRune(r)
+	}
+	if inRun { // 末尾的控制符 run 也写成一个空格（保持"剥离 + 折叠"语义）
+		b.WriteByte(' ')
+	}
+	cleaned := b.String()
+	// 2) 截到 200 runes（rune-safe：不会切断多字节字符）。前端 maxlength=200 同此上限。
+	const max = 200
+	if utf8.RuneCountInString(cleaned) <= max {
+		return cleaned
+	}
+	out := make([]rune, 0, max)
+	for _, r := range cleaned {
+		if len(out) >= max {
+			break
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
 // parseSnapshotList 解析 lxc-snapshot -L 的 stdout（Name/Comment/Creation time 三列，空格对齐）。
 // name=首段；creation=末两段(日期 时间)；comment=中间段(可含空格)；Comment 为 "-" 视为空。
 func parseSnapshotList(stdout string) []LXCSnapshot {
@@ -101,6 +140,7 @@ func parseSnapshotList(stdout string) []LXCSnapshot {
 
 // CreateSnapshot 对容器创建新快照（异步任务调用；可能耗时）。
 func CreateSnapshot(name, comment string) error {
+	comment = sanitizeSnapshotComment(comment) // 服务端清洗：避免 \n/\r/\t 进入 zfs user property 或 dir 备注，破坏后续列表解析
 	if isZfsContainer(name) {
 		return createZfsSnapshot(name, comment)
 	}
