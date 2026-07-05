@@ -79,7 +79,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right" align="center">
+        <el-table-column label="操作" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-tooltip :content="row.status === 'RUNNING' ? '关机' : '开机'" placement="top">
               <el-button
@@ -95,6 +95,9 @@
             <el-tooltip content="终端" placement="top">
               <el-button size="small" circle type="primary" plain :icon="Monitor" @click="openConsole(row)" />
             </el-tooltip>
+            <el-tooltip content="管理" placement="top">
+              <el-button size="small" circle type="primary" :icon="Operation" @click="openManage(row)" />
+            </el-tooltip>
             <el-dropdown trigger="click" @command="cmd => handleMore(cmd, row)">
               <el-tooltip content="更多" placement="top">
                 <el-button size="small" circle :icon="MoreFilled" />
@@ -103,7 +106,6 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
                   <el-dropdown-item command="config">配置</el-dropdown-item>
-                  <el-dropdown-item command="snapshot">快照</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -176,22 +178,8 @@
       </template>
     </el-dialog>
 
-    <!-- 快照对话框 -->
-    <el-dialog v-model="snapVisible" :title="`快照 · ${snapName}`" width="560px">
-      <div style="margin-bottom:8px">
-        <el-button size="small" type="primary" :loading="snapCreating" @click="handleSnapCreate">新建快照</el-button>
-        <el-button size="small" @click="fetchSnapshots">刷新</el-button>
-      </div>
-      <el-table :data="snapshots" border>
-        <el-table-column prop="name" label="快照名" />
-        <el-table-column label="操作" width="160">
-          <template #default="{ row }">
-            <el-button size="small" link @click="handleSnapRestore(row)">恢复</el-button>
-            <el-button size="small" link type="danger" @click="handleSnapDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
+    <!-- 管理抽屉 -->
+    <LxcManageDrawer ref="manageDrawerRef" />
   </div>
 </template>
 
@@ -199,14 +187,14 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus, Refresh, VideoPlay, SwitchButton, Monitor, MoreFilled } from '@element-plus/icons-vue'
+import { Search, Plus, Refresh, VideoPlay, SwitchButton, Monitor, MoreFilled, Operation } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import {
   getLXCList, createLXC, operateLXC, deleteLXC, batchOperateLXC,
-  updateLXCConfig, getLXCTemplateList, getLXCDownloadList,
-  listLXCSnapshots, createLXCSnapshot, restoreLXCSnapshot, deleteLXCSnapshot
+  updateLXCConfig, getLXCTemplateList, getLXCDownloadList
 } from '@/api/lxc'
 import { getSettings } from '@/api/settings'
+import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -217,6 +205,8 @@ const autoRefresh = ref(false)
 const lxcSearchText = ref('')
 const operatingMap = ref({})
 const batchOperating = ref(false)
+const manageDrawerRef = ref(null)
+const openManage = (row) => manageDrawerRef.value?.open(row)
 let timer = null
 
 const hasSelection = computed(() => selected.value.length > 0)
@@ -274,7 +264,6 @@ const handleBatchOperate = async (action) => {
 const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
   else if (cmd === 'config') openConfig(row)
-  else if (cmd === 'snapshot') openSnapshots(row)
   else if (cmd === 'delete') remove(row)
 }
 const openConsole = (row) => {
@@ -340,14 +329,6 @@ const handleConfigSave = async () => {
   configSaving.value = true
   try { await updateLXCConfig(configName.value, { ...configForm.value, autostart: configForm.value.autostart }); ElMessage.success('已保存'); configVisible.value = false; fetchData() } catch (e) {} finally { configSaving.value = false }
 }
-
-// 快照
-const snapVisible = ref(false); const snapName = ref(''); const snapshots = ref([]); const snapCreating = ref(false)
-const openSnapshots = async (row) => { snapName.value = row.name; snapVisible.value = true; await fetchSnapshots() }
-const fetchSnapshots = async () => { try { const r = await listLXCSnapshots(snapName.value); snapshots.value = (r.data || []).map(n => ({ name: n })) } catch (e) {} }
-const handleSnapCreate = async () => { snapCreating.value = true; try { await createLXCSnapshot(snapName.value); ElMessage.success('快照任务已提交'); fetchSnapshots() } catch (e) {} finally { snapCreating.value = false } }
-const handleSnapRestore = async (row) => { try { await restoreLXCSnapshot(snapName.value, row.name); ElMessage.success('已恢复') } catch (e) {} }
-const handleSnapDelete = async (row) => { try { await deleteLXCSnapshot(snapName.value, row.name); ElMessage.success('已删除'); fetchSnapshots() } catch (e) {} }
 
 onMounted(() => { fetchData(); timer = setInterval(() => { if (autoRefresh.value) fetchData() }, 5000) })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
