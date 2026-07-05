@@ -313,6 +313,17 @@ export const endpointGroups = [
     ]
   },
   {
+    name: 'LXC 容器',
+    description: 'LXC 容器列表与快照管理（zfs / dir 双 backing）。',
+    endpoints: [
+      ep('GET', '/lxc/list', '列出 LXC 容器', { notes: [apiCompatible, '普通用户只返回归属自己的容器；admin 返回全部。'] }),
+      ep('GET', '/lxc/:name/snapshots', '列出容器快照', { pathParams: ['name'], notes: ['返回新→旧排序；每项 {name, created_at, comment}。zfs 容器读 zfs 快照 + user property 备注；dir 容器解析 lxc-snapshot -L。'] }),
+      ep('POST', '/lxc/:name/snapshot', '创建快照', { pathParams: ['name'], body: 'JSON: comment(可选，快照备注)', notes: ['异步任务，返回 task_id。zfs 容器快照名为 snap-<时间戳>；dir 容器由 lxc-snapshot 自动命名为 snap0/snap1。备注：zfs 存为 user property kvm_console:comment，dir 经 lxc-snapshot -c 写入。'] }),
+      ep('POST', '/lxc/:name/snapshot/:snap/restore', '恢复快照', { pathParams: ['name', 'snap'], notes: ['会先自动关机容器；zfs 容器用 zfs rollback -r（销毁该快照之后创建的快照）。'] }),
+      ep('DELETE', '/lxc/:name/snapshot/:snap', '删除快照', { pathParams: ['name', 'snap'], notes: ['zfs 容器 zfs destroy 单个快照；dir 容器 lxc-snapshot -d。'], highRisk: 'delete_snapshot' })
+    ]
+  },
+  {
     name: '模板',
     description: '模板制作、导入导出、发布和删除。',
     endpoints: [
