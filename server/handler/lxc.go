@@ -68,11 +68,17 @@ func ListLXCSnapshots(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": snaps})
 }
 
+type createLXCSnapReq struct {
+	Comment string `json:"comment"`
+}
+
 // CreateLXCSnapshot 提交异步快照任务（大 rootfs 快照可能耗时）。
 func CreateLXCSnapshot(c *gin.Context) {
 	name := c.Param("name")
+	var req createLXCSnapReq
+	_ = c.ShouldBindJSON(&req) // body 可选：无备注时可空 body
 	username, _ := c.Get("username")
-	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCSnapshot, name, username.(string))
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCSnapshot, service.LXCSnapshotParams{Name: name, Comment: req.Comment}, username.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交快照任务失败: " + err.Error()})
 		return

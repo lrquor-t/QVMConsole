@@ -375,16 +375,16 @@ func registerTaskHandlers() {
 		return `{"name":"` + name + `"}`, nil
 	})
 
-	// LXC 容器快照任务（创建快照）
+	// LXC 容器快照任务（创建快照，可选备注）
 	taskqueue.RegisterHandler(model.TaskTypeLXCSnapshot, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
-		var name string
-		if err := json.Unmarshal([]byte(task.Params), &name); err != nil {
+		params, err := service.LXCParseSnapshotParams(task.Params)
+		if err != nil {
 			return "", fmt.Errorf("解析参数失败: %w", err)
 		}
-		if err := service.LXCCreateSnapshot(name); err != nil {
+		if err := service.LXCCreateSnapshot(params.Name, params.Comment); err != nil {
 			return "", err
 		}
-		return `{"name":"` + name + `"}`, nil
+		return `{"name":"` + params.Name + `"}`, nil
 	})
 
 	// 导入 LXC 模板任务（rootfs tarball → 金基底容器 + DB 行）

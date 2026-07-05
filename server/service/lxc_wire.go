@@ -60,12 +60,21 @@ func LXCCheckQuota(username string, cpu, ramMB int) error {
 }
 
 // LXC 快照封装
-func LXCListSnapshots(name string) ([]string, error) {
+type LXCSnapshot = lxc.LXCSnapshot
+
+func LXCListSnapshots(name string) ([]LXCSnapshot, error) {
 	return lxc.ListSnapshots(name)
 }
-func LXCCreateSnapshot(name string) error        { return lxc.CreateSnapshot(name) }
-func LXCRestoreSnapshot(name, snap string) error { return lxc.RestoreSnapshot(name, snap) }
-func LXCDeleteSnapshot(name, snap string) error  { return lxc.DeleteSnapshot(name, snap) }
+func LXCCreateSnapshot(name, comment string) error { return lxc.CreateSnapshot(name, comment) }
+func LXCRestoreSnapshot(name, snap string) error   { return lxc.RestoreSnapshot(name, snap) }
+func LXCDeleteSnapshot(name, snap string) error    { return lxc.DeleteSnapshot(name, snap) }
+
+// LXC 快照任务参数（透出 lxc.SnapshotParams，便于 handler/main 只依赖 service 包）。
+type LXCSnapshotParams = lxc.SnapshotParams
+
+func LXCParseSnapshotParams(s string) (*LXCSnapshotParams, error) {
+	return lxc.ParseSnapshotParams(s)
+}
 
 // LXCRelocateParams 透出 lxc.RelocateParams，便于 handler/main 只依赖 service 包。
 type LXCRelocateParams = lxc.RelocateParams
