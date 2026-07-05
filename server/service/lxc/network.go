@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -226,4 +227,320 @@ func nicMACForBinding(name string, b model.VPCVMBinding) string {
 		}
 	}
 	return NICMAC(name, b.InterfaceOrder)
+}
+
+const maxLXCInterfaces = 8
+
+// ListContainerInterfaces 列出容器全部网卡（config + VPCVMBinding + 运行态）。
+func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
+	data, err := os.ReadFile(configPath(name))
+	if err != nil {
+		return nil, fmt.Errorf("读取容器 config 失败: %w", err)
+	}
+	_, blocks := SplitNICBlocks(string(data))
+	var bindings []model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Order("interface_order ASC").Find(&bindings)
+	bindingByOrder := map[int]model.VPCVMBinding{}
+	for _, b := range bindings {
+		bindingByOrder[b.InterfaceOrder] = b
+	}
+	// order 集合 = config 块 ∪ binding
+	orderSet := map[int]bool{}
+	for o := range blocks {
+		orderSet[o] = true
+	}
+	for o := range bindingByOrder {
+		orderSet[o] = true
+	}
+	orders := make([]int, 0, len(orderSet))
+	for o := range orderSet {
+		orders = append(orders, o)
+	}
+	sort.Ints(orders)
+	ip := ResolveContainerVPCIP(name)
+	out := make([]LXCInterfaceInfo, 0, len(orders))
+	for _, o := range orders {
+		blk := blocks[o]
+		mac := blk["hwaddr"]
+		if mac == "" {
+			mac = NICMAC(name, o)
+		}
+		b := bindingByOrder[o]
+		info := LXCInterfaceInfo{
+			Order: o, IsPrimary: o == 0, MAC: mac, Link: blk["link"],
+			SwitchID: b.SwitchID, SecurityGroupID: b.SecurityGroupID,
+			BandwidthInboundAvg: b.BandwidthInboundAvg, BandwidthOutboundAvg: b.BandwidthOutboundAvg,
+		}
+		if varSw, err := lookupSwitch(b.SwitchID); err == nil {
+			info.SwitchName = varSw.Name
+			info.BridgeMode = varSw.BridgeMode
+			info.CIDR = varSw.CIDR
+			info.VLANID = varSw.VLANID
+		}
+		info.SecurityGroupName = lookupSGName(b.SecurityGroupID)
+		if veth := findVethByMAC(mac); veth != "" {
+			info.Veth = veth
+			rx, tx := ReadVethCounters(veth)
+			info.RXBytes, info.TXBytes = rx, tx
+		}
+		if o == 0 {
+			info.IP = ip
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// AddContainerInterface 给容器追加一块网卡（已停：仅写 config+绑定；运行中：热插拔）。
+func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
+	if req.SwitchID == 0 {
+		return fmt.Errorf("必须选择 VPC 交换机")
+	}
+	sw, err := lookupSwitch(req.SwitchID)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(configPath(name))
+	if err != nil {
+		return fmt.Errorf("读取容器 config 失败: %w", err)
+	}
+	other, blocks := SplitNICBlocks(string(data))
+	if len(blocks) >= maxLXCInterfaces {
+		return fmt.Errorf("网卡数量已达上限 %d", maxLXCInterfaces)
+	}
+	next := nextOrder(blocks)
+	bridge := sw.BridgeName
+	if strings.TrimSpace(bridge) == "" {
+		bridge = defaultBridge()
+	}
+	blocks[next] = map[string]string{
+		"type":   "veth",
+		"link":   bridge,
+		"hwaddr": NICMAC(name, next),
+		"flags":  "up",
+	}
+	if err := writeConfig(name, other, blocks); err != nil {
+		return err
+	}
+	binding := model.VPCVMBinding{
+		VMName: name, Username: ownerOf(name), SwitchID: req.SwitchID,
+		SecurityGroupID: req.SecurityGroupID, InterfaceOrder: next, Kind: "lxc",
+		BandwidthInboundAvg: req.BandwidthInboundAvg, BandwidthOutboundAvg: req.BandwidthOutboundAvg,
+	}
+	if err := model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, next, "lxc").
+		Assign(binding).FirstOrCreate(&binding).Error; err != nil {
+		return fmt.Errorf("写入 VPC 绑定失败: %w", err)
+	}
+	// 运行中：热插拔；已停：下次启动由 ReconcileContainerNICs 施加
+	if containerRunning(name) {
+		return hotplugNic(name, next, blocks[next]["hwaddr"], sw, binding)
+	}
+	return nil
+}
+
+// UpdateContainerInterface 编辑某网卡（换交换机/限速/安全组）。MAC 不变。
+func UpdateContainerInterface(name string, order int, req AddLXCInterfaceRequest) error {
+	sw, err := lookupSwitch(req.SwitchID)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(configPath(name))
+	if err != nil {
+		return err
+	}
+	other, blocks := SplitNICBlocks(string(data))
+	if blocks[order] == nil {
+		return fmt.Errorf("网卡 order=%d 不存在", order)
+	}
+	bridge := sw.BridgeName
+	if strings.TrimSpace(bridge) == "" {
+		bridge = defaultBridge()
+	}
+	blocks[order]["link"] = bridge // 仅换 link，hwaddr/type/flags 保留
+	if err := writeConfig(name, other, blocks); err != nil {
+		return err
+	}
+	updates := map[string]interface{}{
+		"switch_id": req.SwitchID, "security_group_id": req.SecurityGroupID,
+		"bandwidth_inbound_avg": req.BandwidthInboundAvg, "bandwidth_outbound_avg": req.BandwidthOutboundAvg,
+	}
+	if err := model.DB.Model(&model.VPCVMBinding{}).
+		Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").Updates(updates).Error; err != nil {
+		return err
+	}
+	// 重新施加运行态（VLAN/限速随交换机变化）
+	var b model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").First(&b)
+	if containerRunning(name) {
+		return applyNicRuntime(name, order, blocks[order]["hwaddr"], sw, b)
+	}
+	return nil
+}
+
+// RemoveContainerInterface 删除某网卡并重排索引。order==0 主卡需 force=true。
+func RemoveContainerInterface(name string, order int, force bool) error {
+	data, err := os.ReadFile(configPath(name))
+	if err != nil {
+		return err
+	}
+	other, blocks := SplitNICBlocks(string(data))
+	if blocks[order] == nil {
+		return fmt.Errorf("网卡 order=%d 不存在", order)
+	}
+	mac := blocks[order]["hwaddr"]
+	// 已绑静态 IP 的卡：必须先解绑
+	var b model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").First(&b)
+	if mac != "" && b.SwitchID != 0 {
+		if sw, e := lookupSwitch(b.SwitchID); e == nil {
+			if GetVPCStaticIPByMACExported(sw.ID, mac) != "" {
+				return fmt.Errorf("该网卡已绑定静态 IP，请先在网络 tab 解绑后再删除")
+			}
+		}
+	}
+	if order == 0 && !force {
+		return fmt.Errorf("主网卡需二次确认（force=true）方可删除")
+	}
+	// 运行中：热拔
+	if containerRunning(name) && mac != "" {
+		hotunplugNic(mac)
+	}
+	delete(blocks, order)
+	blocks = CompactNICBlocks(blocks)
+	if err := writeConfig(name, other, blocks); err != nil {
+		return err
+	}
+	// 删旧绑定 + 重排其余绑定 interface_order
+	var all []model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Order("interface_order ASC").Find(&all)
+	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").
+		Delete(&model.VPCVMBinding{})
+	newIdx := 0
+	for _, bb := range all {
+		if bb.InterfaceOrder == order {
+			continue
+		}
+		if bb.InterfaceOrder != newIdx {
+			model.DB.Model(&model.VPCVMBinding{}).Where("id = ?", bb.ID).Update("interface_order", newIdx)
+		}
+		newIdx++
+	}
+	return nil
+}
+
+func lookupSwitch(id uint) (model.VPCSwitch, error) {
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, id).Error; err != nil {
+		return sw, fmt.Errorf("交换机不存在: %w", err)
+	}
+	return sw, nil
+}
+func lookupSGName(id uint) string {
+	if id == 0 {
+		return ""
+	}
+	var sg model.VPCSecurityGroup
+	if err := model.DB.First(&sg, id).Error; err != nil {
+		return ""
+	}
+	return sg.Name
+}
+func defaultBridge() string {
+	if b := config.GlobalConfig.OVSBridge; b != "" {
+		return b
+	}
+	return "br-ovs"
+}
+func nextOrder(blocks map[int]map[string]string) int {
+	max := -1
+	for o := range blocks {
+		if o > max {
+			max = o
+		}
+	}
+	return max + 1
+}
+func writeConfig(name, other string, blocks map[int]map[string]string) error {
+	return os.WriteFile(configPath(name), []byte(other+RenderNICBlocks(blocks)), 0644)
+}
+func containerRunning(name string) bool {
+	r := LxcInfo(name)
+	if r.ExitCode != 0 {
+		return false
+	}
+	d, _ := ParseLxcInfo(r.Stdout)
+	return strings.Contains(strings.ToUpper(d.Status), "RUNNING")
+}
+
+// hotplugNic / hotunplugNic：运行中容器的 veth 热加/热拔（best-effort，失败返回 needs_restart 语义见 handler）。
+func hotplugNic(name string, order int, mac string, sw model.VPCSwitch, b model.VPCVMBinding) error {
+	pid := containerPID(name)
+	if pid == "" {
+		return fmt.Errorf("无法获取容器 PID，请重启容器使配置生效")
+	}
+	a := fmt.Sprintf("vxc%d_%s_a", order, name)
+	c := fmt.Sprintf("vxc%d_%s_b", order, name)
+	if r := utils.ExecShell(fmt.Sprintf("ip link add %s type veth peer name %s", a, c)); r.Error != nil {
+		return fmt.Errorf("热插拔建 veth 失败，请重启容器: %s", r.Stderr)
+	}
+	utils.ExecShell(fmt.Sprintf("ip link set %s netns %s", c, pid))
+	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c 'ip link set %s name eth%d; ip link set eth%d up' 2>/dev/null", name, c, order+1, order+1))
+	bridge := sw.BridgeName
+	if strings.TrimSpace(bridge) == "" {
+		bridge = defaultBridge()
+	}
+	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, a)
+	if sw.VLANID > 0 {
+		utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", a, fmt.Sprintf("tag=%d", sw.VLANID))
+	}
+	// 注：热插拔的 veth host 侧 MAC 为随机值，与 lxc.net.N.hwaddr 不一致；
+	//     后续 ReconcileContainerNICs 仍按 config MAC 找不到该 veth，故热插拔为「临时生效」，
+	//     持久态依赖下次重启由 lxc-start 按 config 重建。引导用户重启以获一致状态。
+	return nil
+}
+func hotunplugNic(mac string) {
+	veth := findVethByMAC(mac)
+	if veth == "" {
+		return
+	}
+	utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", defaultBridge(), veth)
+	utils.ExecCommandQuiet("ip", "link", "del", veth)
+}
+func containerPID(name string) string {
+	r := utils.ExecCommand("lxc-info", "-n", name, "-p")
+	if r.Error != nil {
+		return ""
+	}
+	for _, line := range strings.Split(r.Stdout, "\n") {
+		if strings.Contains(line, "PID:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				return f[len(f)-1]
+			}
+		}
+	}
+	return ""
+}
+
+// GetVPCStaticIPByMACExported 读交换机 dhcp-hosts 文件，返回 MAC 对应已绑 IP（空=未绑）。
+func GetVPCStaticIPByMACExported(switchID uint, mac string) string {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" {
+		return ""
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/etc/kvm-console/vpc/dhcp-hosts-%d", switchID))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) >= 2 && strings.EqualFold(strings.TrimSpace(fields[0]), mac) {
+			return strings.TrimSpace(fields[1])
+		}
+	}
+	return ""
 }
