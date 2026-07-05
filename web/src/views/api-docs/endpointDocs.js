@@ -314,13 +314,19 @@ export const endpointGroups = [
   },
   {
     name: 'LXC 容器',
-    description: 'LXC 容器列表与快照管理（zfs / dir 双 backing）。',
+    description: 'LXC 容器列表、快照管理（zfs / dir 双 backing）与多网卡管理。容器静态 IP 绑定/解绑复用 /network/static-ip/bind、/unbind（vm_name 传容器名）。',
     endpoints: [
       ep('GET', '/lxc/list', '列出 LXC 容器', { notes: [apiCompatible, '普通用户只返回归属自己的容器；admin 返回全部。'] }),
       ep('GET', '/lxc/:name/snapshots', '列出容器快照', { pathParams: ['name'], notes: ['返回新→旧排序；每项 {name, created_at, comment}。zfs 容器读 zfs 快照 + user property 备注；dir 容器解析 lxc-snapshot -L。'] }),
       ep('POST', '/lxc/:name/snapshot', '创建快照', { pathParams: ['name'], body: 'JSON: comment(可选，快照备注)', notes: ['异步任务，返回 task_id。zfs 容器快照名为 snap-<时间戳>；dir 容器由 lxc-snapshot 自动命名为 snap0/snap1。备注：zfs 存为 user property kvm_console:comment，dir 经 lxc-snapshot -c 写入。'] }),
       ep('POST', '/lxc/:name/snapshot/:snap/restore', '恢复快照', { pathParams: ['name', 'snap'], notes: ['会先自动关机容器；zfs 容器用 zfs rollback -r（销毁该快照之后创建的快照）。'] }),
-      ep('DELETE', '/lxc/:name/snapshot/:snap', '删除快照', { pathParams: ['name', 'snap'], notes: ['zfs 容器 zfs destroy 单个快照；dir 容器 lxc-snapshot -d。'], highRisk: 'delete_snapshot' })
+      ep('DELETE', '/lxc/:name/snapshot/:snap', '删除快照', { pathParams: ['name', 'snap'], notes: ['zfs 容器 zfs destroy 单个快照；dir 容器 lxc-snapshot -d。'], highRisk: 'delete_snapshot' }),
+
+      // 多网卡管理（静态 IP 复用 /network/static-ip/bind|unbind，vm_name=容器名）
+      ep('GET', '/lxc/:name/interfaces', '列出容器全部网卡', { pathParams: ['name'], notes: [apiCompatible, '返回 LXCInterfaceInfo[]：每张网卡含 order/is_primary/mac/switch_id/vlan_id/security_group_id/bandwidth 限速及运行态 ip/rx_bytes/tx_bytes。普通用户只能访问归属自己的容器。'] }),
+      ep('POST', '/lxc/:name/interfaces', '追加容器网卡', { pathParams: ['name'], body: 'JSON: switch_id(必填), security_group_id, bandwidth_inbound_avg(Mbps,0=不限), bandwidth_outbound_avg', notes: [admin, '热插拔：运行中容器即时生效；离线容器写入 config 持久化。MAC 由容器名+order 确定性派生。'] }),
+      ep('PUT', '/lxc/:name/interfaces/:order', '编辑容器网卡', { pathParams: ['name', 'order'], body: 'JSON: switch_id(必填), security_group_id, bandwidth_inbound_avg, bandwidth_outbound_avg', notes: [admin, 'order=0 为主网卡，可改交换机/安全组/限速但 MAC 不变（静态 IP 绑定依赖）。改完后自动重建 VPC ACL。'] }),
+      ep('DELETE', '/lxc/:name/interfaces/:order', '删除容器网卡', { pathParams: ['name', 'order'], body: 'JSON: force(bool,删除主网卡 order=0 时必传 true)', notes: [admin, '删除 order=0 主网卡需 force=true（会断网，前端二次确认）；删除后剩余网卡 order 紧凑重排。已绑静态 IP 的网卡需先解绑。'], highRisk: 'delete_lxc_interface' })
     ]
   },
   {
