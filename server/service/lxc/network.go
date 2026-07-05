@@ -62,18 +62,26 @@ func AttachContainerToVPC(name string, switchID, sgID uint) error {
 	return nil
 }
 
-// DetachContainerFromVPC 从 OVS 删除 host veth 端口并清理 Kind=lxc 的绑定。
+// DetachContainerFromVPC 从 OVS 删除全部 host veth 端口（多卡逐个按 MAC 解析）并清理 Kind=lxc 的绑定。
 func DetachContainerFromVPC(name string) error {
 	if strings.TrimSpace(name) == "" || model.DB == nil {
 		return nil
 	}
-	var row model.LXCCache
-	_ = model.DB.Where("name = ?", name).First(&row).Error
-	if row.VethName != "" {
-		bridge := config.GlobalConfig.OVSBridge
-		if bridge == "" {
-			bridge = "br-ovs"
+	var bindings []model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Find(&bindings)
+	bridge := defaultBridge()
+	seen := map[string]bool{}
+	for _, b := range bindings {
+		mac := nicMACForBinding(name, b)
+		veth := findVethByMAC(mac)
+		if veth != "" && !seen[veth] {
+			utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", bridge, veth)
+			seen[veth] = true
 		}
+	}
+	// 兼容：旧版只回填单值 VethName 的容器
+	var row model.LXCCache
+	if err := model.DB.Where("name = ?", name).First(&row).Error; err == nil && row.VethName != "" && !seen[row.VethName] {
 		utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", bridge, row.VethName)
 	}
 	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Delete(&model.VPCVMBinding{})
