@@ -44,8 +44,8 @@ export function getLXCIP(name) {
 export function listLXCSnapshots(name) {
   return request({ url: `/lxc/${name}/snapshots`, method: 'get' })
 }
-export function createLXCSnapshot(name) {
-  return request({ url: `/lxc/${name}/snapshot`, method: 'post' })
+export function createLXCSnapshot(name, comment = '') {
+  return request({ url: `/lxc/${name}/snapshot`, method: 'post', data: { comment } })
 }
 export function restoreLXCSnapshot(name, snap) {
   return request({ url: `/lxc/${name}/snapshot/${snap}/restore`, method: 'post' })
