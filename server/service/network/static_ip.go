@@ -285,7 +285,7 @@ func GetVPCStaticHostByVMName(switchID uint, vmName string) (OVSStaticHost, bool
 // 返回实际的静态 IP 地址
 func EnsureStaticIP(vmName string) (string, error) {
 	// 获取 MAC 地址
-	mac := ip_resolver.GetFirstVMMAC(vmName)
+	mac := firstNICMAC(vmName)
 	if mac == "" {
 		return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 	}
@@ -348,7 +348,7 @@ func ResolvePortForwardTargetIP(vmName, requestedIP string) (string, error) {
 		return requestedIP, nil
 	}
 	if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
-		mac := ip_resolver.GetFirstVMMAC(vmName)
+		mac := firstNICMAC(vmName)
 		if mac == "" {
 			return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 		}
@@ -390,11 +390,36 @@ func ResolvePortForwardTargetIP(vmName, requestedIP string) (string, error) {
 	return EnsureStaticIP(vmName)
 }
 
+// firstNICMACFromSources 是分派纯逻辑：kind=lxc 用容器 MAC，否则用 VM(libvirt) MAC。
+func firstNICMACFromSources(kind, lxcMAC, vmMAC string) string {
+	if strings.TrimSpace(kind) == "lxc" {
+		return strings.ToLower(strings.TrimSpace(lxcMAC))
+	}
+	return vmMAC
+}
+
+// firstNICMAC 解析 vm_name 对应首网卡 MAC，按 VPCVMBinding.Kind 分派。
+// LXC：读 LXCCache.MacAddress（即 lxc.net.0.hwaddr）；VM：走 libvirt（原 GetFirstVMMAC）。
+func firstNICMAC(vmName string) string {
+	vmName = strings.TrimSpace(vmName)
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).First(&b).Error; err == nil {
+		if strings.TrimSpace(b.Kind) == "lxc" {
+			var row model.LXCCache
+			if err := model.DB.Where("name = ?", vmName).First(&row).Error; err == nil {
+				return firstNICMACFromSources("lxc", row.MacAddress, "")
+			}
+			return ""
+		}
+	}
+	return firstNICMACFromSources("vm", "", ip_resolver.GetFirstVMMAC(vmName))
+}
+
 // BindStaticIP 绑定静态 IP，ipAddr 为空时自动分配空闲 IP
 // 返回实际绑定的 IP 地址
 func BindStaticIP(vmName, ipAddr string) (string, error) {
 	// 获取 MAC 地址
-	mac := ip_resolver.GetFirstVMMAC(vmName)
+	mac := firstNICMAC(vmName)
 	if mac == "" {
 		return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 	}
@@ -487,7 +512,7 @@ func refreshNIC(vmName, mac, network string) {
 // UnbindStaticIP 解绑静态 IP
 func UnbindStaticIP(vmName string) error {
 	// 获取 MAC
-	mac := ip_resolver.GetFirstVMMAC(vmName)
+	mac := firstNICMAC(vmName)
 	if mac == "" {
 		return fmt.Errorf("无法获取 MAC 地址")
 	}
