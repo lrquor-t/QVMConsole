@@ -17,6 +17,7 @@ func StartContainer(name string) error {
 		return res.Error
 	}
 	_ = RefreshRuntimeFields(name)
+	_ = ReconcileContainerNICs(name) // 重启/启动后重新接入 OVS+VLAN+限速
 	return nil
 }
 

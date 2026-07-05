@@ -3,10 +3,13 @@ package lxc
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"kvm_console/config"
 	"kvm_console/model"
+	"kvm_console/service/bandwidth"
 	"kvm_console/utils"
 )
 
@@ -130,4 +133,97 @@ func readSysCounter(veth, name string) int64 {
 	var v int64
 	fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &v)
 	return v
+}
+
+// configPath 返回容器 config 文件路径（lxc.lxcpath/<name>/config）。
+func configPath(name string) string {
+	return filepath.Join(config.GlobalConfig.LXCLxcPath, name, "config")
+}
+
+// applyNicRuntime 对单个 host veth 幂等施加 OVS 端口 + VLAN tag + 下行限速。
+// veth 为空（容器未运行 / 暂无 veth）时跳过，不报错；order 0 总会回填 LXCCache.VethName
+// 以兼容现有流量采集/Detach 路径。
+func applyNicRuntime(name string, order int, mac string, sw model.VPCSwitch, binding model.VPCVMBinding) error {
+	veth := findVethByMAC(mac)
+	if order == 0 {
+		// 兼容现有流量采集/Detach 读 LXCCache.VethName；即使容器未运行也清空旧值。
+		model.DB.Model(&model.LXCCache{}).Where("name = ?", name).Update("veth_name", veth)
+	}
+	if veth == "" {
+		return nil // 容器未运行，无 veth 可施加
+	}
+	bridge := strings.TrimSpace(sw.BridgeName)
+	if bridge == "" {
+		bridge = config.GlobalConfig.OVSBridge
+		if bridge == "" {
+			bridge = "br-ovs"
+		}
+	}
+	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, veth)
+	if sw.VLANID > 0 {
+		if r := utils.ExecCommand("ovs-vsctl", "set", "Port", veth, fmt.Sprintf("tag=%d", sw.VLANID)); r.Error != nil {
+			return fmt.Errorf("设置 VLAN tag 失败: %s", r.Stderr)
+		}
+	}
+	// 下行限速（按端口名，libvirt 无关）；0 = 不限
+	if binding.BandwidthInboundAvg > 0 {
+		applyNicRateLimit(veth, binding.BandwidthInboundAvg)
+	}
+	return nil
+}
+
+// applyNicRateLimit 对 host veth 打 tc 下行限速（Mbps）。best-effort，失败仅告警不中断。
+func applyNicRateLimit(veth string, downMbps int) {
+	if veth == "" || downMbps <= 0 {
+		return
+	}
+	bandwidth.ApplyTCVPCSwitchDownlinkLimit(veth, downMbps)
+}
+
+// ReconcileContainerNICs 在容器启动后对其全部 VPCVMBinding(kind=lxc) 施加 OVS/VLAN/限速。
+// 修复「重启丢 OVS」缺口（host veth 每次启动换名 → 旧 Stop 路径删过端口、Start 路径不重接），
+// 并使停机态新增的卡在下次启动生效。幂等：缺失 veth / 无绑定 / 已存在的 OVS 端口都不报错。
+func ReconcileContainerNICs(name string) error {
+	var bindings []model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").
+		Order("interface_order ASC").Find(&bindings).Error; err != nil {
+		return err
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	// 等 order 0 的 veth 出现（最长 ~5s）：lxc-start 返回后内核创建 veth 有延迟。
+	deadline := 5 * time.Second
+	start := time.Now()
+	for time.Since(start) < deadline {
+		if veth := findVethByMAC(nicMACForBinding(name, bindings[0])); veth != "" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	var lastErr error
+	for _, b := range bindings {
+		var sw model.VPCSwitch
+		if err := model.DB.First(&sw, b.SwitchID).Error; err != nil {
+			lastErr = err
+			continue
+		}
+		mac := nicMACForBinding(name, b)
+		if err := applyNicRuntime(name, b.InterfaceOrder, mac, sw, b); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// nicMACForBinding 取某 binding 的 MAC：优先 config 的 lxc.net.<order>.hwaddr，
+// 回退 NICMAC 派生（确保 config 不可读时仍能用确定性 MAC 找到 veth）。
+func nicMACForBinding(name string, b model.VPCVMBinding) string {
+	cfg := configPath(name)
+	if data, err := os.ReadFile(cfg); err == nil {
+		if _, blocks := SplitNICBlocks(string(data)); blocks[b.InterfaceOrder]["hwaddr"] != "" {
+			return blocks[b.InterfaceOrder]["hwaddr"]
+		}
+	}
+	return NICMAC(name, b.InterfaceOrder)
 }
