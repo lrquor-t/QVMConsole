@@ -92,13 +92,13 @@
                 @click="operate(row, row.status === 'RUNNING' ? 'stop' : 'start')"
               />
             </el-tooltip>
-            <el-tooltip content="终端" placement="top">
-              <el-button size="small" circle type="primary" plain :icon="Monitor" @click="openConsole(row)" />
+            <el-tooltip :content="row.status === 'RUNNING' ? '终端' : '终端（容器未运行）'" placement="top">
+              <el-button size="small" circle type="primary" plain :icon="Monitor" :disabled="row.status !== 'RUNNING'" @click="openConsole(row)" />
             </el-tooltip>
             <el-tooltip content="管理" placement="top">
               <el-button size="small" circle type="primary" :icon="Operation" @click="openManage(row)" />
             </el-tooltip>
-            <el-dropdown trigger="click" @command="cmd => handleMore(cmd, row)">
+            <el-dropdown trigger="click" style="margin-left: 12px;" @command="cmd => handleMore(cmd, row)">
               <span class="el-dropdown-link">
                 <el-tooltip content="更多" placement="top">
                   <el-button size="small" circle :icon="MoreFilled" />
@@ -269,8 +269,9 @@ const handleMore = async (cmd, row) => {
   else if (cmd === 'delete') remove(row)
 }
 const openConsole = (row) => {
-  // 终端窗口复用 token（路由守卫放行；WS 鉴权由后端 LXCAccessMiddleware + token query）
-  router.push(`/lxc/console/${encodeURIComponent(row.name)}`)
+  // 新标签页打开终端（与 VM VNC 窗口一致；路由守卫放行，WS 鉴权由后端 LXCAccessMiddleware + token query）
+  const { href } = router.resolve(`/lxc/console/${encodeURIComponent(row.name)}`)
+  window.open(href, '_blank')
 }
 
 // 创建
