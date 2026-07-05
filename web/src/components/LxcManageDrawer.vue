@@ -2,7 +2,7 @@
   <el-drawer
     v-model="visible"
     :title="currentName ? `管理 · ${currentName}` : '管理'"
-    size="720px"
+    size="900px"
     append-to-body
     @closed="onClosed"
   >
