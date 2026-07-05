@@ -107,7 +107,6 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
-                  <el-dropdown-item command="config">配置</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -165,23 +164,9 @@
       </template>
     </el-dialog>
 
-    <!-- 配置对话框 -->
-    <el-dialog v-model="configVisible" title="容器配置" width="460px">
-      <el-form :model="configForm" label-width="100px">
-        <el-form-item label="CPU 权重"><el-input-number v-model="configForm.cpu_shares" :min="0" /></el-form-item>
-        <el-form-item label="内存(MB)"><el-input-number v-model="configForm.memory_mb" :min="0" /></el-form-item>
-        <el-form-item label="自动启动"><el-switch v-model="configForm.autostart" /></el-form-item>
-        <el-form-item label="分组"><el-input v-model="configForm.group_name" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="configForm.remark" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="configVisible = false">取消</el-button>
-        <el-button type="primary" :loading="configSaving" @click="handleConfigSave">保存</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 管理抽屉 -->
-    <LxcManageDrawer ref="manageDrawerRef" />
+    <LxcManageDrawer ref="manageDrawerRef" @refresh="fetchData" />
   </div>
 </template>
 
@@ -193,7 +178,7 @@ import { Search, Plus, Refresh, VideoPlay, SwitchButton, Monitor, MoreFilled, Op
 import { useUserStore } from '@/store/user'
 import {
   getLXCList, createLXC, operateLXC, deleteLXC, batchOperateLXC,
-  updateLXCConfig, getLXCTemplateList, getLXCDownloadList
+  getLXCTemplateList, getLXCDownloadList
 } from '@/api/lxc'
 import { getSettings } from '@/api/settings'
 import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
@@ -265,7 +250,6 @@ const handleBatchOperate = async (action) => {
 }
 const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
-  else if (cmd === 'config') openConfig(row)
   else if (cmd === 'delete') remove(row)
 }
 const openConsole = (row) => {
@@ -324,14 +308,6 @@ const handleCreate = async () => {
   try { await createLXC(createForm.value); ElMessage.success('创建任务已提交'); createVisible.value = false; fetchData() } catch (e) {} finally { creating.value = false }
 }
 
-// 配置
-const configVisible = ref(false); const configSaving = ref(false); const configName = ref('')
-const configForm = ref({ cpu_shares: 0, memory_mb: 0, autostart: false, group_name: '', remark: '' })
-const openConfig = (row) => { configName.value = row.name; configForm.value = { cpu_shares: row.cpu_shares, memory_mb: row.memory_mb, autostart: row.autostart, group_name: row.group_name, remark: row.remark }; configVisible.value = true }
-const handleConfigSave = async () => {
-  configSaving.value = true
-  try { await updateLXCConfig(configName.value, { ...configForm.value, autostart: configForm.value.autostart }); ElMessage.success('已保存'); configVisible.value = false; fetchData() } catch (e) {} finally { configSaving.value = false }
-}
 
 onMounted(() => { fetchData(); timer = setInterval(() => { if (autoRefresh.value) fetchData() }, 5000) })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
