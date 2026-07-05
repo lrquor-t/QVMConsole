@@ -19,7 +19,7 @@
         />
         <el-switch v-model="autoRefresh" active-text="自动刷新" />
         <el-button type="success" :icon="Refresh" :loading="loading" @click="fetchData">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">创建容器</el-button>
+        <el-button type="primary" :icon="Plus" @click="lxcCreateRef?.open()">创建容器</el-button>
       </div>
     </div>
 
@@ -145,64 +145,14 @@
         </el-table-column>
         <template #empty>
           <el-empty description="暂无容器">
-            <el-button type="primary" :icon="Plus" @click="openCreate">创建第一个容器</el-button>
+            <el-button type="primary" :icon="Plus" @click="lxcCreateRef?.open()">创建第一个容器</el-button>
           </el-empty>
         </template>
       </el-table>
     </div>
 
-    <!-- 创建对话框 -->
-    <el-dialog v-model="createVisible" title="创建 LXC 容器" width="560px" append-to-body>
-      <el-form :model="createForm" label-width="100px" class="lxc-create-form">
-        <div class="section-title">基本信息</div>
-        <el-form-item label="名称" required><el-input v-model="createForm.name" /></el-form-item>
-        <el-form-item label="容器目录">
-          <el-input :model-value="containerPathPreview" disabled />
-          <div class="form-tip">容器将创建于此（rootfs 在其下）；目录由系统设置「LXC 容器目录」决定。</div>
-        </el-form-item>
-
-        <div class="section-title">来源</div>
-        <el-form-item label="来源">
-          <el-radio-group v-model="createForm.source">
-            <el-radio value="clone">克隆模板</el-radio>
-            <el-radio value="download">官方镜像下载</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="createForm.source === 'clone'" label="模板" required>
-          <el-select v-model="createForm.template" style="width:100%">
-            <el-option v-for="t in templates" :key="t.name" :label="t.display_name || t.name" :value="t.name" :disabled="t.disabled" />
-          </el-select>
-        </el-form-item>
-        <template v-else>
-          <el-form-item label="发行版" required>
-            <el-select v-model="createForm.distro" filterable :loading="downloadLoading" placeholder="选择发行版" style="width:100%">
-              <el-option v-for="d in dlDistros" :key="d" :label="d" :value="d" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="版本" required>
-            <el-select v-model="createForm.release" filterable :disabled="!createForm.distro" placeholder="选择版本" style="width:100%">
-              <el-option v-for="r in dlReleases" :key="r" :label="r" :value="r" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="架构" required>
-            <el-select v-model="createForm.arch" :disabled="!createForm.release" placeholder="选择架构" style="width:100%">
-              <el-option v-for="a in dlArches" :key="a" :label="a" :value="a" />
-            </el-select>
-          </el-form-item>
-        </template>
-
-        <div class="section-title">资源与元数据</div>
-        <el-form-item label="CPU 权重"><el-input-number v-model="createForm.cpu_shares" :min="0" /></el-form-item>
-        <el-form-item label="内存(MB)"><el-input-number v-model="createForm.memory_mb" :min="0" /></el-form-item>
-        <el-form-item label="自动启动"><el-switch v-model="createForm.autostart" /></el-form-item>
-        <el-form-item label="分组"><el-input v-model="createForm.group_name" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="createForm.remark" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="handleCreate">创建</el-button>
-      </template>
-    </el-dialog>
+    <!-- 创建向导 -->
+    <LxcCreateForm ref="lxcCreateRef" @success="fetchData" />
 
 
     <!-- 管理抽屉 -->
@@ -211,17 +161,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Refresh, VideoPlay, VideoPause, Warning, SwitchButton, Monitor, MoreFilled, Operation } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import {
-  getLXCList, createLXC, operateLXC, deleteLXC, batchOperateLXC,
-  getLXCTemplateList, getLXCDownloadList
+  getLXCList, operateLXC, deleteLXC, batchOperateLXC
 } from '@/api/lxc'
-import { getSettings } from '@/api/settings'
 import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
+import LxcCreateForm from '@/components/LxcCreateForm.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -233,6 +182,7 @@ const lxcSearchText = ref('')
 const operatingMap = ref({})
 const batchOperating = ref(false)
 const manageDrawerRef = ref(null)
+const lxcCreateRef = ref(null)
 const openManage = (row) => manageDrawerRef.value?.open(row)
 let timer = null
 
@@ -302,56 +252,6 @@ const openConsole = (row) => {
   // 新标签页打开终端（与 VM VNC 窗口一致；路由守卫放行，WS 鉴权由后端 LXCAccessMiddleware + token query）
   const { href } = router.resolve(`/lxc/console/${encodeURIComponent(row.name)}`)
   window.open(href, '_blank')
-}
-
-// 创建
-const createVisible = ref(false); const creating = ref(false)
-const templates = ref([])
-const lxcLxcPath = ref('') // LXC 容器根目录，用于在创建弹窗展示容器落盘位置
-const createForm = ref({ name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '', source: 'clone', distro: '', release: '', arch: '' })
-const openCreate = async () => {
-  createForm.value = { name: '', template: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '', source: 'clone', distro: '', release: '', arch: '' }
-  try { const r = await getLXCTemplateList(); templates.value = r.data || [] } catch (e) {}
-  if (!lxcLxcPath.value) { try { const s = await getSettings(); lxcLxcPath.value = s.data?.lxc_lxc_path || '' } catch (e) {} }
-  createVisible.value = true
-}
-const containerPathPreview = computed(() => {
-  const base = (lxcLxcPath.value || '/var/lib/lxc').replace(/\/+$/, '')
-  const name = createForm.value.name ? createForm.value.name : '<名称>'
-  return `${base}/${name}/`
-})
-
-// 官方镜像下载（source=download）
-const downloadList = ref([])
-const downloadLoading = ref(false)
-const fetchDownloadList = async () => {
-  if (downloadList.value.length || downloadLoading.value) return
-  downloadLoading.value = true
-  try { const r = await getLXCDownloadList(); downloadList.value = r.data || [] }
-  catch (e) { ElMessage.error('获取镜像清单失败（需宿主机外网）') }
-  finally { downloadLoading.value = false }
-}
-const dlDistros = computed(() => [...new Set(downloadList.value.map(e => e.distro))].sort())
-const dlReleases = computed(() => [...new Set(downloadList.value.filter(e => e.distro === createForm.value.distro).map(e => e.release))].sort())
-const dlArches = computed(() => [...new Set(downloadList.value.filter(e => e.distro === createForm.value.distro && e.release === createForm.value.release).map(e => e.arch))].sort())
-// 切发行版时重置下游版本/架构，避免选了不存在的组合
-watch(() => createForm.value.distro, () => { createForm.value.release = ''; createForm.value.arch = '' })
-watch(() => createForm.value.release, () => {
-  // 默认 amd64（x86_64 原生；arm64 经 qemu/binfmt 也可跑）；该 distro+release 没有则取首个
-  createForm.value.arch = dlArches.value.includes('amd64') ? 'amd64' : (dlArches.value[0] || '')
-})
-// 切到 download 时懒加载清单
-watch(() => createForm.value.source, (s) => { if (s === 'download') fetchDownloadList() })
-
-const handleCreate = async () => {
-  if (!createForm.value.name) { ElMessage.warning('请填写名称'); return }
-  if (createForm.value.source === 'clone') {
-    if (!createForm.value.template) { ElMessage.warning('请选择模板'); return }
-  } else {
-    if (!createForm.value.distro || !createForm.value.release || !createForm.value.arch) { ElMessage.warning('请选择发行版/版本/架构'); return }
-  }
-  creating.value = true
-  try { await createLXC(createForm.value); ElMessage.success('创建任务已提交'); createVisible.value = false; fetchData() } catch (e) {} finally { creating.value = false }
 }
 
 
@@ -480,28 +380,6 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 }
 .lxc-table-wrap:hover {
   box-shadow: var(--app-shadow-lg);
-}
-
-/* 创建弹窗表单 + section 标题 */
-.lxc-create-form {
-  padding-top: 6px;
-}
-.form-tip {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 2px;
-  line-height: 1.4;
-}
-.section-title {
-  font-size: 16px;
-  font-weight: 700;
-  padding-left: 10px;
-  border-left: 4px solid var(--el-color-primary);
-  margin: 18px 0 14px;
-  color: var(--el-text-color-primary);
-}
-.section-title:first-child {
-  margin-top: 4px;
 }
 
 /* 单元格样式 */
