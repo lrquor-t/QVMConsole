@@ -44,6 +44,15 @@
             @saved="onConfigSaved"
           />
         </el-tab-pane>
+        <el-tab-pane name="network" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><Connection /></el-icon> 网络</span>
+          </template>
+          <LxcNetworkPanel
+            v-if="visible && currentName"
+            :name="currentName"
+          />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-drawer>
@@ -51,9 +60,10 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Camera, Setting, Monitor } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
+import LxcNetworkPanel from './LxcNetworkPanel.vue'
 
 const emit = defineEmits(['refresh'])
 
