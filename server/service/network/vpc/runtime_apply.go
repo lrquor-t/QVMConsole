@@ -144,7 +144,7 @@ func applyAllVPCBindingsRuntime(ensureSwitch bool) error {
 		return nil
 	}
 	var bindings []model.VPCVMBinding
-	if err := model.DB.Order("vm_name ASC").Find(&bindings).Error; err != nil {
+	if err := model.DB.Where("kind = ? OR kind = ?", "vm", "").Order("vm_name ASC").Find(&bindings).Error; err != nil {
 		return err
 	}
 	var lastErr error
