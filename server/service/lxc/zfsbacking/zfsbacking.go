@@ -32,6 +32,14 @@ func BaseSnapshot(parent, base string) string         { return BaseDataset(paren
 func ContainerDataset(parent, name string) string     { return parent + "/" + name }
 func ContainerMountpoint(lxcpath, name string) string { return filepath.Join(lxcpath, name) }
 
+// CommentProperty 是记录快照备注的 zfs user property（pm03 实测 set/get 正常，中文值保留）。
+const CommentProperty = "kvm_console:comment"
+
+// ContainerSnapshot 构造容器用户快照名 <parent>/<name>@<snap>（纯函数，便于单测）。
+func ContainerSnapshot(parent, name, snap string) string {
+	return ContainerDataset(parent, name) + "@" + snap
+}
+
 // RewriteRootfsPathForClone 把克隆 config 里继承自基底的 rootfs 路径替换为容器自己的（纯函数）。
 func RewriteRootfsPathForClone(cfg, oldRootfsPath, newRootfsPath string) string {
 	return strings.ReplaceAll(cfg, oldRootfsPath, newRootfsPath)
@@ -97,6 +105,84 @@ func CloneContainer(parent, base, name string) error {
 // 调用方再 os.RemoveAll 清理残留空目录。
 func DestroyContainer(parent, name string) error {
 	return renameAndDestroy(ContainerDataset(parent, name))
+}
+
+// ZfsSnapshot 是 ListContainerSnapshots 的返回元素。
+type ZfsSnapshot struct {
+	Name      string
+	Comment   string
+	CreatedAt string
+}
+
+// SnapshotContainer 给容器 dataset 打用户快照。
+func SnapshotContainer(parent, name, snap string) error {
+	if res := utils.ExecCommand("zfs", "snapshot", ContainerSnapshot(parent, name, snap)); res.Error != nil {
+		return fmt.Errorf("zfs snapshot 容器快照失败: %w", res.Error)
+	}
+	return nil
+}
+
+// SetSnapshotComment 把备注写入快照的 zfs user property（comment 为空则跳过）。
+func SetSnapshotComment(parent, name, snap, comment string) error {
+	if comment == "" {
+		return nil
+	}
+	ds := ContainerSnapshot(parent, name, snap)
+	if res := utils.ExecCommand("zfs", "set", CommentProperty+"="+comment, ds); res.Error != nil {
+		return fmt.Errorf("zfs set 快照备注失败: %w", res.Error)
+	}
+	return nil
+}
+
+// RollbackContainer 回滚容器 dataset 到指定快照。
+// pm03 实测：挂载态 dataset 可直接回滚（无需 umount/-R）；-r 在有更新快照时销毁它们、无则无害。
+// 调用方负责先 lxc-stop（语义安全：不回滚运行中容器的 live rootfs）。
+func RollbackContainer(parent, name, snap string) error {
+	if res := utils.ExecCommand("zfs", "rollback", "-r", ContainerSnapshot(parent, name, snap)); res.Error != nil {
+		return fmt.Errorf("zfs rollback 失败: %w", res.Error)
+	}
+	return nil
+}
+
+// DestroyContainerSnapshot 销毁单个容器快照（不加 -r，仅删该快照本身）。
+func DestroyContainerSnapshot(parent, name, snap string) error {
+	if res := utils.ExecCommand("zfs", "destroy", ContainerSnapshot(parent, name, snap)); res.Error != nil {
+		return fmt.Errorf("zfs destroy 容器快照失败: %w", res.Error)
+	}
+	return nil
+}
+
+// ListContainerSnapshots 列出容器 dataset 的用户快照（zfs 默认旧→新）。
+// 用 -H 制表符分隔，按 \t 切列（creation 含空格、comment 可含空格都安全），剥 ds@ 前缀得快照名。
+func ListContainerSnapshots(parent, name string) ([]ZfsSnapshot, error) {
+	ds := ContainerDataset(parent, name)
+	res := utils.ExecCommand("zfs", "list", "-H", "-t", "snapshot",
+		"-o", "name,creation,"+CommentProperty, "-r", "-d1", ds)
+	if res.Error != nil {
+		return nil, fmt.Errorf("zfs list 容器快照失败: %w", res.Error)
+	}
+	prefix := ds + "@"
+	var out []ZfsSnapshot
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) < 3 || !strings.HasPrefix(f[0], prefix) {
+			continue
+		}
+		comment := f[2]
+		if comment == "-" {
+			comment = ""
+		}
+		out = append(out, ZfsSnapshot{
+			Name:      strings.TrimPrefix(f[0], prefix),
+			CreatedAt: f[1],
+			Comment:   comment,
+		})
+	}
+	return out, nil
 }
 
 // CreateContainerDataset 创建容器 dataset <parent>/<name>（download 模式 zfs backing 用：

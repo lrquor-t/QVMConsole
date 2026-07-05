@@ -19,6 +19,24 @@ func zfsContainerDataset(parent, name string) string {
 func zfsContainerMountpoint(lxcpath, name string) string {
 	return zfsbacking.ContainerMountpoint(lxcpath, name)
 }
+func zfsContainerSnapshot(parent, name, snap string) string {
+	return zfsbacking.ContainerSnapshot(parent, name, snap)
+}
+func zfsSnapshotContainer(parent, name, snap string) error {
+	return zfsbacking.SnapshotContainer(parent, name, snap)
+}
+func zfsSetSnapshotComment(parent, name, snap, comment string) error {
+	return zfsbacking.SetSnapshotComment(parent, name, snap, comment)
+}
+func zfsRollbackContainer(parent, name, snap string) error {
+	return zfsbacking.RollbackContainer(parent, name, snap)
+}
+func zfsDestroyContainerSnapshot(parent, name, snap string) error {
+	return zfsbacking.DestroyContainerSnapshot(parent, name, snap)
+}
+func zfsListContainerSnapshots(parent, name string) ([]zfsbacking.ZfsSnapshot, error) {
+	return zfsbacking.ListContainerSnapshots(parent, name)
+}
 func rewriteRootfsPathForClone(cfg, oldRootfsPath, newRootfsPath string) string {
 	return zfsbacking.RewriteRootfsPathForClone(cfg, oldRootfsPath, newRootfsPath)
 }

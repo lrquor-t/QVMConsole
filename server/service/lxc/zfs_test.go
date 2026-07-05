@@ -35,3 +35,11 @@ func TestRewriteRootfsPathForClone(t *testing.T) {
 		t.Fatalf("其它行被破坏: %s", out)
 	}
 }
+
+func TestZfsContainerSnapshotName(t *testing.T) {
+	got := zfsContainerSnapshot("zp01/lxc", "c1", "snap-20260705132600")
+	want := "zp01/lxc/c1@snap-20260705132600"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
