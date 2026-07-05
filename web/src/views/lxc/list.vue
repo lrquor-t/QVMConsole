@@ -99,9 +99,11 @@
               <el-button size="small" circle type="primary" :icon="Operation" @click="openManage(row)" />
             </el-tooltip>
             <el-dropdown trigger="click" @command="cmd => handleMore(cmd, row)">
-              <el-tooltip content="更多" placement="top">
-                <el-button size="small" circle :icon="MoreFilled" />
-              </el-tooltip>
+              <span class="el-dropdown-link">
+                <el-tooltip content="更多" placement="top">
+                  <el-button size="small" circle :icon="MoreFilled" />
+                </el-tooltip>
+              </span>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
