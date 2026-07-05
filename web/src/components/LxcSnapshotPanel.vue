@@ -1,15 +1,7 @@
 <template>
   <div class="lxc-snapshot-panel">
     <div class="snap-toolbar">
-      <el-input
-        v-model="newComment"
-        placeholder="备注（可选）"
-        clearable
-        class="snap-comment-input"
-        :disabled="creating"
-        maxlength="200"
-      />
-      <el-button type="primary" :icon="Plus" :loading="creating" @click="handleCreate">创建快照</el-button>
+      <el-button type="primary" :icon="Plus" @click="openCreate">创建快照</el-button>
       <el-button :icon="Refresh" @click="fetchData">刷新</el-button>
     </div>
 
@@ -28,6 +20,26 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- 创建快照弹窗（备注输入框） -->
+    <el-dialog v-model="createVisible" title="创建快照" width="460px" append-to-body>
+      <el-form label-width="60px" @submit.prevent>
+        <el-form-item label="备注">
+          <el-input
+            v-model="createComment"
+            placeholder="可选备注"
+            maxlength="200"
+            show-word-limit
+            clearable
+            :disabled="creating"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -46,7 +58,8 @@ const props = defineProps({
 const tableData = ref([])
 const loading = ref(false)
 const creating = ref(false)
-const newComment = ref('')
+const createVisible = ref(false)
+const createComment = ref('')
 let timer = null
 
 const fetchData = async () => {
@@ -67,12 +80,17 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 
-const handleCreate = async () => {
+const openCreate = () => {
+  createComment.value = ''
+  createVisible.value = true
+}
+
+const submitCreate = async () => {
   creating.value = true
   try {
-    await createLXCSnapshot(props.name, newComment.value)
+    await createLXCSnapshot(props.name, createComment.value)
     ElMessage.success('快照任务已提交，可在任务中心查看进度')
-    newComment.value = ''
+    createVisible.value = false
     setTimeout(fetchData, 500)
   } catch (e) {} finally { creating.value = false }
 }
@@ -117,10 +135,5 @@ const handleDelete = async (row) => {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-.snap-comment-input {
-  flex: 1;
-  min-width: 200px;
 }
 </style>
