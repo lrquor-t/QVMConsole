@@ -115,3 +115,17 @@ export function getLXCBackingInfo() {
 export function getLXCDownloadList() {
   return request({ url: '/lxc/download/list', method: 'get' })
 }
+
+// ==================== LXC 多网卡管理 ====================
+export function listLXCInterfaces(name) {
+  return request({ url: `/lxc/${name}/interfaces`, method: 'get' })
+}
+export function addLXCInterface(name, data) {
+  return request({ url: `/lxc/${name}/interfaces`, method: 'post', data })
+}
+export function updateLXCInterface(name, order, data) {
+  return request({ url: `/lxc/${name}/interfaces/${order}`, method: 'put', data })
+}
+export function removeLXCInterface(name, order, data) {
+  return request({ url: `/lxc/${name}/interfaces/${order}`, method: 'delete', data })
+}
