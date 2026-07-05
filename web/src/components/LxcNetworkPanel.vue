@@ -164,8 +164,29 @@ const nicForm = reactive({ switch_id: null, security_group_id: null, bandwidth_i
 const selectedSwitch = computed(() => switches.value.find(s => s.id === nicForm.switch_id) || null)
 const filteredSGs = computed(() => {
   if (!selectedSwitch.value) return groups.value
+  // 系统交换机（username 为空，如「基础网络」）是共享的，不按属主过滤；
+  // 否则按交换机属主过滤。与 VM NetworkList 一致（其 switch 无 username 时返回全部）。
+  if (!selectedSwitch.value.username) return groups.value
   return groups.value.filter(g => !g.username || g.username === selectedSwitch.value.username)
 })
+// 合并新拉取的安全组（按 id 去重）。
+const mergeGroups = (incoming) => {
+  const exists = new Set(groups.value.map(g => g.id))
+  for (const g of incoming || []) {
+    if (!exists.has(g.id)) { groups.value.push(g); exists.add(g.id) }
+  }
+}
+// 选中交换机后，确保该交换机属主的安全组（含默认）已加载。
+// 后端 ListVPCSecurityGroups 仅在带 username 参数时才 EnsureDefaultSecurityGroup，
+// 否则 admin 视角下若属主无预存 SG，下拉会为空（与 VM NetworkList ensureSecurityGroupsForSelectedSwitch 同理）。
+const ensureSGsForSwitch = async () => {
+  const sw = selectedSwitch.value
+  if (!sw || sw.bridge_mode === 'bridge') return
+  if (!isAdmin.value || !sw.username) return
+  if (groups.value.some(g => g.username === sw.username)) return
+  const res = await getVPCSecurityGroups({ username: sw.username })
+  mergeGroups(res.data || [])
+}
 const switchLabel = (s) => {
   const prefix = isAdmin.value && s.username ? `${s.username} / ` : ''
   if (s.bridge_mode === 'bridge') return `${prefix}${s.name}（桥接直通：${s.bridge_name || '-'}）`
@@ -245,6 +266,8 @@ const onUnbind = async (row) => {
 
 onMounted(() => { load(); fetchIPs() })
 watch(() => props.name, () => { load(); fetchIPs() })
+// 选交换机时补拉该属主的安全组（含默认），避免 admin 视角下拉为空
+watch(() => nicForm.switch_id, () => { ensureSGsForSwitch() })
 </script>
 
 <style scoped>
