@@ -1,15 +1,30 @@
 <template>
   <div class="lxc-config-panel">
-    <el-form :model="form" label-width="90px">
-      <el-form-item label="CPU 权重"><el-input-number v-model="form.cpu_shares" :min="0" /></el-form-item>
-      <el-form-item label="内存(MB)"><el-input-number v-model="form.memory_mb" :min="0" /></el-form-item>
-      <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
-      <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
-      <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
-      <el-form-item>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
-      </el-form-item>
-    </el-form>
+    <el-card shadow="hover" class="cfg-card">
+      <div class="section-title">计算</div>
+      <el-form :model="form" label-width="90px" :disabled="saving">
+        <el-form-item label="CPU 权重">
+          <el-input-number v-model="form.cpu_shares" :min="0" />
+          <div class="cfg-hint">cgroup cpu.shares，越大优先级越高（默认 256）</div>
+        </el-form-item>
+        <el-form-item label="内存(MB)">
+          <el-input-number v-model="form.memory_mb" :min="0" />
+          <div class="cfg-hint">cgroup memory.limit_in_bytes</div>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card shadow="hover" class="cfg-card">
+      <div class="section-title">启动与元数据</div>
+      <el-form :model="form" label-width="90px" :disabled="saving">
+        <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
+        <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -53,5 +68,29 @@ const save = async () => {
 <style scoped>
 .lxc-config-panel {
   padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cfg-card {
+  border-radius: 12px;
+  border: none;
+}
+.cfg-card :deep(.el-card__body) {
+  padding: 16px 18px;
+}
+.cfg-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  padding-left: 10px;
+  border-left: 4px solid var(--el-color-primary);
+  margin-bottom: 14px;
+  color: var(--el-text-color-primary);
 }
 </style>

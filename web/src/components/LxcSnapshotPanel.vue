@@ -1,29 +1,37 @@
 <template>
   <div class="lxc-snapshot-panel">
     <div class="snap-toolbar">
-      <el-button type="primary" :icon="Plus" @click="openCreate">创建快照</el-button>
-      <el-button :icon="Refresh" @click="fetchData">刷新</el-button>
+      <div class="snap-toolbar-right">
+        <el-button type="primary" :icon="Plus" @click="openCreate">创建快照</el-button>
+        <el-button :icon="Refresh" @click="fetchData">刷新</el-button>
+      </div>
     </div>
 
-    <el-table :data="tableData" border v-loading="loading" empty-text="暂无快照">
-      <el-table-column prop="name" label="名称" min-width="170" show-overflow-tooltip />
-      <el-table-column label="创建时间" width="200">
-        <template #default="{ row }">{{ row.created_at || '-' }}</template>
-      </el-table-column>
-      <el-table-column label="备注" min-width="150" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.comment || '-' }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="160" align="center">
-        <template #default="{ row, $index }">
-          <el-button size="small" type="warning" @click="handleRestore(row, $index)">恢复</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+    <el-card shadow="hover" class="snap-card">
+      <div class="section-title">快照列表（{{ tableData.length }}）</div>
+      <el-table :data="tableData" border v-loading="loading">
+        <el-table-column prop="name" label="名称" min-width="170" show-overflow-tooltip />
+        <el-table-column label="创建时间" width="200">
+          <template #default="{ row }">{{ row.created_at || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.comment || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" align="center">
+          <template #default="{ row, $index }">
+            <el-button size="small" type="warning" @click="handleRestore(row, $index)">恢复</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="暂无快照" />
         </template>
-      </el-table-column>
-    </el-table>
+      </el-table>
+    </el-card>
 
     <!-- 创建快照弹窗（备注输入框） -->
     <el-dialog v-model="createVisible" title="创建快照" width="460px" append-to-body>
-      <el-form label-width="60px" @submit.prevent>
+      <el-form label-width="60px" class="snap-create-form" @submit.prevent>
         <el-form-item label="备注">
           <el-input
             v-model="createComment"
@@ -135,6 +143,34 @@ const handleDelete = async (row) => {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+}
+.snap-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 快照列表卡片（与配置面板同节奏） */
+.snap-card {
+  border-radius: 12px;
+  border: none;
+  transition: box-shadow 0.2s var(--app-transition-fast, 0.15s);
+}
+.snap-card :deep(.el-card__body) {
+  padding: 16px 18px;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  padding-left: 10px;
+  border-left: 4px solid var(--el-color-primary);
+  margin-bottom: 14px;
+  color: var(--el-text-color-primary);
+}
+
+/* 创建弹窗表单与标题保持距离 */
+.snap-create-form {
+  padding-top: 12px;
 }
 </style>
