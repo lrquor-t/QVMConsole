@@ -5,8 +5,10 @@
       <div class="section-title">网卡</div>
       <div class="vpc-static-ip-header">
         <span class="cfg-hint">主网卡（序号 0）可绑定静态 IP；附加网卡由各自交换机 DHCP 分配。</span>
-        <el-button v-if="isAdmin" type="primary" size="small" plain icon="Plus" @click="openAdd">添加网口</el-button>
-        <el-button size="small" icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+        <div class="header-actions">
+          <el-button v-if="isAdmin" type="primary" size="small" plain icon="Plus" @click="openAdd">添加网口</el-button>
+          <el-button size="small" icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+        </div>
       </div>
       <el-table :data="interfaces" border size="small" v-loading="loading" style="margin-top: 10px;">
         <el-table-column label="序号" width="80" align="center">
@@ -277,5 +279,6 @@ watch(() => nicForm.switch_id, () => { ensureSGsForSwitch() })
 .section-title { font-size: 16px; font-weight: 700; padding-left: 10px; border-left: 4px solid var(--el-color-primary); margin-bottom: 14px; }
 .cfg-hint { font-size: 12px; color: var(--el-text-color-secondary); }
 .vpc-static-ip-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 h4 { margin: 0 0 8px 0; font-size: 14px; }
 </style>
