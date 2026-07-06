@@ -2,10 +2,21 @@
   <el-drawer
     v-model="visible"
     :title="currentName ? `管理 · ${currentName}` : '管理'"
-    size="900px"
+    :size="drawerWidth + 'px'"
     append-to-body
     @closed="onClosed"
   >
+    <!-- Teleport 到 body：避开 el-drawer 面板上的 transform，让 fixed 把手真正相对视口定位 -->
+    <Teleport to="body">
+      <div
+        v-if="visible"
+        class="resize-handle"
+        title="拖动调节宽度（双击恢复默认）"
+        :style="{ left: handleLeftPx + 'px' }"
+        @mousedown="startResize"
+        @dblclick="resetWidth"
+      ><span class="resize-handle__grip"></span></div>
+    </Teleport>
     <div class="drawer-body">
       <!-- 容器概览 hero -->
       <div v-if="currentName" class="container-hero">
@@ -59,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Camera, Setting, Monitor, Connection } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
@@ -74,6 +85,76 @@ const currentStatus = ref('')
 const currentBacking = ref('')
 const currentConfig = ref({})
 
+// —— 抽屉宽度可拖拽调节（localStorage 持久化，写法沿用 RecentTaskPanel）——
+const STORAGE_KEY_WIDTH = 'lxc-manage-drawer-width'
+const DEFAULT_WIDTH = 900
+const MIN_WIDTH = 480
+
+const viewportWidth = ref(window.innerWidth)
+const drawerWidth = ref(
+  localStorage.getItem(STORAGE_KEY_WIDTH)
+    ? Number(localStorage.getItem(STORAGE_KEY_WIDTH))
+    : DEFAULT_WIDTH
+)
+// 把手 fixed 钉在抽屉左边缘（= 视口宽度 − 抽屉宽度），不随内容滚动
+const handleLeftPx = computed(() => viewportWidth.value - drawerWidth.value)
+const clampWidth = (w) => Math.max(MIN_WIDTH, Math.min(w, viewportWidth.value))
+
+let resizing = false
+let startX = 0
+let startWidth = 0
+
+const onResize = (e) => {
+  if (!resizing) return
+  // 抽屉右侧吸附：宽度 = 起始宽度 + (起始 x − 当前 x)，向左拖变宽
+  drawerWidth.value = clampWidth(startWidth + (startX - e.clientX))
+}
+
+const stopResize = () => {
+  if (!resizing) return
+  resizing = false
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  localStorage.setItem(STORAGE_KEY_WIDTH, String(drawerWidth.value))
+}
+
+const startResize = (e) => {
+  e.preventDefault()
+  resizing = true
+  startX = e.clientX
+  startWidth = drawerWidth.value
+  document.addEventListener('mousemove', onResize)
+  document.addEventListener('mouseup', stopResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+// 双击把手恢复默认宽度
+const resetWidth = () => {
+  drawerWidth.value = clampWidth(DEFAULT_WIDTH)
+  localStorage.setItem(STORAGE_KEY_WIDTH, String(drawerWidth.value))
+}
+
+// 视口缩小时把超出宽度的抽屉收回来，并同步把手位置
+const handleViewportResize = () => {
+  viewportWidth.value = window.innerWidth
+  if (drawerWidth.value > viewportWidth.value) {
+    drawerWidth.value = viewportWidth.value
+    localStorage.setItem(STORAGE_KEY_WIDTH, String(drawerWidth.value))
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleViewportResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleViewportResize)
+  stopResize()
+})
+
 const open = (row) => {
   currentName.value = row.name
   currentStatus.value = row.status
@@ -86,6 +167,7 @@ const open = (row) => {
     remark: row.remark
   }
   activeTab.value = 'snapshot'
+  drawerWidth.value = clampWidth(drawerWidth.value)
   visible.value = true
 }
 
@@ -119,6 +201,32 @@ defineExpose({ open })
   padding: 18px 24px 24px;
   min-height: 100%;
   box-sizing: border-box;
+}
+
+/* 左边缘拖拽把手：position:fixed 钉在抽屉左边缘，不随内容滚动 */
+.resize-handle {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  margin-left: -4px;
+  z-index: 3001;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resize-handle__grip {
+  width: 2px;
+  height: 40px;
+  border-radius: 2px;
+  background: var(--app-border-light);
+  transition: background 0.15s, height 0.15s;
+}
+.resize-handle:hover .resize-handle__grip,
+.resize-handle:active .resize-handle__grip {
+  background: var(--el-color-primary);
+  height: 60px;
 }
 
 /* 容器概览 hero */
