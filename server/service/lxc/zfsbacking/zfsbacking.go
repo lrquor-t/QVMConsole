@@ -101,8 +101,10 @@ func CloneContainer(parent, base, name string) error {
 	return nil
 }
 
-// CloneContainerFromSnapshot 从任意快照 <parent>/<src>@<snap> 克隆出 <parent>/<dst>，
-// mountpoint 设到 <lxcpath>/<dst>。用于「从容器制作模板」：先快照源容器，再克隆成基底 dataset。
+// CloneContainerFromSnapshot 从任意快照 <parent>/<src>@<snap> CoW 克隆出 <parent>/<dst>，
+// mountpoint 设到 <lxcpath>/<dst>。预留用于后续「容器克隆」功能（容器→容器 CoW 克隆，origin 依赖可接受）。
+// 注意：克隆出的 dataset 会依赖源快照（origin），源快照在该 dataset 存在期间不可删除。
+// 故「从容器制作模板」改走 CopyContainerBySendRecv（全量拷贝、基底独立），不走本函数。
 // 与 CloneContainer 的区别：源是任意容器快照而非基底 @base。
 func CloneContainerFromSnapshot(parent, src, snap, dst string) error {
 	srcSnap := ContainerSnapshot(parent, src, snap)
@@ -113,6 +115,43 @@ func CloneContainerFromSnapshot(parent, src, snap, dst string) error {
 	if res := utils.ExecCommand("zfs", "set", "mountpoint="+ContainerMountpoint(config.GlobalConfig.LXCLxcPath, dst), ds); res.Error != nil {
 		return fmt.Errorf("zfs set mountpoint 失败: %w", res.Error)
 	}
+	return nil
+}
+
+// CopyContainerBySendRecv 用 zfs send|zfs receive 把 <parent>/<src>@<snap> 全量拷贝成
+// 独立 dataset <parent>/<dst>（receive 出的不带 origin 依赖），mountpoint 设到 <lxcpath>/<dst>。
+// 用于「从容器制作模板」：源容器快照 → 全量拷贝成基底 dataset。
+//
+// 为什么不沿用 CloneContainerFromSnapshot（zfs clone，CoW）：clone 出的 dataset 会依赖源快照
+// （origin），导致源快照在基底存在期间不可删除——源容器既清不掉 _tmplmake、自身也删不掉。
+// send|receive 是全量拷贝、基底完全独立，源快照可正常清理。
+// 代价：无 CoW（一次性全量拷贝），但制作模板是低频操作，后续建容器仍走 @base 的 CoW 克隆。
+func CopyContainerBySendRecv(parent, src, snap, dst string) error {
+	srcSnap := ContainerSnapshot(parent, src, snap)
+	ds := ContainerDataset(parent, dst)
+	// -u：receive 后不挂载（流的 mountpoint 是源的 <lxcpath>/<src>，已被源容器占用），随后显式改 mountpoint 再挂载。
+	// pipefail：send 失败时让管道整体非零退出，避免被 receive 的退出码掩盖。
+	cmd := fmt.Sprintf("set -o pipefail; zfs send %s | zfs receive -u %s",
+		utils.ShellSingleQuote(srcSnap), utils.ShellSingleQuote(ds))
+	res := utils.ExecShellWithTimeout(cmd, 30*time.Minute)
+	if res.Error != nil {
+		return fmt.Errorf("zfs send|receive 拷贝失败: %w (stderr: %q)", res.Error, res.Stderr)
+	}
+	// 改 mountpoint 到 <lxcpath>/<dst> 并挂载；后续步骤失败则回滚已 receive 的 dst dataset，避免残留。
+	mountpoint := ContainerMountpoint(config.GlobalConfig.LXCLxcPath, dst)
+	if res := utils.ExecCommand("zfs", "set", "mountpoint="+mountpoint, ds); res.Error != nil {
+		_ = renameAndDestroy(ds)
+		return fmt.Errorf("zfs set mountpoint 失败: %w", res.Error)
+	}
+	if res := utils.ExecCommand("zfs", "mount", ds); res.Error != nil {
+		// set mountpoint 时若 canmount=on 可能已自动挂载，already mounted 视为成功
+		if !strings.Contains(res.Stderr, "already mounted") {
+			_ = renameAndDestroy(ds)
+			return fmt.Errorf("zfs mount 失败: %w", res.Error)
+		}
+	}
+	// receive 会顺带在 dst 上留 @<snap> 快照；dst 已独立、无克隆依赖它，清掉保持干净（best-effort）。
+	_ = utils.ExecCommandQuiet("zfs", "destroy", ContainerSnapshot(parent, dst, snap))
 	return nil
 }
 

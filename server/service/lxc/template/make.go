@@ -95,7 +95,7 @@ func sanitizeClonedBaseConfig(base, srcName, arch string) error {
 
 // MakeFromContainer 把已停止的源容器 rootfs 克隆成新金底模板（异步任务调用）。
 //	dir/overlay：lxc-copy（与 cloneContainer 一致）；
-//	zfs：快照源→克隆成基底 dataset→净化 config→打 @base（cloneContainer 克隆建容器依赖 @base）。
+//	zfs：快照源→send|receive 全量拷贝成独立基底 dataset→净化 config→打 @base（cloneContainer 克隆建容器依赖 @base）。
 func MakeFromContainer(params *MakeTemplateParams, progress func(int, string)) error {
 	if progress == nil {
 		progress = func(int, string) {}
@@ -135,7 +135,7 @@ func MakeFromContainer(params *MakeTemplateParams, progress func(int, string)) e
 			return err
 		}
 		cleanupSnap := func() { _ = zfsbacking.DestroyContainerSnapshot(parent, params.SrcName, snap) }
-		if err := zfsbacking.CloneContainerFromSnapshot(parent, params.SrcName, snap, base); err != nil {
+		if err := zfsbacking.CopyContainerBySendRecv(parent, params.SrcName, snap, base); err != nil {
 			cleanupSnap()
 			return err
 		}
