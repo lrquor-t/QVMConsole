@@ -57,7 +57,7 @@ func ValidateMakeFromContainer(srcName, name string) error {
 
 // containerState 取容器 State（lxc-info 解析；失败返回空串）。
 func containerState(name string) string {
-	res := utils.ExecCommand("lxc-info", "-n", name)
+	res := utils.ExecCommandQuiet("lxc-info", "-n", name)
 	if res.ExitCode != 0 {
 		return ""
 	}
@@ -129,6 +129,8 @@ func MakeFromContainer(params *MakeTemplateParams, progress func(int, string)) e
 			return err
 		}
 		snap := "_tmplmake"
+		// 清理上次进程被杀可能残留的临时快照，否则 zfs 拒绝重复创建导致重试失败（best-effort，忽略错误）。
+		_ = zfsbacking.DestroyContainerSnapshot(parent, params.SrcName, snap)
 		if err := zfsbacking.SnapshotContainer(parent, params.SrcName, snap); err != nil {
 			return err
 		}

@@ -43,7 +43,7 @@ func validateTemplateName(name string) error {
 		return errors.New("模板名称不能为空")
 	}
 	// 名称会进入 baseContainerName -> lxc-create/lxc-copy -n <base>（argv 安全）
-	// 以及 filepath.Join(LXCLgcPath, base, "rootfs")（路径拼接）。
+	// 以及 filepath.Join(LXCLxcPath, base, "rootfs")（路径拼接）。
 	// 拒绝路径穿越（如 ../evil）与保留的基底前缀，避免在 lxc 目录之外创建容器。
 	if isBaseContainer(n) {
 		return errors.New("模板名称不能使用保留的基底前缀")
