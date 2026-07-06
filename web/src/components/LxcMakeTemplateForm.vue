@@ -55,14 +55,14 @@ const rules = {
 
 const open = (row) => {
   Object.assign(form, { src_name: row?.name || '', name: '', display_name: '', description: '', post_create_command: '' })
-  formRef.value?.resetFields?.()
+  formRef.value?.clearValidate()
   visible.value = true
 }
 defineExpose({ open })
 
 const submit = async () => {
   try {
-    await formRef.value.validate()
+    await formRef.value?.validate()
   } catch {
     return
   }
