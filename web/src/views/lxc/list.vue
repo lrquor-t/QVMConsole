@@ -137,6 +137,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
+                  <el-dropdown-item v-if="isAdmin" command="template" :disabled="!isStopped(row)">制作模板</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -157,6 +158,9 @@
 
     <!-- 管理抽屉 -->
     <LxcManageDrawer ref="manageDrawerRef" @refresh="fetchData" />
+
+    <!-- 制作模板对话框 -->
+    <LxcMakeTemplateForm ref="lxcMakeTplRef" />
   </div>
 </template>
 
@@ -171,9 +175,12 @@ import {
 } from '@/api/lxc'
 import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
 import LxcCreateForm from '@/components/LxcCreateForm.vue'
+import LxcMakeTemplateForm from '@/components/LxcMakeTemplateForm.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
+const isAdmin = computed(() => userStore.role === 'admin')
+const isStopped = (row) => (row.status || '').toUpperCase() === 'STOPPED'
 const tableData = ref([])
 const loading = ref(false)
 const selected = ref([])
@@ -183,6 +190,8 @@ const operatingMap = ref({})
 const batchOperating = ref(false)
 const manageDrawerRef = ref(null)
 const lxcCreateRef = ref(null)
+const lxcMakeTplRef = ref(null)
+const openMakeTemplate = (row) => lxcMakeTplRef.value?.open(row)
 const openManage = (row) => manageDrawerRef.value?.open(row)
 let timer = null
 
@@ -247,6 +256,7 @@ const handleBatchOperate = async (action) => {
 const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
   else if (cmd === 'delete') remove(row)
+  else if (cmd === 'template') openMakeTemplate(row)
 }
 const openConsole = (row) => {
   // 新标签页打开终端（与 VM VNC 窗口一致；路由守卫放行，WS 鉴权由后端 LXCAccessMiddleware + token query）
