@@ -101,6 +101,21 @@ func CloneContainer(parent, base, name string) error {
 	return nil
 }
 
+// CloneContainerFromSnapshot 从任意快照 <parent>/<src>@<snap> 克隆出 <parent>/<dst>，
+// mountpoint 设到 <lxcpath>/<dst>。用于「从容器制作模板」：先快照源容器，再克隆成基底 dataset。
+// 与 CloneContainer 的区别：源是任意容器快照而非基底 @base。
+func CloneContainerFromSnapshot(parent, src, snap, dst string) error {
+	srcSnap := ContainerSnapshot(parent, src, snap)
+	ds := ContainerDataset(parent, dst)
+	if res := utils.ExecCommand("zfs", "clone", srcSnap, ds); res.Error != nil {
+		return fmt.Errorf("zfs clone 失败: %w", res.Error)
+	}
+	if res := utils.ExecCommand("zfs", "set", "mountpoint="+ContainerMountpoint(config.GlobalConfig.LXCLxcPath, dst), ds); res.Error != nil {
+		return fmt.Errorf("zfs set mountpoint 失败: %w", res.Error)
+	}
+	return nil
+}
+
 // DestroyContainer 销毁容器 dataset <parent>/<name>（rename 到回收名后 destroy -r，连带其快照）。
 // 调用方再 os.RemoveAll 清理残留空目录。
 func DestroyContainer(parent, name string) error {
