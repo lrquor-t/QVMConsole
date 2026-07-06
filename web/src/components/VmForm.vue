@@ -1192,6 +1192,23 @@
                           </div>
                         </el-option>
                       </el-option-group>
+                      <template #empty>
+                        <div v-if="isoLoading" style="padding: 8px 0; text-align: center; color: var(--el-text-color-secondary);">
+                          加载中…
+                        </div>
+                        <div v-else-if="isAdmin" style="padding: 12px 16px;">
+                          <div style="color: var(--el-text-color-regular); line-height: 1.6;">
+                            未在 ISO 存放目录下找到 .iso 文件
+                            <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; word-break: break-all;">当前目录：{{ isoStorageDir }}</div>
+                          </div>
+                          <el-link type="primary" :underline="false" style="margin-top: 8px;" @click="goSettings">
+                            <el-icon style="margin-right: 4px;"><Setting /></el-icon>前往系统设置
+                          </el-link>
+                        </div>
+                        <div v-else style="padding: 8px 0; text-align: center; color: var(--el-text-color-secondary);">
+                          暂无可用 ISO 镜像
+                        </div>
+                      </template>
                     </el-select>
                     <div class="form-tip"><el-icon><InfoFilled /></el-icon>支持同时挂载多个 ISO，首个 ISO 会作为主安装盘并自动补全系统类型和版本，其余 ISO 会作为额外挂载光驱</div>
                     <div v-if="form.iso_paths.length > 0" class="form-tip" style="flex-wrap: wrap; gap: 6px;">
@@ -2456,6 +2473,7 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { updateVm, getVmXML, updateVmXML, createVm, cloneVm, batchCloneVm, getTemplateList, getOSVariants, getVmDetail, getDiskList, resizeDisk, removeDisk, changeDiskBus, attachDisk, changeCDROM, ejectCDROM, removeCDROM, changeFloppy, ejectFloppy, removeFloppy, adminImportDisk, adminImportDiskForVM, getPassthroughDevices, getVmPassthroughDevices, bindPCIDevice, getSpiceStatus, enableSpice, disableSpice } from '@/api/vm'
 import { getAllISOs, getVMStorageTargets } from '@/api/infra'
 import { getUserISOs, selfCreateVm, importVM } from '@/api/storage'
@@ -2473,6 +2491,9 @@ import { passwordValidator, checkPasswordBreachAsync, generatePassword as genera
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.role === 'admin')
+const router = useRouter()
+// 管理员 ISO 列表为空时，跳转到系统设置的"存储与网络"tab 修改 ISO 存放位置
+const goSettings = () => router.push({ path: '/settings', query: { tab: 'network' } })
 const emit = defineEmits(['success', 'draft'])
 
 const activeTabEdit = ref('basic')
@@ -3394,6 +3415,7 @@ const prevStep = () => {
 // 数据列表
 const osVariants = ref([])
 const isoList = ref([])
+const isoLoading = ref(false)
 const isoStorageDir = ref('/var/lib/libvirt/images/ISO')
 const templates = ref([])
 const vpcSwitches = ref([])
@@ -3957,6 +3979,7 @@ const loadOSVariants = async () => {
 
 // 加载 ISO 列表（管理员从存储池聚合，普通用户从自己的存储池）
 const loadISOs = async () => {
+  isoLoading.value = true
   try {
     if (isAdmin.value) {
       const res = await getAllISOs()
@@ -3967,6 +3990,8 @@ const loadISOs = async () => {
     }
   } catch (err) {
     console.error(err)
+  } finally {
+    isoLoading.value = false
   }
 }
 

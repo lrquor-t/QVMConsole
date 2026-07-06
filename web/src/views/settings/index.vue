@@ -1194,6 +1194,7 @@
 
 <script setup>
 import { computed, ref, reactive, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Check, Connection, CopyDocument, Cpu, Delete, Download, FirstAidKit, FolderOpened, InfoFilled, Loading, Lock, Message, Monitor, Odometer, Plus, Refresh, Warning } from '@element-plus/icons-vue'
 import { getHostKSMStatus, getHostKVMUnrestrictedGuestStatus, getHostZRAMStatus, getSettings, getCPUAffinityPresets, getUserStorageISOPath, rotateJWTSecret, saveCPUAffinityPresets, testSMTP, updateHostKSMProfile, updateHostKVMUnrestrictedGuest, updateHostZRAMProfile, updateSettings, getLogStatus, deleteLogs, exportLogs, trimUserStorage, getDiagnosticCategories, exportDiagnostics } from '@/api/settings'
 import { getAllISOs } from '@/api/infra'
@@ -1216,7 +1217,10 @@ const fallbackZRAMProfiles = [
   { key: 'extreme', name: '极致', description: 'zRAM 逻辑容量为宿主机内存 50%，最高 128 GiB，适合内存非常紧张且能接受更多 CPU 开销的宿主机。' }
 ]
 
-const activeTab = ref('basic')
+const route = useRoute()
+// 支持 ?tab=xxx 直接定位到指定 tab（如 VmForm 空状态跳转到"存储与网络"）
+const VALID_SETTINGS_TABS = ['basic', 'network', 'host', 'advanced', 'security', 'log', 'diagnostics', 'storage']
+const activeTab = ref(VALID_SETTINGS_TABS.includes(route.query.tab) ? route.query.tab : 'basic')
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
