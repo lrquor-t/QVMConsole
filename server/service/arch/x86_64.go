@@ -30,16 +30,34 @@ func (p *x8664Profile) DefaultCPUModel(virtType string) string {
 
 func (p *x8664Profile) UEFIFirmwarePath(secureBoot bool) string {
 	if secureBoot {
-		return "/usr/share/OVMF/OVMF_CODE_4M.sec.fd"
+		candidates := []string{
+			"/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
+			"/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
+			"/usr/share/OVMF/OVMF_CODE_4M.sec.fd",
+		}
+		return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_CODE_4M.ms.fd")
 	}
-	return "/usr/share/OVMF/OVMF_CODE_4M.fd"
+	candidates := []string{
+		"/usr/share/OVMF/OVMF_CODE_4M.fd",
+		"/usr/share/OVMF/OVMF_CODE.fd",
+	}
+	return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_CODE_4M.fd")
 }
 
 func (p *x8664Profile) UEFIVarsTemplatePath(secureBoot bool) string {
 	if secureBoot {
-		return "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
+		candidates := []string{
+			"/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
+			"/usr/share/OVMF/OVMF_VARS_4M.secboot.fd",
+			"/usr/share/OVMF/OVMF_VARS.ms.fd",
+		}
+		return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_VARS_4M.ms.fd")
 	}
-	return "/usr/share/OVMF/OVMF_VARS_4M.fd"
+	candidates := []string{
+		"/usr/share/OVMF/OVMF_VARS_4M.fd",
+		"/usr/share/OVMF/OVMF_VARS.fd",
+	}
+	return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_VARS_4M.fd")
 }
 
 func init() {
