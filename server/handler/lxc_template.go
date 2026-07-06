@@ -60,6 +60,41 @@ func FinalizeLXCTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入任务已提交", "data": gin.H{"task_id": task.ID}})
 }
 
+type makeLXCTemplateReq struct {
+	SrcName           string `json:"src_name" binding:"required"`
+	Name              string `json:"name" binding:"required"`
+	DisplayName       string `json:"display_name"`
+	Description       string `json:"description"`
+	PostCreateCommand string `json:"post_create_command"`
+}
+
+// MakeLXCTemplateFromContainer 从已停止的容器制作 LXC 模板（管理员）。
+// 同步预校验（源存在/已停止/名合法不重名）后派发异步任务；大 rootfs 克隆走任务队列避免超时。
+// POST /api/lxc/template/from-container
+func MakeLXCTemplateFromContainer(c *gin.Context) {
+	var req makeLXCTemplateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: src_name 与 name 必填"})
+		return
+	}
+	if err := template.ValidateMakeFromContainer(req.SrcName, req.Name); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	params := &template.MakeTemplateParams{
+		SrcName: req.SrcName, Name: req.Name, DisplayName: req.DisplayName,
+		Description: req.Description, PostCreateCommand: req.PostCreateCommand,
+		OwnerUsername: username.(string),
+	}
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCMkTemplate, params, username.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交制作模板任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "模板制作任务已提交", "data": gin.H{"task_id": task.ID, "template_name": req.Name}})
+}
+
 // ==================== LXC 模板分片上传 ====================
 
 type lxcTemplateUploadInitReq struct {

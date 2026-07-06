@@ -279,6 +279,7 @@ func Setup() *gin.Engine {
 				{
 					lxcTmpl.GET("/list", handler.ListLXCTemplates)
 					lxcTmpl.POST("/finalize", handler.FinalizeLXCTemplate)
+					lxcTmpl.POST("/from-container", handler.MakeLXCTemplateFromContainer)
 					lxcTmpl.POST("/upload/init", handler.LXCTemplateUploadInit)
 					lxcTmpl.POST("/upload/chunk", handler.LXCTemplateUploadChunk)
 					lxcTmpl.POST("/upload/complete", handler.LXCTemplateUploadComplete)

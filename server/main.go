@@ -409,6 +409,18 @@ func registerTaskHandlers() {
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
+	// 从容器制作 LXC 模板任务（克隆源容器 rootfs → 金基底 + DB 行）
+	taskqueue.RegisterHandler(model.TaskTypeLXCMkTemplate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params template.MakeTemplateParams
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := template.MakeFromContainer(&params, progress); err != nil {
+			return "", err
+		}
+		return `{"name":"` + params.Name + `"}`, nil
+	})
+
 	// LXC 存储迁移任务（切换 lxcpath：停→搬→改 config→写 lxc.conf→重启→同步缓存）
 	taskqueue.RegisterHandler(model.TaskTypeLXCLxcRelocate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params service.LXCRelocateParams
@@ -1252,9 +1264,9 @@ func initCloneDeps() {
 		HookEnsureVMNotMigrating: service.HookEnsureVMNotMigrating,
 
 		// SPICE graphics（创建即带，默认本地监听）
-		InjectSPICEGraphics:     service.InjectSPICEGraphicsToDomainXML,
-		EnsureQXLVideo:          service.EnsureQXLVideo,
-		SpiceEnabledByDefault:   func() bool { return config.GlobalConfig.SpiceEnabledByDefault },
+		InjectSPICEGraphics:   service.InjectSPICEGraphicsToDomainXML,
+		EnsureQXLVideo:        service.EnsureQXLVideo,
+		SpiceEnabledByDefault: func() bool { return config.GlobalConfig.SpiceEnabledByDefault },
 	})
 }
 

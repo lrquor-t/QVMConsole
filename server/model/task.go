@@ -67,6 +67,7 @@ const (
 	TaskTypeLXCSnapshot                     = "lxc_snapshot"                       // LXC 容器快照
 	TaskTypeLXCTemplateImport               = "lxc_template_import"                // 导入 LXC 模板（rootfs tarball）
 	TaskTypeLXCLxcRelocate                  = "lxc_relocate"                       // LXC 存储迁移
+	TaskTypeLXCMkTemplate                   = "lxc_template_make"                  // 从容器制作 LXC 模板
 )
 
 // Task 异步任务模型（纯内存存储，不持久化）
