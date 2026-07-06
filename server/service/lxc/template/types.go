@@ -35,19 +35,28 @@ func isBaseContainer(name string) bool {
 	return strings.HasPrefix(name, config.GlobalConfig.LXCBasePrefix)
 }
 
-func validateImportParams(p *ImportParams) error {
-	if strings.TrimSpace(p.Name) == "" {
+// validateTemplateName 模板名称纯校验：非空、非保留基底前缀、字符集正则。
+// import 与「从容器制作模板」共用，避免两处重复。
+func validateTemplateName(name string) error {
+	n := strings.TrimSpace(name)
+	if n == "" {
 		return errors.New("模板名称不能为空")
 	}
-	// 名称会进入 baseContainerName -> lxc-create -n <base>（argv 安全）
-	// 以及 filepath.Join(LXCLxcPath, base, "rootfs")（路径拼接）。
+	// 名称会进入 baseContainerName -> lxc-create/lxc-copy -n <base>（argv 安全）
+	// 以及 filepath.Join(LXCLgcPath, base, "rootfs")（路径拼接）。
 	// 拒绝路径穿越（如 ../evil）与保留的基底前缀，避免在 lxc 目录之外创建容器。
-	name := strings.TrimSpace(p.Name)
-	if isBaseContainer(name) {
+	if isBaseContainer(n) {
 		return errors.New("模板名称不能使用保留的基底前缀")
 	}
-	if !templateNameRE.MatchString(name) {
+	if !templateNameRE.MatchString(n) {
 		return errors.New("模板名称只能含小写字母、数字、连字符，2-63 字符")
+	}
+	return nil
+}
+
+func validateImportParams(p *ImportParams) error {
+	if err := validateTemplateName(p.Name); err != nil {
+		return err
 	}
 	if strings.TrimSpace(p.SourcePath) == "" {
 		return errors.New("必须提供 rootfs tarball 路径")

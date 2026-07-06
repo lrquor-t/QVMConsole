@@ -171,7 +171,7 @@ func writeBaseConfig(base, arch string) error {
 	// 不补这行的话后续 lxc-copy 会「No rootfs specified」失败。import 把 rootfs 解到
 	// <lxcpath>/<base>/rootfs，这里以 last-wins 追加正确路径（覆盖 lxc-create 可能写入的错误值）。
 	rootfsLine := "lxc.rootfs.path = " + filepath.Join(config.GlobalConfig.LXCLxcPath, base, "rootfs") + "\n"
-	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch)+rootfsLine), 0644)
+	return os.WriteFile(cfg, []byte(composeBaseConfig(string(data), arch, base)+rootfsLine), 0644)
 }
 
 // extractRootfsInto 把 tarball 解到 rootfs（dir 普通目录 / zfs dataset 内子目录都一样）。
@@ -200,10 +200,12 @@ func destroyBase(base, backing string) error {
 	return destroyContainerQuiet(base)
 }
 
-// composeBaseConfig 纯函数：把 lxc-create 生成的 existing 内容去重后追加我们的覆盖项。
+// composeBaseConfig 纯函数：把已有的 existing 内容去重后追加我们的覆盖项。
 // 去重规则：丢弃所有 lxc.net.* 与将被覆盖的标量键（arch/cgroup2.cpu.weight/
-// cgroup2.memory.max/start.auto）及空行/注释；保留其余键（rootfs.path/uts.name/include/apparmor…）。
-func composeBaseConfig(existing, arch string) string {
+// cgroup2.memory.max/start.auto/uts.name）及空行/注释；保留其余键（rootfs.path/include/apparmor…）。
+// utsName 作为权威 lxc.uts.name 写入：对 import（lxc-create 已写 base）是 no-op，
+// 对「从容器制作模板」则把源主机名重置为基底名。
+func composeBaseConfig(existing, arch, utsName string) string {
 	if arch == "" {
 		arch = "amd64"
 	}
@@ -211,11 +213,15 @@ func composeBaseConfig(existing, arch string) string {
 	if arch == "arm64" {
 		lxcArch = "aarch64"
 	}
+	if strings.TrimSpace(utsName) == "" {
+		utsName = "lxc-base"
+	}
 	overriddenExact := map[string]bool{
 		"lxc.arch":               true,
 		"lxc.cgroup2.cpu.weight": true,
 		"lxc.cgroup2.memory.max": true,
 		"lxc.start.auto":         true,
+		"lxc.uts.name":           true,
 	}
 	var b strings.Builder
 	for _, line := range strings.Split(existing, "\n") {
@@ -227,7 +233,7 @@ func composeBaseConfig(existing, arch string) string {
 		if eq := strings.IndexByte(trim, '='); eq > 0 {
 			key = strings.TrimSpace(trim[:eq])
 		}
-		// 去掉默认 net 块（lxc.net.*）与我们将覆盖的标量键，避免重复键
+		// 去掉默认 net 块（lxc.net.*）与我们将覆盖的标量键（含 uts.name），避免重复键
 		if overriddenExact[key] || strings.HasPrefix(key, "lxc.net.") {
 			continue
 		}
@@ -235,6 +241,7 @@ func composeBaseConfig(existing, arch string) string {
 		b.WriteByte('\n')
 	}
 	for _, l := range []string{
+		"lxc.uts.name = " + utsName,
 		"lxc.arch = " + lxcArch,
 		"lxc.cgroup2.cpu.weight = 256",
 		"lxc.cgroup2.memory.max = 512M",

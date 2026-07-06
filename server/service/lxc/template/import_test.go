@@ -402,7 +402,7 @@ lxc.rootfs.path = overlay:/var/lib/lxc/base/rootfs
 lxc.uts.name = base
 lxc.include = /usr/share/lxc/config/common.conf
 `
-	out := composeBaseConfig(existing, "amd64")
+	out := composeBaseConfig(existing, "amd64", "base")
 	if strings.Contains(out, "lxcbr0") {
 		t.Error("默认 lxcbr0 net 块应被移除")
 	}
@@ -455,5 +455,31 @@ func TestWriteBaseConfig_EnsuresRootfsPath(t *testing.T) {
 	want := "lxc.rootfs.path = " + filepath.Join(tmp, base, "rootfs")
 	if !strings.Contains(string(out), want) {
 		t.Fatalf("基底 config 缺少 rootfs.path 行\ngot:\n%s\nwant line: %s", string(out), want)
+	}
+}
+
+// TestComposeBaseConfig_ResetsUtsName 验证从容器克隆来的 config（带源主机名）
+// 经 composeBaseConfig 后，lxc.uts.name 被权威重置为传入的 utsName（基底名），
+// 不残留源容器主机名——否则每个克隆都撞同一主机名。
+func TestComposeBaseConfig_ResetsUtsName(t *testing.T) {
+	existing := `lxc.uts.name = src-hostname
+lxc.net.0.hwaddr = 00:11:22:33:44:55
+lxc.net.0.type = veth
+lxc.net.0.link = br-ovs
+lxc.rootfs.path = dir:/var/lib/lxc/src/rootfs
+lxc.cgroup2.cpu.weight = 100
+`
+	out := composeBaseConfig(existing, "amd64", "lxc__tmpl__foo")
+	if strings.Contains(out, "src-hostname") {
+		t.Errorf("源主机名应被移除，out=%q", out)
+	}
+	if c := strings.Count(out, "lxc.uts.name = lxc__tmpl__foo"); c != 1 {
+		t.Errorf("lxc.uts.name 应被权威重置为基底名，出现 %d 次，out=%q", c, out)
+	}
+	if strings.Contains(out, "00:11:22:33:44:55") {
+		t.Errorf("源 MAC 应被移除，out=%q", out)
+	}
+	if c := strings.Count(out, "lxc.net.0.link = br-ovs"); c != 1 {
+		t.Errorf("br-ovs 应仅出现 1 次（我们追加的），出现 %d 次", c)
 	}
 }
