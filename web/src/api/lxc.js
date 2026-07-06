@@ -129,3 +129,12 @@ export function updateLXCInterface(name, order, data) {
 export function removeLXCInterface(name, order, data) {
   return request({ url: `/lxc/${name}/interfaces/${order}`, method: 'delete', data })
 }
+
+// 从容器制作 LXC 模板（异步任务，仅管理员）
+export function makeLXCTemplateFromContainer(srcName, data) {
+  return request({
+    url: '/lxc/template/from-container',
+    method: 'post',
+    data: { src_name: srcName, ...data }
+  })
+}
