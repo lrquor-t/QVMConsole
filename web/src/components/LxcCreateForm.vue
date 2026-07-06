@@ -58,7 +58,10 @@
             <el-input :model-value="containerPathPreview" disabled />
             <div class="form-tip">容器将创建于此；目录随名称变化，由系统设置「LXC 容器目录」决定。</div>
           </el-form-item>
-          <el-form-item label="CPU 权重"><el-input-number v-model="form.cpu_shares" :min="0" /></el-form-item>
+          <el-form-item label="CPU 权重">
+            <el-input-number v-model="form.cpu_shares" :min="1" :max="10000" />
+            <div class="form-tip"><el-icon><InfoFilled /></el-icon> 相对优先级（cgroup2 cpu.weight，范围 1–10000，系统默认 100），不限制核数；值越大，CPU 紧张时越优先分配。</div>
+          </el-form-item>
           <el-form-item label="内存(MB)"><el-input-number v-model="form.memory_mb" :min="0" :step="512" /></el-form-item>
           <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
           <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
@@ -132,6 +135,7 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { createLXC, getLXCTemplateList, getLXCDownloadList } from '@/api/lxc'
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
@@ -152,7 +156,7 @@ const steps = [
 const formRef = ref(null)
 const loading = ref(false)
 
-const defaultForm = () => ({ name: '', template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 512, autostart: false, group_name: '', remark: '' })
+const defaultForm = () => ({ name: '', template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 2048, autostart: false, group_name: '', remark: '' })
 const form = reactive(defaultForm())
 const rules = {
   name: [
@@ -337,5 +341,5 @@ const onClosed = () => { step.value = 0 }
 .form-section-card-body { display: flex; flex-direction: column; gap: 12px; }
 .extra-nic-row { border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 10px; }
 .extra-nic-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.form-tip { font-size: 12px; color: var(--el-text-color-secondary); }
+.form-tip { font-size: 12px; color: var(--el-text-color-secondary); display: flex; align-items: center; gap: 4px; }
 </style>
