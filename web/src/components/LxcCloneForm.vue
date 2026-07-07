@@ -15,10 +15,16 @@
             :label="`${s.name}${s.comment ? ' · ' + s.comment : ''}`"
             :value="s.name"
           />
+          <template #empty>
+            <div class="snap-empty" @click="gotoSnapshot">
+              <el-icon><Plus /></el-icon>
+              暂无快照，去创建快照
+            </div>
+          </template>
         </el-select>
-        <div v-if="!loadingSnaps && isZfs && snapshots.length === 0" class="form-hint form-hint-warn">
+        <div v-if="!loadingSnaps && isZfs && snapshots.length === 0" class="form-hint form-hint-link" @click="gotoSnapshot">
           <el-icon><WarningFilled /></el-icon>
-          该容器暂无快照，请先在「快照」面板创建一个再克隆
+          该容器暂无快照，<span class="link">去创建快照 →</span>
         </div>
       </el-form-item>
       <el-form-item label="新容器名" prop="dst_name">
@@ -42,14 +48,15 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { InfoFilled, WarningFilled } from '@element-plus/icons-vue'
+import { InfoFilled, WarningFilled, Plus } from '@element-plus/icons-vue'
 import { listLXCSnapshots, cloneLXCFromSnapshot } from '@/api/lxc'
 
-const emit = defineEmits(['success'])
+const emit = defineEmits(['success', 'goto-snapshot'])
 const visible = ref(false)
 const submitting = ref(false)
 const loadingSnaps = ref(false)
 const snapshots = ref([])
+const srcRow = ref(null)
 const formRef = ref(null)
 const form = reactive({
   src_name: '',
@@ -69,6 +76,7 @@ const rules = {
 }
 
 const open = async (row) => {
+  srcRow.value = row
   Object.assign(form, {
     src_name: row?.name || '',
     backing: row?.backing || '',
@@ -87,6 +95,12 @@ const open = async (row) => {
   } catch (e) {} finally { loadingSnaps.value = false }
 }
 defineExpose({ open })
+
+// 无快照时跳转到管理抽屉的「快照」tab 创建一个
+const gotoSnapshot = () => {
+  visible.value = false
+  emit('goto-snapshot', srcRow.value)
+}
 
 const submit = async () => {
   try {
@@ -119,5 +133,20 @@ const submit = async () => {
 }
 .form-hint-warn {
   color: var(--el-color-warning);
+}
+.form-hint-link {
+  cursor: pointer;
+}
+.form-hint-link .link {
+  color: var(--el-color-primary);
+}
+.snap-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 0;
+  cursor: pointer;
+  color: var(--el-color-primary);
 }
 </style>

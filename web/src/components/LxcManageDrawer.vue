@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
   stopResize()
 })
 
-const open = (row) => {
+const open = (row, tab = 'snapshot') => {
   currentName.value = row.name
   currentStatus.value = row.status
   currentBacking.value = row.backing || ''
@@ -166,7 +166,7 @@ const open = (row) => {
     group_name: row.group_name,
     remark: row.remark
   }
-  activeTab.value = 'snapshot'
+  activeTab.value = tab
   drawerWidth.value = clampWidth(drawerWidth.value)
   visible.value = true
 }

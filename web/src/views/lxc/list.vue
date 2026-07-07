@@ -164,7 +164,7 @@
     <LxcMakeTemplateForm ref="lxcMakeTplRef" />
 
     <!-- 克隆对话框 -->
-    <LxcCloneForm ref="lxcCloneRef" @success="fetchData" />
+    <LxcCloneForm ref="lxcCloneRef" @success="fetchData" @goto-snapshot="onGotoSnapshot" />
   </div>
 </template>
 
@@ -199,6 +199,7 @@ const lxcMakeTplRef = ref(null)
 const lxcCloneRef = ref(null)
 const openMakeTemplate = (row) => lxcMakeTplRef.value?.open(row)
 const openClone = (row) => lxcCloneRef.value?.open(row)
+const onGotoSnapshot = (row) => manageDrawerRef.value?.open(row, 'snapshot')
 const openManage = (row) => manageDrawerRef.value?.open(row)
 let timer = null
 
