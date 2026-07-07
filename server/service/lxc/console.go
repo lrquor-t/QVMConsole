@@ -15,9 +15,11 @@ type AttachSession struct {
 	Cmd  *exec.Cmd
 }
 
-// StartAttach 用 PTY 启动 lxc-attach 进入容器交互 shell（默认 /bin/sh）。
+// StartAttach 用 PTY 启动 lxc-attach 进入容器交互 shell。
+// 用 `su -` 起登录 shell（而非 /bin/sh）：加载 /etc/profile、得到正常提示符 [root@xxx ~]#，
+// 否则进的是 bare sh，提示符是 sh-4.4#、环境也没初始化。su 默认切到 root。
 func StartAttach(name string) (*AttachSession, error) {
-	cmd := exec.Command("lxc-attach", "-n", name, "--", "/bin/sh")
+	cmd := exec.Command("lxc-attach", "-n", name, "--", "su", "-")
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
