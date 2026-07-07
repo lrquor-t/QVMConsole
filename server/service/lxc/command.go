@@ -143,48 +143,73 @@ func RefreshRuntimeFields(name string) error {
 			row.Status = d.Status
 		}
 	}
-	// veth by MAC
-	if row.MacAddress != "" {
-		if veth := findVethByMAC(row.MacAddress); veth != "" {
-			row.VethName = veth
-		}
+	// veth by 网络命名空间（host 侧 veth MAC 与容器 MAC 无关，不能按 MAC 匹配）
+	if veth := findContainerHostVeth(name, 0); veth != "" {
+		row.VethName = veth
 	}
 	return model.DB.Save(&row).Error
 }
 
-// findVethByMAC 在 host 上按 MAC 查找容器对应 veth 名（shell 取 ip link 输出后交给纯函数解析）。
-func findVethByMAC(mac string) string {
-	if mac == "" {
+// findContainerHostVeth 找到容器 <name> 第 <order> 块网卡（容器内默认 eth<order>）在 host 侧的 veth 名。
+//
+// LXC 的 host 侧 veth MAC 由内核随机分配，与容器内 eth<order> 的 lxc.net.<order>.hwaddr 无关，
+// 故不能按 MAC 匹配。这里改用 peer ifindex：
+//   1. lxc-attach 进容器 `ip -o link show dev eth<order>`，取其 peer ifindex——即 `eth0@ifN` 里的 N，
+//      它是 host 侧 veth 在 host 上的 ifindex（host 上唯一，不受多容器 eth0 同 ifindex 影响）；
+//   2. host 上 `ip -o link` 找 ifindex == N 的接口名。
+//
+// 容器未运行/找不到时返回空串。
+func findContainerHostVeth(name string, order int) string {
+	ifname := "eth" + strconv.Itoa(order)
+	res := utils.ExecShell("lxc-attach -n " + utils.ShellSingleQuote(name) + " -- ip -o link show dev " + ifname + " 2>/dev/null")
+	hostIf := parsePeerIfindex(res.Stdout)
+	if hostIf == "" {
 		return ""
 	}
-	res := utils.ExecShell("ip -o link")
-	return findVethByMACFromText(res.Stdout, mac)
+	out := utils.ExecShell("ip -o link")
+	return findIfaceByIfindexFromText(out.Stdout, hostIf)
 }
 
-// findVethByMACFromText 是 findVethByMAC 的纯函数版（便于单测，无 shell 副作用）。
-// 输入为 `ip -o link` 的输出，按 MAC（大小写无关）匹配带 @peer 的 veth 行。
-func findVethByMACFromText(out, mac string) string {
-	needle := normalizeMAC(mac)
-	if needle == "" {
+// parsePeerIfindex 取 `ip -o link` 输出首行 ifname 的 peer ifindex：`N: ifname@ifP` → "P"。
+// 兼容 @ifP / @P 两种写法。纯函数。
+func parsePeerIfindex(out string) string {
+	line := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+	at := strings.Index(line, "@")
+	if at < 0 {
 		return ""
 	}
+	rest := strings.TrimPrefix(line[at+1:], "if")
+	var b []byte
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if c < '0' || c > '9' {
+			break
+		}
+		b = append(b, c)
+	}
+	return string(b)
+}
+
+// findIfaceByIfindexFromText 在 `ip -o link` 输出里找 ifindex == idx 的接口名（`idx: ifname:...` → ifname）。纯函数。
+func findIfaceByIfindexFromText(out, idx string) string {
+	prefix := idx + ":"
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, "@") || !strings.Contains(strings.ToLower(line), needle) {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, prefix) {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) < 2 {
-			continue
+		rest := strings.TrimSpace(strings.TrimPrefix(t, prefix))
+		// rest 形如 "vethXXXX: ..." 或 "vethXXXX@if2: ..." → 截到首个 ':'/'@'/空格
+		name := rest
+		for _, sep := range []string{":", "@", " "} {
+			if j := strings.Index(name, sep); j >= 0 {
+				name = name[:j]
+			}
 		}
-		field := strings.TrimSpace(parts[1])
-		if i := strings.Index(field, "@"); i > 0 {
-			return field[:i]
+		if name != "" {
+			return name
 		}
 	}
 	return ""
 }
 
-// normalizeMAC 统一 MAC 大小写与分隔，便于在 ip link 输出中匹配。
-func normalizeMAC(mac string) string {
-	return strings.ToLower(strings.TrimSpace(mac))
-}

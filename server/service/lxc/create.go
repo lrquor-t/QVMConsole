@@ -94,7 +94,7 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 	}
 	progress(50, "克隆完成，写入配置")
 
-	// 由容器名派生 per-container MAC，保证 DB 行与容器 config 一致（findVethByMAC 据此关联）。
+	// 由容器名派生 per-container MAC，写入容器 config 的 lxc.net.0.hwaddr 并存 DB，保证两处一致。
 	mac := genMacByName(params.Name)
 
 	// 覆写克隆 config：per-clone cgroup/autostart/mac
@@ -197,7 +197,7 @@ func applyCloneConfig(p *CreateContainerParams, mac string) error {
 }
 
 // 以下小工具仅 create 流程使用；共享工具（genMacByName/
-// RefreshRuntimeFields/findVethByMAC）见 command.go。
+// RefreshRuntimeFields）见 command.go。
 func itoaDefault(v, def int) string {
 	if v <= 0 {
 		v = def

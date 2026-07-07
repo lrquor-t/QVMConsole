@@ -72,8 +72,7 @@ func DetachContainerFromVPC(name string) error {
 	bridge := defaultBridge()
 	seen := map[string]bool{}
 	for _, b := range bindings {
-		mac := nicMACForBinding(name, b)
-		veth := findVethByMAC(mac)
+		veth := findContainerHostVeth(name, b.InterfaceOrder)
 		if veth != "" && !seen[veth] {
 			utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", bridge, veth)
 			seen[veth] = true
@@ -115,16 +114,9 @@ func ownerOf(name string) string {
 	return "admin"
 }
 
-// waitForVeth 从 LXCCache 读容器 MAC，再在 host 上按 MAC 解析 veth 名。
+// waitForVeth 解析容器 order0 网卡在 host 侧的 veth 名（按网络命名空间，非 MAC）。
 func waitForVeth(name string) string {
-	if model.DB == nil {
-		return ""
-	}
-	var row model.LXCCache
-	if err := model.DB.Where("name = ?", name).First(&row).Error; err != nil {
-		return ""
-	}
-	return findVethByMAC(row.MacAddress)
+	return findContainerHostVeth(name, 0)
 }
 
 // ReadVethCounters 读取 host veth 的累计 rx/tx 字节数（来自 sysfs）。
@@ -154,8 +146,8 @@ func configPath(name string) string {
 // applyNicRuntime 对单个 host veth 幂等施加 OVS 端口 + VLAN tag + 下行限速。
 // veth 为空（容器未运行 / 暂无 veth）时跳过，不报错；order 0 总会回填 LXCCache.VethName
 // 以兼容现有流量采集/Detach 路径。
-func applyNicRuntime(name string, order int, mac string, sw model.VPCSwitch, binding model.VPCVMBinding) error {
-	veth := findVethByMAC(mac)
+func applyNicRuntime(name string, order int, sw model.VPCSwitch, binding model.VPCVMBinding) error {
+	veth := findContainerHostVeth(name, order)
 	if order == 0 {
 		// 兼容现有流量采集/Detach 读 LXCCache.VethName；即使容器未运行也清空旧值。
 		model.DB.Model(&model.LXCCache{}).Where("name = ?", name).Update("veth_name", veth)
@@ -207,7 +199,7 @@ func ReconcileContainerNICs(name string) error {
 	deadline := 5 * time.Second
 	start := time.Now()
 	for time.Since(start) < deadline {
-		if veth := findVethByMAC(nicMACForBinding(name, bindings[0])); veth != "" {
+		if veth := findContainerHostVeth(name, bindings[0].InterfaceOrder); veth != "" {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -219,24 +211,11 @@ func ReconcileContainerNICs(name string) error {
 			lastErr = err
 			continue
 		}
-		mac := nicMACForBinding(name, b)
-		if err := applyNicRuntime(name, b.InterfaceOrder, mac, sw, b); err != nil {
+		if err := applyNicRuntime(name, b.InterfaceOrder, sw, b); err != nil {
 			lastErr = err
 		}
 	}
 	return lastErr
-}
-
-// nicMACForBinding 取某 binding 的 MAC：优先 config 的 lxc.net.<order>.hwaddr，
-// 回退 NICMAC 派生（确保 config 不可读时仍能用确定性 MAC 找到 veth）。
-func nicMACForBinding(name string, b model.VPCVMBinding) string {
-	cfg := configPath(name)
-	if data, err := os.ReadFile(cfg); err == nil {
-		if _, blocks := SplitNICBlocks(string(data)); blocks[b.InterfaceOrder]["hwaddr"] != "" {
-			return blocks[b.InterfaceOrder]["hwaddr"]
-		}
-	}
-	return NICMAC(name, b.InterfaceOrder)
 }
 
 const maxLXCInterfaces = 8
@@ -288,7 +267,7 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 			info.VLANID = varSw.VLANID
 		}
 		info.SecurityGroupName = lookupSGName(b.SecurityGroupID)
-		if veth := findVethByMAC(mac); veth != "" {
+		if veth := findContainerHostVeth(name, o); veth != "" {
 			info.Veth = veth
 			rx, tx := ReadVethCounters(veth)
 			info.RXBytes, info.TXBytes = rx, tx
@@ -411,7 +390,7 @@ func UpdateContainerInterface(name string, order int, req AddLXCInterfaceRequest
 	var b model.VPCVMBinding
 	model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, order, "lxc").First(&b)
 	if containerRunning(name) {
-		return applyNicRuntime(name, order, blocks[order]["hwaddr"], sw, b)
+		return applyNicRuntime(name, order, sw, b)
 	}
 	return nil
 }
@@ -452,8 +431,8 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 		return fmt.Errorf("主网卡需二次确认（force=true）方可删除")
 	}
 	// 运行中：热拔
-	if containerRunning(name) && mac != "" {
-		hotunplugNic(mac)
+	if containerRunning(name) {
+		hotunplugNic(name, order)
 	}
 	delete(blocks, order)
 	blocks = CompactNICBlocks(blocks)
@@ -562,8 +541,8 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	//     持久态依赖下次重启由 lxc-start 按 config 重建。引导用户重启以获一致状态。
 	return nil
 }
-func hotunplugNic(mac string) {
-	veth := findVethByMAC(mac)
+func hotunplugNic(name string, order int) {
+	veth := findContainerHostVeth(name, order)
 	if veth == "" {
 		return
 	}
