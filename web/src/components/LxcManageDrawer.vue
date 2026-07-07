@@ -64,6 +64,16 @@
             :name="currentName"
           />
         </el-tab-pane>
+        <el-tab-pane name="monitor" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><TrendCharts /></el-icon> 监控</span>
+          </template>
+          <LxcMonitorPanel
+            v-if="visible && currentName && activeTab === 'monitor'"
+            :name="currentName"
+            :status="currentStatus"
+          />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-drawer>
@@ -71,10 +81,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
+import LxcMonitorPanel from './LxcMonitorPanel.vue'
 
 const emit = defineEmits(['refresh'])
 
