@@ -121,7 +121,7 @@
         <div class="navbar-center">
           <span class="beta-notice-link" @click="showBetaNoticeDialog">
             <el-icon><Warning /></el-icon>
-            <span>内测期间，请做好数据备份，避免程序bug造成数据丢失。内测不代表最终成果。</span>
+            <span>公测期间，建议做好数据备份，避免不合适的操作造成数据丢失。</span>
           </span>
         </div>
         <div class="right-menu">
@@ -206,10 +206,10 @@
       />
     </el-container>
 
-    <!-- 内测须知弹窗 -->
+    <!-- 公测须知弹窗 -->
     <el-dialog
       v-model="betaNoticeVisible"
-      title="内测须知"
+      title="公测须知"
       width="520px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -225,12 +225,11 @@
           class="beta-alert"
         >
           <template #title>
-            <span class="beta-alert-title">当前系统处于内测阶段</span>
+            <span class="beta-alert-title">当前系统处于公测阶段</span>
           </template>
         </el-alert>
         <div class="beta-notice-body">
-          <p>由于当前项目体量较大，为确保每个功能能够正常运行，故采用内测体系。</p>
-          <p><strong>内测不代表最终成果，可能存在一定的 Bug 风险，请务必做好数据备份。</strong></p>
+          <p>项目已完成内测，所有功能正常使用的情况下一般不会出现问题。但为了安全，还是建议您做好数据备份避免不合适的操作触发程序bug造成。</p>
           <el-divider />
           <div class="beta-notice-join">
             <p>务必加入官方 QQ 群：</p>
@@ -621,7 +620,7 @@ onMounted(() => {
   }
   refreshSecurityInfo()
 
-  // 显示内测须知弹窗
+  // 显示公测须知弹窗
   showBetaNotice()
 
   // 检查赞助支持弹窗
@@ -708,7 +707,7 @@ const apiKeyLoading = ref(false)
 const apiKeyGenerating = ref(false)
 const apiKeyRevoking = ref(false)
 
-// ==================== 内测须知弹窗 ====================
+// ==================== 公测须知弹窗 ====================
 const betaNoticeVisible = ref(false)
 
 const showBetaNotice = () => {
@@ -1634,7 +1633,7 @@ html.dark .navbar {
   display: none !important;
 }
 
-/* ===== 内测须知弹窗 ===== */
+/* ===== 公测须知弹窗 ===== */
 .beta-notice-content {
   padding: 0 4px;
 }
