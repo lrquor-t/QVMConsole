@@ -251,6 +251,23 @@ watch(() => props.externalStats, (newStats) => {
   }
 }, { deep: true })
 
+// 父组件切换 :name 但未卸载本组件时（如抽屉 open(row,'monitor') 直达监控 tab）：
+// 重置实时窗口与累计基线，避免两个容器数据混算，并按当前模式重拉。
+watch(() => props.name, () => {
+  if (!props.name) return
+  prevNet = { rx: 0, tx: 0 }
+  prevDisk = { rd: 0, wr: 0 }
+  charts.forEach(chart => {
+    if (!chart) return
+    const o = chart.getOption()
+    if (o?.xAxis?.[0]) o.xAxis[0].data = []
+    if (o?.series) o.series.forEach(s => { s.data = [] })
+    chart.setOption(o)
+  })
+  if (chartMode.value === 'realtime') updateCharts()
+  else if (chartMode.value === 'history') fetchLast24Hours()
+})
+
 const fetchHistoryData = async (start, end) => {
   if (props.type === 'lxc') {
     const res = await getLXCStatsHistory(props.name, start, end)
