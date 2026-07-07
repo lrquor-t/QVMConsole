@@ -183,6 +183,7 @@ func applyCloneConfig(p *CreateContainerParams, mac string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
 	// per-clone 覆盖项：原地改写（已存在改值并去重，不存在再追加），避免与基底模板的值留下重复键
 	pairs := []ConfigKV{
+		{"lxc.uts.name", p.Name}, // 覆盖基底模板的 uts.name（=lxc__tmpl__<base>），改为本容器名
 		{"lxc.cgroup2.cpu.weight", itoaDefault(p.CPUShares, 256)},
 		{"lxc.cgroup2.memory.max", memMax(p.MemoryMB)},
 		{"lxc.start.auto", autoVal(p.Autostart)},
