@@ -8,6 +8,7 @@
       type="lxc"
       :name="name"
       :status="status"
+      default-mode="history"
     />
   </div>
 </template>
