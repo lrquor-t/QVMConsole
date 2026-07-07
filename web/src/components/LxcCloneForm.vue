@@ -28,7 +28,9 @@
         </div>
       </el-form-item>
       <el-form-item label="新容器名" prop="dst_name">
-        <el-input v-model="form.dst_name" placeholder="小写字母/数字/连字符，2-63 字符" />
+        <el-input v-model="form.dst_name" placeholder="小写字母/数字/连字符，2-63 字符">
+          <template #append><el-button @click="handleGenerateName">随机生成</el-button></template>
+        </el-input>
       </el-form-item>
       <el-form-item label="备注">
         <el-input v-model="form.remark" placeholder="选填" maxlength="200" show-word-limit />
@@ -50,6 +52,7 @@ import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled, WarningFilled, Plus } from '@element-plus/icons-vue'
 import { listLXCSnapshots, cloneLXCFromSnapshot } from '@/api/lxc'
+import { generateRandomLXCName } from '@/utils/lxc'
 
 const emit = defineEmits(['success', 'goto-snapshot'])
 const visible = ref(false)
@@ -81,7 +84,7 @@ const open = async (row) => {
     src_name: row?.name || '',
     backing: row?.backing || '',
     snap: '',
-    dst_name: '',
+    dst_name: generateRandomLXCName(), // 打开时先随机生成一个新名，用户可改
     remark: ''
   })
   formRef.value?.clearValidate()
@@ -100,6 +103,11 @@ defineExpose({ open })
 const gotoSnapshot = () => {
   visible.value = false
   emit('goto-snapshot', srcRow.value)
+}
+// 重新随机一个新容器名
+const handleGenerateName = async () => {
+  form.dst_name = generateRandomLXCName()
+  await formRef.value?.validateField('dst_name').catch(() => false)
 }
 
 const submit = async () => {

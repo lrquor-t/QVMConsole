@@ -140,6 +140,7 @@ import { useUserStore } from '@/store/user'
 import { createLXC, getLXCTemplateList, getLXCDownloadList } from '@/api/lxc'
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
 import { getSettings } from '@/api/settings'
+import { generateRandomLXCName } from '@/utils/lxc'
 
 const emit = defineEmits(['success'])
 const userStore = useUserStore()
@@ -255,17 +256,8 @@ const nicsSummary = computed(() => {
 })
 
 // 导航
-const lcCharset = 'abcdefghijklmnopqrstuvwxyz0123456789'
-const getRandomInt = (max) => {
-  const c = globalThis.crypto
-  if (c && typeof c.getRandomValues === 'function') { const a = new Uint32Array(1); c.getRandomValues(a); return a[0] % max }
-  return Math.floor(Math.random() * max)
-}
-const randomStringFrom = (charset, n) => Array.from({ length: n }, () => charset[getRandomInt(charset.length)]).join('')
-// 随机容器名：lxc-<6 位小写字母/数字>，匹配名称正则 ^[a-z0-9][a-z0-9-]{1,62}$
-const generateRandomName = () => `lxc-${randomStringFrom(lcCharset, 6)}`
 const handleGenerateName = async () => {
-  form.name = generateRandomName()
+  form.name = generateRandomLXCName()
   await formRef.value?.validateField('name').catch(() => false)
 }
 const prevStep = () => { if (step.value > 0) step.value-- }
@@ -288,7 +280,7 @@ const allRequiredFilled = computed(() => {
 
 const open = async () => {
   Object.assign(form, defaultForm())
-  form.name = generateRandomName() // 打开时先随机生成一个名称，用户可改
+  form.name = generateRandomLXCName() // 打开时先随机生成一个名称，用户可改
   extraNics.value = []
   step.value = 0
   try { const r = await getLXCTemplateList(); templates.value = r.data || [] } catch (e) {}
