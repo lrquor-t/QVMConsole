@@ -10,17 +10,29 @@
     <el-card shadow="hover" class="snap-card">
       <div class="section-title">快照列表（{{ tableData.length }}）</div>
       <el-table :data="tableData" border v-loading="loading">
-        <el-table-column prop="name" label="名称" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="name" label="名称" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <el-tag v-if="row.has_clones" size="small" type="info" effect="plain" style="margin-left: 6px">已被克隆</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="创建时间" width="200">
           <template #default="{ row }">{{ row.created_at || '-' }}</template>
         </el-table-column>
         <el-table-column label="备注" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">{{ row.comment || '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" align="center">
+        <el-table-column label="操作" width="180" align="center">
           <template #default="{ row, $index }">
             <el-button size="small" type="warning" @click="handleRestore(row, $index)">恢复</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-tooltip
+              v-if="row.has_clones"
+              content="该快照已被克隆，需先删除克隆出的容器后才能删除"
+              placement="top"
+            >
+              <el-button size="small" type="info" disabled>删除</el-button>
+            </el-tooltip>
+            <el-button v-else size="small" type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>
