@@ -137,6 +137,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
+                  <el-dropdown-item command="clone">克隆</el-dropdown-item>
                   <el-dropdown-item v-if="isAdmin" command="template" :disabled="!isStopped(row)">制作模板</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
                 </el-dropdown-menu>
@@ -161,6 +162,9 @@
 
     <!-- 制作模板对话框 -->
     <LxcMakeTemplateForm ref="lxcMakeTplRef" />
+
+    <!-- 克隆对话框 -->
+    <LxcCloneForm ref="lxcCloneRef" @success="fetchData" />
   </div>
 </template>
 
@@ -176,6 +180,7 @@ import {
 import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
 import LxcCreateForm from '@/components/LxcCreateForm.vue'
 import LxcMakeTemplateForm from '@/components/LxcMakeTemplateForm.vue'
+import LxcCloneForm from '@/components/LxcCloneForm.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -191,7 +196,9 @@ const batchOperating = ref(false)
 const manageDrawerRef = ref(null)
 const lxcCreateRef = ref(null)
 const lxcMakeTplRef = ref(null)
+const lxcCloneRef = ref(null)
 const openMakeTemplate = (row) => lxcMakeTplRef.value?.open(row)
+const openClone = (row) => lxcCloneRef.value?.open(row)
 const openManage = (row) => manageDrawerRef.value?.open(row)
 let timer = null
 
@@ -257,6 +264,7 @@ const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
   else if (cmd === 'delete') remove(row)
   else if (cmd === 'template') openMakeTemplate(row)
+  else if (cmd === 'clone') openClone(row)
 }
 const openConsole = (row) => {
   // 新标签页打开终端（与 VM VNC 窗口一致；路由守卫放行，WS 鉴权由后端 LXCAccessMiddleware + token query）
