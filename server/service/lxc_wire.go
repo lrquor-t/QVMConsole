@@ -128,3 +128,26 @@ func LXCUpdateContainerInterface(name string, order int, req lxc.AddLXCInterface
 func LXCRemoveContainerInterface(name string, order int, force bool) error {
 	return lxc.RemoveContainerInterface(name, order, force)
 }
+
+// LXC 克隆（从快照）
+type LXCCloneParams = lxc.CloneParams
+
+// LXCParseCloneParams 反序列化克隆任务参数。
+func LXCParseCloneParams(s string) (*LXCCloneParams, error) {
+	return lxc.ParseCloneParams(s)
+}
+
+// LXCValidateCloneFromSnapshot 同步预校验克隆参数。
+func LXCValidateCloneFromSnapshot(srcName, snap, dstName string) error {
+	return lxc.ValidateCloneFromSnapshot(srcName, snap, dstName)
+}
+
+// LXCCloneFromSnapshot 执行从快照克隆容器（后台任务）。
+func LXCCloneFromSnapshot(p *lxc.CloneParams, progress func(int, string)) error {
+	return lxc.CloneFromSnapshot(p, progress)
+}
+
+// LXCContainerSpecForQuota 取容器 CPU/Mem 规格（克隆配额校验用）。
+func LXCContainerSpecForQuota(name string) (cpu, memMB int, err error) {
+	return lxc.ContainerSpecForQuota(name)
+}
