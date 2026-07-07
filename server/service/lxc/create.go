@@ -123,6 +123,8 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
 
+	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
+	setRootfsHostname(params.Name)
 	progress(80, "启动容器")
 	// 创建后默认启动，便于分配 IP。
 	if err := StartContainer(params.Name); err != nil {
@@ -194,6 +196,41 @@ func applyCloneConfig(p *CreateContainerParams, mac string) error {
 		pairs = append(pairs, ConfigKV{"lxc.net.0.link", link})
 	}
 	return SetConfigKeys(cfg, pairs)
+}
+
+// setRootfsHostname 把容器 rootfs 内的 /etc/hostname 改写为容器名。
+// 动机：systemd/OpenRC 启动读 /etc/hostname 设置主机名，会覆盖 config 的 lxc.uts.name；
+// 模板/快照克隆继承源 rootfs 的 /etc/hostname，导致克隆容器主机名仍是源名。
+// 仅 dir: backing（含 zfs，rootfs 是 dataset 下子目录）处理；overlay 等只读 lower 不误写。best-effort。
+func setRootfsHostname(name string) {
+	cfgPath := filepath.Join(config.GlobalConfig.LXCLxcPath, name, "config")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return
+	}
+	rootfs := rootfsDirFromConfig(string(data))
+	if rootfs == "" {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(rootfs, "etc", "hostname"), []byte(name+"\n"), 0644)
+}
+
+// rootfsDirFromConfig 取 lxc.rootfs.path 指向的可写 rootfs 目录（仅识别 dir:<path>）。
+// overlay:<lower>:<upper> 等返回空，避免误写到只读 lower。
+func rootfsDirFromConfig(cfg string) string {
+	for _, line := range strings.Split(cfg, "\n") {
+		key, sep := parseConfigKV(line)
+		if sep == "" || key != "lxc.rootfs.path" {
+			continue
+		}
+		eq := strings.Index(line, "=")
+		val := strings.TrimSpace(line[eq+1:])
+		if strings.HasPrefix(val, "dir:") {
+			return strings.TrimSpace(val[len("dir:"):])
+		}
+		return ""
+	}
+	return ""
 }
 
 // 以下小工具仅 create 流程使用；共享工具（genMacByName/
@@ -302,6 +339,8 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
 
+	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
+	setRootfsHostname(params.Name)
 	progress(80, "启动容器")
 	if err := StartContainer(params.Name); err != nil {
 		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)

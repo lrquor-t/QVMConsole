@@ -186,6 +186,8 @@ func CloneFromSnapshot(params *CloneParams, progress func(int, string)) error {
 	}
 
 	// 4) 自动开机 + 接入与源相同的 VPC + 回填运行态
+	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
+	setRootfsHostname(params.DstName)
 	progress(80, "启动容器")
 	if err := StartContainer(params.DstName); err != nil {
 		logger.App.Warn("克隆容器启动失败（已创建，保持停止态）", "name", params.DstName, "error", err)
