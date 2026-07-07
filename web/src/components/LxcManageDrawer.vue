@@ -38,7 +38,7 @@
             <span class="lxc-tab-label"><el-icon><Camera /></el-icon> 快照</span>
           </template>
           <LxcSnapshotPanel
-            v-if="visible && currentName"
+            v-if="visible && currentName && activeTab === 'snapshot'"
             :name="currentName"
             :status="currentStatus"
             :backing="currentBacking"
