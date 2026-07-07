@@ -18,6 +18,7 @@ type LXCSnapshot struct {
 	Name      string `json:"name"`
 	Comment   string `json:"comment"`
 	CreatedAt string `json:"created_at"`
+	HasClones bool   `json:"has_clones"` // 是否有 zfs origin 克隆依赖（有则不可删除）
 }
 
 // SnapshotParams 是异步创建快照任务的参数。
@@ -54,7 +55,12 @@ func listZfsSnapshots(name string) ([]LXCSnapshot, error) {
 	}
 	out := make([]LXCSnapshot, 0, len(zs))
 	for i := len(zs) - 1; i >= 0; i-- { // zfs 默认旧→新，反转为新→旧
-		out = append(out, LXCSnapshot{Name: zs[i].Name, Comment: zs[i].Comment, CreatedAt: zs[i].CreatedAt})
+		out = append(out, LXCSnapshot{
+			Name:      zs[i].Name,
+			Comment:   zs[i].Comment,
+			CreatedAt: zs[i].CreatedAt,
+			HasClones: zs[i].Clones != "" && zs[i].Clones != "-",
+		})
 	}
 	return out, nil
 }
@@ -194,12 +200,15 @@ func RestoreSnapshot(name, snap string) error {
 	return res.Error
 }
 
-// DeleteSnapshot 删除指定快照。
+// DeleteSnapshot 删除指定快照。zfs 快照若有 origin 克隆依赖则不可销毁（前端已禁，此处兜底给中文提示）。
 func DeleteSnapshot(name, snap string) error {
 	if isZfsContainer(name) {
 		parent, err := ZfsResolveParent(config.GlobalConfig.LXCLxcPath)
 		if err != nil {
 			return err
+		}
+		if has, _ := zfsSnapshotHasClones(parent, name, snap); has {
+			return errors.New("该快照已被克隆为容器，无法删除（请先删除依赖它的克隆容器）")
 		}
 		return zfsDestroyContainerSnapshot(parent, name, snap)
 	}

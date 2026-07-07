@@ -166,6 +166,7 @@ type ZfsSnapshot struct {
 	Name      string
 	Comment   string
 	CreatedAt string
+	Clones    string // zfs clones 属性：依赖此快照的克隆 dataset（逗号分隔），"-" 或空=无克隆
 }
 
 // SnapshotContainer 给容器 dataset 打用户快照。
@@ -223,7 +224,7 @@ func normalizeZfsCreation(s string) string {
 func ListContainerSnapshots(parent, name string) ([]ZfsSnapshot, error) {
 	ds := ContainerDataset(parent, name)
 	res := utils.ExecCommand("zfs", "list", "-H", "-t", "snapshot",
-		"-o", "name,creation,"+CommentProperty, "-r", "-d1", ds)
+		"-o", "name,creation,"+CommentProperty+",clones", "-r", "-d1", ds)
 	if res.Error != nil {
 		return nil, fmt.Errorf("zfs list 容器快照失败: %w", res.Error)
 	}
@@ -242,13 +243,29 @@ func ListContainerSnapshots(parent, name string) ([]ZfsSnapshot, error) {
 		if comment == "-" {
 			comment = ""
 		}
+		clones := ""
+		if len(f) >= 4 {
+			clones = f[3]
+		}
 		out = append(out, ZfsSnapshot{
 			Name:      strings.TrimPrefix(f[0], prefix),
 			CreatedAt: normalizeZfsCreation(f[1]),
 			Comment:   comment,
+			Clones:    clones,
 		})
 	}
 	return out, nil
+}
+
+// SnapshotHasClones 报告快照 <parent>/<name>@<snap> 是否有依赖它的 origin 克隆 dataset。
+// 有克隆时该快照不可销毁（zfs 会拒绝）。查 clones 属性，非 "-" 且非空即视为有克隆。
+func SnapshotHasClones(parent, name, snap string) (bool, error) {
+	res := utils.ExecCommand("zfs", "get", "-H", "-o", "value", "clones", ContainerSnapshot(parent, name, snap))
+	if res.Error != nil {
+		return false, fmt.Errorf("zfs get clones 失败: %w", res.Error)
+	}
+	v := strings.TrimSpace(res.Stdout)
+	return v != "" && v != "-", nil
 }
 
 // CreateContainerDataset 创建容器 dataset <parent>/<name>（download 模式 zfs backing 用：

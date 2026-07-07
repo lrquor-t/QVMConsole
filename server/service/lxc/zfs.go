@@ -37,6 +37,12 @@ func zfsDestroyContainerSnapshot(parent, name, snap string) error {
 func zfsListContainerSnapshots(parent, name string) ([]zfsbacking.ZfsSnapshot, error) {
 	return zfsbacking.ListContainerSnapshots(parent, name)
 }
+func zfsCloneContainerFromSnapshot(parent, src, snap, dst string) error {
+	return zfsbacking.CloneContainerFromSnapshot(parent, src, snap, dst)
+}
+func zfsSnapshotHasClones(parent, name, snap string) (bool, error) {
+	return zfsbacking.SnapshotHasClones(parent, name, snap)
+}
 func rewriteRootfsPathForClone(cfg, oldRootfsPath, newRootfsPath string) string {
 	return zfsbacking.RewriteRootfsPathForClone(cfg, oldRootfsPath, newRootfsPath)
 }
