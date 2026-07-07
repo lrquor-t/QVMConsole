@@ -181,31 +181,21 @@ func cloneContainer(name string, tpl *model.LXCTemplate) error {
 
 func applyCloneConfig(p *CreateContainerParams, mac string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
-	// 追加覆盖项（lxc 配置后值覆盖前值）
-	lines := []string{
-		"lxc.cgroup2.cpu.weight = " + itoaDefault(p.CPUShares, 256),
-		"lxc.cgroup2.memory.max = " + memMax(p.MemoryMB),
-		"lxc.start.auto = " + autoVal(p.Autostart),
-		"lxc.net.0.hwaddr = " + mac,
+	// per-clone 覆盖项：原地改写（已存在改值并去重，不存在再追加），避免与基底模板的值留下重复键
+	pairs := []ConfigKV{
+		{"lxc.cgroup2.cpu.weight", itoaDefault(p.CPUShares, 256)},
+		{"lxc.cgroup2.memory.max", memMax(p.MemoryMB)},
+		{"lxc.start.auto", autoVal(p.Autostart)},
+		{"lxc.net.0.hwaddr", mac},
 	}
 	// 选定交换机时显式写 link（覆盖基底模板继承值）；未选则继承基底（保持现状）
 	if link := resolveNIC0Link(p.SwitchID, ""); link != "" {
-		lines = append(lines, "lxc.net.0.link = "+link)
+		pairs = append(pairs, ConfigKV{"lxc.net.0.link", link})
 	}
-	content := ""
-	for _, l := range lines {
-		content += l + "\n"
-	}
-	f, err := openForAppend(cfg)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(content)
-	return err
+	return SetConfigKeys(cfg, pairs)
 }
 
-// 以下小工具仅 create 流程使用；共享工具（genMacByName/openForAppend/
+// 以下小工具仅 create 流程使用；共享工具（genMacByName/
 // RefreshRuntimeFields/findVethByMAC）见 command.go。
 func itoaDefault(v, def int) string {
 	if v <= 0 {
@@ -324,26 +314,16 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 	return nil
 }
 
-// applyDownloadConfig 给 lxc-create -t download 生成的容器 config 追加：net.0.link=br-ovs
-// （覆盖默认 lxcbr0，last-wins）+ per-container mac/cgroup/autostart。
+// applyDownloadConfig 给 lxc-create -t download 生成的容器 config 写回：net.0.link
+// （覆盖模板默认 lxcbr0）+ per-container mac/cgroup/autostart。原地改写，避免与模板值重复。
 func applyDownloadConfig(p *CreateContainerParams, mac string) error {
 	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, p.Name, "config")
-	lines := []string{
-		"lxc.net.0.link = " + resolveNIC0Link(p.SwitchID, "br-ovs"),
-		"lxc.net.0.hwaddr = " + mac,
-		"lxc.cgroup2.cpu.weight = " + itoaDefault(p.CPUShares, 256),
-		"lxc.cgroup2.memory.max = " + memMax(p.MemoryMB),
-		"lxc.start.auto = " + autoVal(p.Autostart),
+	pairs := []ConfigKV{
+		{"lxc.net.0.link", resolveNIC0Link(p.SwitchID, "br-ovs")},
+		{"lxc.net.0.hwaddr", mac},
+		{"lxc.cgroup2.cpu.weight", itoaDefault(p.CPUShares, 256)},
+		{"lxc.cgroup2.memory.max", memMax(p.MemoryMB)},
+		{"lxc.start.auto", autoVal(p.Autostart)},
 	}
-	content := ""
-	for _, l := range lines {
-		content += l + "\n"
-	}
-	f, err := openForAppend(cfg)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(content)
-	return err
+	return SetConfigKeys(cfg, pairs)
 }

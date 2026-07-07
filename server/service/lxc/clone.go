@@ -113,24 +113,15 @@ func rewriteCloneRootfsPath(src, dst string) error {
 	return nil
 }
 
-// applyCloneOverrides 给克隆 config 追加覆盖项（LXC last-wins）：新 MAC + 新主机名。
+// applyCloneOverrides 把克隆 config 里继承自源的主机名/MAC 改写为新容器的值（公用 SetConfigKeys 原地改写）。
+// 必须改写而非追加：zfs CoW 克隆继承了源的整个 config（其中已有源的 lxc.uts.name / lxc.net.0.hwaddr），
+// 追加会留下「源值 + 克隆值」的重复键。
 func applyCloneOverrides(dst, mac string) error {
-	cfg := filepath.Join(config.GlobalConfig.LXCLxcPath, dst, "config")
-	lines := []string{
-		"lxc.net.0.hwaddr = " + mac,
-		"lxc.uts.name = " + dst,
-	}
-	content := ""
-	for _, l := range lines {
-		content += l + "\n"
-	}
-	f, err := openForAppend(cfg)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(content)
-	return err
+	cfgPath := filepath.Join(config.GlobalConfig.LXCLxcPath, dst, "config")
+	return SetConfigKeys(cfgPath, []ConfigKV{
+		{"lxc.uts.name", dst},
+		{"lxc.net.0.hwaddr", mac},
+	})
 }
 
 // CloneFromSnapshot 从源容器的指定 zfs 快照 CoW 克隆出新容器（异步任务调用）。

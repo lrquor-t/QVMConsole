@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -128,11 +127,6 @@ func NICMAC(name string, order int) string {
 		return genMacByName(name)
 	}
 	return genMacByName(name + "#" + strconv.Itoa(order))
-}
-
-// openForAppend 以追加写方式打开文件。
-func openForAppend(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
 }
 
 // RefreshRuntimeFields 启动后解析 host veth（按容器 MAC 匹配 ip link）与 IP（lxc-info）回填 LXCCache。
