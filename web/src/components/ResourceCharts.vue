@@ -46,6 +46,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getVmStats, getVmStatsHistory } from '@/api/vm'
+import { getLXCStats, getLXCStatsHistory } from '@/api/lxc'
 
 // 动态导入以支持host stats API （假定我们在别的组件创建了 api/host）
 // 这里引入宿主机API如果放在统一的 api 文件会更好，我们可以内联请求或者添加一个通用的 utils/request
@@ -54,7 +55,7 @@ import request from '@/utils/request'
 const props = defineProps({
   type: {
     type: String,
-    required: true, // 'vm' or 'host'
+    required: true, // 'vm' | 'host' | 'lxc'
   },
   name: {
     type: String,
@@ -77,6 +78,9 @@ const props = defineProps({
     default: false // 为 true 时禁用自行 XHR 轮询，由外部通过 externalStats 驱动
   }
 })
+
+// type 在组件生命周期内固定（vm/host/lxc），用普通常量即可。
+const isLXC = props.type === 'lxc'
 
 const cpuChartRef = ref(null)
 const memChartRef = ref(null)
@@ -139,11 +143,13 @@ const initCharts = () => {
   const diskChart = echarts.init(diskChartRef.value)
   diskChart.setOption({
     ...commonChartOptions(),
-    title: { text: '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } },
-    series: [
-      { name: '读取', type: 'line', smooth: true, data: [] },
-      { name: '写入', type: 'line', smooth: true, data: [] }
-    ]
+    title: { text: isLXC ? '磁盘使用量 (GB)' : '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } },
+    series: isLXC
+      ? [{ name: '已用', type: 'line', smooth: true, areaStyle: {}, data: [] }]
+      : [
+          { name: '读取', type: 'line', smooth: true, data: [] },
+          { name: '写入', type: 'line', smooth: true, data: [] }
+        ]
   })
 
   charts = [cpuChart, memChart, netChart, diskChart]
@@ -153,7 +159,10 @@ let prevNet = { rx: 0, tx: 0 }
 let prevDisk = { rd: 0, wr: 0 }
 
 const fetchStatsData = async () => {
-  if (props.type === 'vm') {
+  if (props.type === 'lxc') {
+    const res = await getLXCStats(props.name)
+    return res.data
+  } else if (props.type === 'vm') {
     const res = await getVmStats(props.name)
     return res.data
   } else {
@@ -201,24 +210,31 @@ const updateChartsWithData = (stats) => {
   netOpt.series[1].data.push(txRate.toFixed(1))
   charts[2].setOption(netOpt)
 
-  // 磁盘 I/O（增量计算）
+  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率(KB/s 增量)
   const diskOpt = charts[3].getOption()
   if (diskOpt.xAxis[0].data.length > 30) diskOpt.xAxis[0].data.shift()
   diskOpt.xAxis[0].data.push(timeStr)
-  const rdRate = prevDisk.rd > 0 ? Math.max(0, (stats.disk_rd_bytes - prevDisk.rd) / 1024 / sseInterval) : 0
-  const wrRate = prevDisk.wr > 0 ? Math.max(0, (stats.disk_wr_bytes - prevDisk.wr) / 1024 / sseInterval) : 0
-  prevDisk = { rd: stats.disk_rd_bytes, wr: stats.disk_wr_bytes }
-  if (diskOpt.series[0].data.length > 30) diskOpt.series[0].data.shift()
-  if (diskOpt.series[1].data.length > 30) diskOpt.series[1].data.shift()
-  diskOpt.series[0].data.push(rdRate.toFixed(1))
-  diskOpt.series[1].data.push(wrRate.toFixed(1))
+  if (isLXC) {
+    const usedGB = stats.disk_total_bytes > 0 ? (stats.disk_used_bytes / 1e9) : 0
+    if (diskOpt.series[0].data.length > 30) diskOpt.series[0].data.shift()
+    diskOpt.series[0].data.push(Number(usedGB.toFixed(2)))
+  } else {
+    const rdRate = prevDisk.rd > 0 ? Math.max(0, (stats.disk_rd_bytes - prevDisk.rd) / 1024 / sseInterval) : 0
+    const wrRate = prevDisk.wr > 0 ? Math.max(0, (stats.disk_wr_bytes - prevDisk.wr) / 1024 / sseInterval) : 0
+    prevDisk = { rd: stats.disk_rd_bytes, wr: stats.disk_wr_bytes }
+    if (diskOpt.series[0].data.length > 30) diskOpt.series[0].data.shift()
+    if (diskOpt.series[1].data.length > 30) diskOpt.series[1].data.shift()
+    diskOpt.series[0].data.push(rdRate.toFixed(1))
+    diskOpt.series[1].data.push(wrRate.toFixed(1))
+  }
   charts[3].setOption(diskOpt)
 }
 
 // 自行拉取数据并更新图表（无外部 SSE 时使用）
 const updateCharts = async () => {
   if (chartMode.value !== 'realtime') return
-  if (props.type === 'vm' && props.status !== 'running') return
+  const statusLower = (props.status || '').toLowerCase()
+  if ((props.type === 'vm' || props.type === 'lxc') && statusLower !== 'running') return
 
   try {
     const stats = await fetchStatsData()
@@ -236,7 +252,10 @@ watch(() => props.externalStats, (newStats) => {
 }, { deep: true })
 
 const fetchHistoryData = async (start, end) => {
-  if (props.type === 'vm') {
+  if (props.type === 'lxc') {
+    const res = await getLXCStatsHistory(props.name, start, end)
+    return res.data
+  } else if (props.type === 'vm') {
     const res = await getVmStatsHistory(props.name, start, end)
     return res.data
   } else {
@@ -342,33 +361,39 @@ const renderHistoryCharts = (records) => {
     series: [{ data: netRx }, { data: netTx }]
   })
 
-  // 磁盘 I/O
-  const diskRd = [], diskWr = []
-  for (let i = 0; i < records.length; i++) {
-    if (i === 0) {
-      diskRd.push(0)
-      diskWr.push(0)
-    } else {
-      const dt = (new Date(records[i].recorded_at) - new Date(records[i - 1].recorded_at)) / 1000
-      let rd = 0, wr = 0
-      if (dt > 0) {
-        rd = Math.max(0, (records[i].disk_rd_bytes - records[i - 1].disk_rd_bytes) / 1024 / dt)
-        wr = Math.max(0, (records[i].disk_wr_bytes - records[i - 1].disk_wr_bytes) / 1024 / dt)
+  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率(KB/s 增量)
+  if (isLXC) {
+    charts[3].setOption({
+      title: { text: '磁盘使用量 (GB) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
+      xAxis: { data: timeLabels },
+      series: [{ data: records.map(r => r.disk_total_bytes > 0 ? Number((r.disk_used_bytes / 1e9).toFixed(2)) : 0) }]
+    })
+  } else {
+    const diskRd = [], diskWr = []
+    for (let i = 0; i < records.length; i++) {
+      if (i === 0) {
+        diskRd.push(0)
+        diskWr.push(0)
+      } else {
+        const dt = (new Date(records[i].recorded_at) - new Date(records[i - 1].recorded_at)) / 1000
+        let rd = 0, wr = 0
+        if (dt > 0) {
+          rd = Math.max(0, (records[i].disk_rd_bytes - records[i - 1].disk_rd_bytes) / 1024 / dt)
+          wr = Math.max(0, (records[i].disk_wr_bytes - records[i - 1].disk_wr_bytes) / 1024 / dt)
+        }
+        // 防抖动：单次跳变 > 10GB/s 当作 0（计数器回环/重启归零）
+        if (rd > 10 * 1024 * 1024) rd = 0
+        if (wr > 10 * 1024 * 1024) wr = 0
+        diskRd.push(rd.toFixed(1))
+        diskWr.push(wr.toFixed(1))
       }
-      // 防抖动限制，避免异常值（有时重启或系统计数器归零会导致极大的负值/正值，Math.max只能过滤负值，不能防止计数器回环极大值）
-      // 这里如果大于某个非常夸张的值，就当作 0 （例如单次跳变 > 10GB/s）
-      if (rd > 10 * 1024 * 1024) rd = 0
-      if (wr > 10 * 1024 * 1024) wr = 0
-
-      diskRd.push(rd.toFixed(1))
-      diskWr.push(wr.toFixed(1))
     }
+    charts[3].setOption({
+      title: { text: '磁盘 I/O (KB/s) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
+      xAxis: { data: timeLabels },
+      series: [{ data: diskRd }, { data: diskWr }]
+    })
   }
-  charts[3].setOption({
-    title: { text: '磁盘 I/O (KB/s) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
-    xAxis: { data: timeLabels },
-    series: [{ data: diskRd }, { data: diskWr }]
-  })
 }
 
 const onChartModeChange = (mode) => {
@@ -385,7 +410,7 @@ const onChartModeChange = (mode) => {
     if (charts[0]) charts[0].setOption({ title: { text: 'CPU 使用率 (%)', textStyle: { fontSize: 14, color: '#8f9399' } } })
     if (charts[1]) charts[1].setOption({ title: { text: '内存使用率 (%)', textStyle: { fontSize: 14, color: '#8f9399' } } })
     if (charts[2]) charts[2].setOption({ title: { text: '网络流量 (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } } })
-    if (charts[3]) charts[3].setOption({ title: { text: '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } } })
+    if (charts[3]) charts[3].setOption({ title: { text: isLXC ? '磁盘使用量 (GB)' : '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } } })
     prevNet = { rx: 0, tx: 0 }
     prevDisk = { rd: 0, wr: 0 }
   } else if (mode === 'history') {
