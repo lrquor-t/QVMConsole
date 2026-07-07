@@ -260,6 +260,8 @@ func Setup() *gin.Engine {
 				// LXC 官方镜像清单（仅管理员）
 				lxcGroup.GET("/download/list", middleware.AdminMiddleware(), handler.LXCDownloadList)
 				lxcGroup.GET("/:name/ip", handler.GetLXCContainerIP)
+				lxcGroup.GET("/:name/stats", handler.GetLXCStats)
+				lxcGroup.GET("/:name/stats/history", handler.GetLXCStatsHistory)
 				lxcGroup.GET("/:name/console/ws", handler.LxcConsoleWS)
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
 				lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
