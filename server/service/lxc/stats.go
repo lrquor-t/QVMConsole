@@ -167,7 +167,9 @@ func ResetContainerStatsState(name string) {
 }
 
 // GetContainerStats 采集单个运行中容器的资源用量。
-//   name: 容器名；veth: host 侧 order-0 veth（网络字节，可为空）。
+//
+//	name: 容器名；veth: host 侧 order-0 veth（网络字节，可为空）。
+//
 // 返回 vmpkg.VmStats：cpu_percent(%)、mem_*(KB)、net_*(累计字节)、disk_used/total(字节)。
 // 采集失败的字段置 0，不返回错误（采集器对每容器独立容忍失败）。
 func GetContainerStats(name, veth string) vmpkg.VmStats {
