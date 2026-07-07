@@ -266,6 +266,7 @@ func Setup() *gin.Engine {
 				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
 				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)
 				lxcGroup.DELETE("/:name/snapshot/:snap", handler.DeleteLXCSnapshot)
+				lxcGroup.POST("/:name/clone", middleware.ElasticCloudOnlyMiddleware(), handler.CloneFromContainer)
 
 				// LXC 多网卡管理（查询全员可访问；增删改仅管理员）
 				lxcGroup.GET("/:name/interfaces", handler.ListLXCInterfaces)

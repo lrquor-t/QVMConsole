@@ -421,6 +421,18 @@ func registerTaskHandlers() {
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
+	// 从快照克隆 LXC 容器任务（zfs CoW 克隆源快照 → 新容器）
+	taskqueue.RegisterHandler(model.TaskTypeLXCClone, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		params, err := service.LXCParseCloneParams(task.Params)
+		if err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.LXCCloneFromSnapshot(params, progress); err != nil {
+			return "", err
+		}
+		return `{"name":"` + params.DstName + `"}`, nil
+	})
+
 	// LXC 存储迁移任务（切换 lxcpath：停→搬→改 config→写 lxc.conf→重启→同步缓存）
 	taskqueue.RegisterHandler(model.TaskTypeLXCLxcRelocate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params service.LXCRelocateParams
