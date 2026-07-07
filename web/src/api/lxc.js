@@ -138,3 +138,12 @@ export function makeLXCTemplateFromContainer(srcName, data) {
     data: { src_name: srcName, ...data }
   })
 }
+
+// 从源容器快照克隆出新容器（异步任务；仅 zfs 后端）
+export function cloneLXCFromSnapshot(srcName, data) {
+  return request({
+    url: `/lxc/${srcName}/clone`,
+    method: 'post',
+    data
+  })
+}

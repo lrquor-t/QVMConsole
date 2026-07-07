@@ -1,0 +1,123 @@
+<template>
+  <el-dialog v-model="visible" title="克隆容器" width="520px" :close-on-click-modal="false" append-to-body>
+    <el-alert v-if="!isZfs" type="warning" :closable="false" show-icon style="margin-bottom: 12px">
+      该容器非 zfs 存储，暂不支持快照克隆（仅 zfs 后端支持）
+    </el-alert>
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form-item label="源容器">
+        <el-input :model-value="form.src_name" disabled />
+      </el-form-item>
+      <el-form-item label="快照" prop="snap">
+        <el-select v-model="form.snap" placeholder="选择一个快照" :loading="loadingSnaps" :disabled="!isZfs" style="width: 100%">
+          <el-option
+            v-for="s in snapshots"
+            :key="s.name"
+            :label="`${s.name}${s.comment ? ' · ' + s.comment : ''}`"
+            :value="s.name"
+          />
+        </el-select>
+        <div v-if="!loadingSnaps && isZfs && snapshots.length === 0" class="form-hint form-hint-warn">
+          <el-icon><WarningFilled /></el-icon>
+          该容器暂无快照，请先在「快照」面板创建一个再克隆
+        </div>
+      </el-form-item>
+      <el-form-item label="新容器名" prop="dst_name">
+        <el-input v-model="form.dst_name" placeholder="小写字母/数字/连字符，2-63 字符" />
+      </el-form-item>
+      <el-form-item label="备注">
+        <el-input v-model="form.remark" placeholder="选填" maxlength="200" show-word-limit />
+      </el-form-item>
+      <div class="form-hint">
+        <el-icon><InfoFilled /></el-icon>
+        其余规格（CPU/内存/自启/分组/网络）继承自源容器，仅刷新 MAC 与主机名
+      </div>
+    </el-form>
+    <template #footer>
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" :disabled="!isZfs || snapshots.length === 0" @click="submit">克隆</el-button>
+    </template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { ref, reactive, computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { InfoFilled, WarningFilled } from '@element-plus/icons-vue'
+import { listLXCSnapshots, cloneLXCFromSnapshot } from '@/api/lxc'
+
+const emit = defineEmits(['success'])
+const visible = ref(false)
+const submitting = ref(false)
+const loadingSnaps = ref(false)
+const snapshots = ref([])
+const formRef = ref(null)
+const form = reactive({
+  src_name: '',
+  backing: '',
+  snap: '',
+  dst_name: '',
+  remark: ''
+})
+const isZfs = computed(() => (form.backing || '').toLowerCase() === 'zfs')
+
+const rules = {
+  snap: [{ required: true, message: '请选择一个快照', trigger: 'change' }],
+  dst_name: [
+    { required: true, message: '请输入新容器名', trigger: 'blur' },
+    { pattern: /^[a-z0-9][a-z0-9-]{1,62}$/, message: '小写字母/数字/连字符，2-63 字符', trigger: 'blur' }
+  ]
+}
+
+const open = async (row) => {
+  Object.assign(form, {
+    src_name: row?.name || '',
+    backing: row?.backing || '',
+    snap: '',
+    dst_name: '',
+    remark: ''
+  })
+  formRef.value?.clearValidate()
+  snapshots.value = []
+  visible.value = true
+  if (!isZfs.value) return
+  loadingSnaps.value = true
+  try {
+    const res = await listLXCSnapshots(form.src_name)
+    snapshots.value = res.data || []
+  } catch (e) {} finally { loadingSnaps.value = false }
+}
+defineExpose({ open })
+
+const submit = async () => {
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
+  submitting.value = true
+  try {
+    await cloneLXCFromSnapshot(form.src_name, {
+      snap: form.snap,
+      dst_name: form.dst_name,
+      remark: form.remark
+    })
+    ElMessage.success('克隆任务已提交，可在任务中心查看进度')
+    visible.value = false
+    emit('success')
+  } catch (e) {} finally { submitting.value = false }
+}
+</script>
+
+<style scoped>
+.form-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+}
+.form-hint-warn {
+  color: var(--el-color-warning);
+}
+</style>
