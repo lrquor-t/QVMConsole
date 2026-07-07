@@ -60,6 +60,7 @@ func DestroyContainer(name string) error {
 	if err := model.DB.Where("vm_name = ?", name).Delete(&model.VmStatsRecord{}).Error; err != nil {
 		logger.App.Warn("清理 LXC 容器流量记录失败", "name", name, "error", err)
 	}
+	ResetContainerStatsState(name) // 清 CPU 采样状态，避免同名容器复用基线
 	return nil
 }
 

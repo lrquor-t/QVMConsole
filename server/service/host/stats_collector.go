@@ -12,8 +12,8 @@ import (
 	"kvm_console/model"
 	"kvm_console/service/libvirt_rpc"
 	"kvm_console/service/lxc"
-	"kvm_console/utils"
 	vmpkg "kvm_console/service/vm"
+	"kvm_console/utils"
 )
 
 // ==================== 资源采集缓存 ====================
@@ -31,6 +31,24 @@ var hostStatsCache = struct {
 	sync.RWMutex
 	data *vmpkg.HostStats
 }{}
+
+// lxcStatsCache 内存缓存：LXC 容器名 -> 最新资源数据。
+// 与 VM 的 statsCache 隔离，避免 VM 内存子系统（HookMemoryGetCachedStats 按名查 statsCache）
+// 误读 LXC 条目。
+var lxcStatsCache = struct {
+	sync.RWMutex
+	data map[string]*vmpkg.VmStats
+}{data: make(map[string]*vmpkg.VmStats)}
+
+// GetCachedLXCStats 取 LXC 容器最新资源数据（缓存未命中返回零值）。
+func GetCachedLXCStats(name string) vmpkg.VmStats {
+	lxcStatsCache.RLock()
+	defer lxcStatsCache.RUnlock()
+	if s := lxcStatsCache.data[name]; s != nil {
+		return *s
+	}
+	return vmpkg.VmStats{}
+}
 
 // StartStatsCollector 启动后台资源采集协程
 // 每 10 秒采集一次运行中VM的资源数据（更新缓存）
@@ -63,10 +81,8 @@ func StartStatsCollector() {
 				}
 				if !IsMaintenanceModeEnabled() {
 					collectAllVMStats()
-					// LXC 容器流量采集（按 Kind=lxc 绑定读 host veth 计数器）。
-					// 与 VM 的 libvirt 路径相互独立：写入相同 VmStatsRecord 表，
-					// 使既有 VPC 交换机流量聚合（aggregateSwitchMonthlyTrafficRaw）零改动即可覆盖容器。
-					collectLXCVethStats()
+					// LXC 容器资源采集（CPU/内存/网络/磁盘），写独立缓存 + VmStatsRecord。
+					collectLXCStats()
 				}
 			case <-persistTicker.C:
 				persistStatsToDB()
@@ -371,35 +387,44 @@ func ClearRuntimeCachesForMaintenance() {
 	statsCache.Unlock()
 }
 
-// collectLXCVethStats 采集 Kind=lxc 容器的 veth 累计字节并写入 VmStatsRecord，
-// 让既有 VPC 交换机流量聚合逻辑（aggregateSwitchMonthlyTrafficRaw，按 vm_name 取记录差值）
-// 无需改动即可覆盖 LXC。仅对 LXC 绑定生效——VM（Kind=vm）路径仍走 libvirt，零回归。
-func collectLXCVethStats() {
+// collectLXCStats 采集所有运行中 LXC 容器的 CPU/内存/网络/磁盘用量：
+//   - 更新 lxcStatsCache（供 /lxc/:name/stats 读取，实时值 ≤10s）；
+//   - 每 tick 写一行 VmStatsRecord（沿用旧 collectLXCVethStats 的 10s 粒度，
+//     网络=order-0 veth，保持 VPC 流量计费 aggregateSwitchMonthlyTrafficRaw 零回归；
+//     仅补 CPU/内存/磁盘列，并覆盖所有运行容器而非仅 VPC 绑定）。
+func collectLXCStats() {
 	if model.DB == nil {
 		return
 	}
-	var bindings []model.VPCVMBinding
-	if err := model.DB.Where("kind = ?", "lxc").Find(&bindings).Error; err != nil {
+	var rows []model.LXCCache
+	if err := model.DB.Where("present = ?", true).Find(&rows).Error; err != nil {
 		return
 	}
 	now := time.Now()
-	for _, b := range bindings {
-		var row model.LXCCache
-		if err := model.DB.Where("name = ?", b.VMName).First(&row).Error; err != nil {
+	cache := make(map[string]*vmpkg.VmStats, len(rows))
+	for _, row := range rows {
+		if !strings.EqualFold(row.Status, "running") {
 			continue
 		}
-		if !strings.EqualFold(row.Status, "running") || row.Status == "" {
-			continue
-		}
-		rx, tx := lxc.ReadVethCounters(row.VethName)
+		s := lxc.GetContainerStats(row.Name, row.VethName)
+		ss := s
+		cache[row.Name] = &ss
 		record := model.VmStatsRecord{
-			VMName:     b.VMName,
-			NetRxBytes: rx,
-			NetTxBytes: tx,
-			RecordedAt: now,
+			VMName:         row.Name,
+			CPUPercent:     s.CPUPercent,
+			MemUsed:        s.MemUsed,
+			MemTotal:       s.MemTotal,
+			NetRxBytes:     s.NetRxBytes,
+			NetTxBytes:     s.NetTxBytes,
+			DiskUsedBytes:  s.DiskUsedBytes,
+			DiskTotalBytes: s.DiskTotalBytes,
+			RecordedAt:     now,
 		}
 		if err := model.DB.Create(&record).Error; err != nil {
-			logger.App.Warn("持久化 LXC 流量记录失败", "name", b.VMName, "error", err)
+			logger.App.Warn("持久化 LXC 资源记录失败", "name", row.Name, "error", err)
 		}
 	}
+	lxcStatsCache.Lock()
+	lxcStatsCache.data = cache
+	lxcStatsCache.Unlock()
 }

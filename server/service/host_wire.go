@@ -180,6 +180,10 @@ func GetCachedStats(name string) *vmpkg.VmStats {
 	return hostpkg.GetCachedStats(name)
 }
 
+func GetCachedLXCStats(name string) vmpkg.VmStats {
+	return hostpkg.GetCachedLXCStats(name)
+}
+
 func GetAllCachedStats() map[string]*vmpkg.VmStats {
 	return hostpkg.GetAllCachedStats()
 }
