@@ -113,6 +113,8 @@ func CloneContainerFromSnapshot(parent, src, snap, dst string) error {
 		return fmt.Errorf("zfs clone 失败: %w", res.Error)
 	}
 	if res := utils.ExecCommand("zfs", "set", "mountpoint="+ContainerMountpoint(config.GlobalConfig.LXCLxcPath, dst), ds); res.Error != nil {
+		// 回滚已 clone 的 dataset：否则其 origin 依赖会锁住源快照（has_clones=true → 源快照不可删）。
+		_ = renameAndDestroy(ds)
 		return fmt.Errorf("zfs set mountpoint 失败: %w", res.Error)
 	}
 	return nil
