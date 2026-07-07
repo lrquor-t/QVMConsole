@@ -107,13 +107,15 @@ type VmDetail struct {
 
 // VmStats 虚拟机资源使用统计
 type VmStats struct {
-	CPUPercent  float64 `json:"cpu_percent"` // CPU 使用率
-	MemUsed     int64   `json:"mem_used"`    // 已用内存（KB）
-	MemTotal    int64   `json:"mem_total"`   // 总内存（KB）
-	NetRxBytes  int64   `json:"net_rx_bytes"`
-	NetTxBytes  int64   `json:"net_tx_bytes"`
-	DiskRdBytes int64   `json:"disk_rd_bytes"`
-	DiskWrBytes int64   `json:"disk_wr_bytes"`
+	CPUPercent     float64 `json:"cpu_percent"` // CPU 使用率
+	MemUsed        int64   `json:"mem_used"`    // 已用内存（KB）
+	MemTotal       int64   `json:"mem_total"`   // 总内存（KB）
+	NetRxBytes     int64   `json:"net_rx_bytes"`
+	NetTxBytes     int64   `json:"net_tx_bytes"`
+	DiskRdBytes    int64   `json:"disk_rd_bytes"`
+	DiskWrBytes    int64   `json:"disk_wr_bytes"`
+	DiskUsedBytes  int64   `json:"disk_used_bytes"`  // 磁盘已用（字节）；LXC rootfs 用量，VM 留 0
+	DiskTotalBytes int64   `json:"disk_total_bytes"` // 磁盘总量（字节）；LXC rootfs 总量，VM 留 0
 }
 
 // VMListOptions 虚拟机列表查询选项
