@@ -147,3 +147,14 @@ export function cloneLXCFromSnapshot(srcName, data) {
     data
   })
 }
+
+// ==================== LXC 容器资源监控 ====================
+// LXC 容器实时资源监控（CPU/内存/网络/磁盘用量）
+export function getLXCStats(name) {
+  return request({ url: `/lxc/${name}/stats`, method: 'get' })
+}
+
+// LXC 容器资源历史（按日期范围）
+export function getLXCStatsHistory(name, start, end) {
+  return request({ url: `/lxc/${name}/stats/history`, method: 'get', params: { start, end } })
+}
