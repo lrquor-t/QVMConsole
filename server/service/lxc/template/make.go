@@ -174,6 +174,7 @@ func MakeFromContainer(params *MakeTemplateParams, progress func(int, string)) e
 		Description:       params.Description,
 		BaseContainerName: base,
 		Backing:           backing,
+		RootfsSizeBytes:   rootfsSizeBytes(base), // 克隆完成后计算基底 rootfs 表观大小（du -sb）
 		CloneVisible:      true,
 		OwnerUsername:     params.OwnerUsername,
 		PostCreateCommand: params.PostCreateCommand,

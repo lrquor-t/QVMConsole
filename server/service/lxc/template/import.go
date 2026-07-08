@@ -132,7 +132,7 @@ func FinalizeImport(params *ImportParams, progress func(int, string)) error {
 		Description:       params.Description,
 		BaseContainerName: base,
 		Backing:           backing,
-		RootfsSizeBytes:   info.SizeBytes,
+		RootfsSizeBytes:   rootfsSizeBytes(base), // 解包后算 rootfs 表观大小，与「从容器制作」同口径（du -sb）
 		CloneVisible:      true,
 		OwnerUsername:     params.OwnerUsername,
 		PostCreateCommand: params.PostCreateCommand,

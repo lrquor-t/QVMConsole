@@ -70,6 +70,9 @@ func main() {
 		logger.App.Info("已从数据库加载持久化系统设置", "count", len(savedSettings))
 	}
 
+	// 回填历史「从容器制作模板」缺失的 rootfs 大小（旧版 make.go 未写该字段，前端显示 "-"）
+	template.BackfillRootfsSizes()
+
 	// 初始化 go-libvirt RPC 连接（连接失败阻止启动）
 	if err := libvirt_rpc.InitLibvirtRPC(); err != nil {
 		log.Fatal("go-libvirt 连接失败，程序无法启动: ", err)
