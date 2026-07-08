@@ -56,6 +56,10 @@ func DestroyContainer(name string) error {
 		}
 	}
 	model.DB.Where("name = ?", name).Delete(&model.LXCCache{})
+	// 清理该容器的定时任务（与 VM 删除路径一致）
+	if err := model.DeleteLXCSchedulesByContainer(name); err != nil {
+		logger.App.Warn("清理 LXC 容器定时任务失败", "name", name, "error", err)
+	}
 	// 清理容器写入 VmStatsRecord 的历史流量行，避免同名容器复用基线（与 VM 删除路径一致）。
 	if err := model.DB.Where("vm_name = ?", name).Delete(&model.VmStatsRecord{}).Error; err != nil {
 		logger.App.Warn("清理 LXC 容器流量记录失败", "name", name, "error", err)
