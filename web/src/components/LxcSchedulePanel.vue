@@ -107,6 +107,7 @@
             style="width: 100%;"
             placeholder="请选择执行时间"
             format="YYYY-MM-DD HH:mm"
+            :disabled-date="disabledPastDate"
           />
         </el-form-item>
 
@@ -383,10 +384,23 @@ const buildPayload = (override = {}) => {
   }
 }
 
+// 一次性任务禁止选择今天之前的日期（与后端 schedule.go「执行时间必须晚于当前时间」一致）
+const disabledPastDate = (date) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return date.getTime() < today.getTime()
+}
+
 const validateForm = () => {
-  if (form.scheduleType === 'once' && !form.runAt) {
-    ElMessage.warning('请选择执行时间')
-    return false
+  if (form.scheduleType === 'once') {
+    if (!form.runAt) {
+      ElMessage.warning('请选择执行时间')
+      return false
+    }
+    if (new Date(form.runAt).getTime() <= Date.now()) {
+      ElMessage.warning('执行时间必须晚于当前时间')
+      return false
+    }
   }
   if (form.scheduleType !== 'once' && !form.timeOfDay) {
     ElMessage.warning('请选择执行时刻')
