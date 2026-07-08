@@ -158,3 +158,34 @@ export function getLXCStats(name) {
 export function getLXCStatsHistory(name, start, end) {
   return request({ url: `/lxc/${name}/stats/history`, method: 'get', params: { start, end } })
 }
+
+// ==================== LXC 定时任务 ====================
+export function getLXCSchedules(name) {
+  return request({
+    url: `/lxc/${name}/schedules`,
+    method: 'get'
+  })
+}
+
+export function createLXCSchedule(name, data) {
+  return request({
+    url: `/lxc/${name}/schedules`,
+    method: 'post',
+    data
+  })
+}
+
+export function updateLXCSchedule(name, id, data) {
+  return request({
+    url: `/lxc/${name}/schedules/${id}`,
+    method: 'put',
+    data
+  })
+}
+
+export function deleteLXCSchedule(name, id) {
+  return request({
+    url: `/lxc/${name}/schedules/${id}`,
+    method: 'delete'
+  })
+}
