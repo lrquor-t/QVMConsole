@@ -69,6 +69,7 @@ const (
 	TaskTypeLXCLxcRelocate                  = "lxc_relocate"                       // LXC 存储迁移
 	TaskTypeLXCMkTemplate                   = "lxc_template_make"                  // 从容器制作 LXC 模板
 	TaskTypeLXCClone                        = "lxc_clone"                          // 从快照克隆 LXC 容器
+	TaskTypeLXCScheduleAction               = "lxc_schedule_action"                // LXC 容器定时任务动作执行
 )
 
 // Task 异步任务模型（纯内存存储，不持久化）
