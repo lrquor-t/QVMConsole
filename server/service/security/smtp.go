@@ -175,7 +175,11 @@ func getSMTPPassword() (string, error) {
 	if strings.TrimSpace(config.GlobalConfig.SMTPPasswordEnc) == "" {
 		return "", nil
 	}
-	return DecryptSecurityText(config.GlobalConfig.SMTPPasswordEnc)
+	plain, err := DecryptSecurityText(config.GlobalConfig.SMTPPasswordEnc)
+	if err != nil {
+		return "", fmt.Errorf("SMTP 密码解密失败，请前往「系统设置」页面重新输入 SMTP 密码以完成凭据更新（加密密钥可能已变更）")
+	}
+	return plain, nil
 }
 
 // SendEmail 发送纯文本邮件
