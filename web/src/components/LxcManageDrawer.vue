@@ -74,6 +74,15 @@
             :status="currentStatus"
           />
         </el-tab-pane>
+        <el-tab-pane name="schedule" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><AlarmClock /></el-icon> 定时任务</span>
+          </template>
+          <LxcSchedulePanel
+            v-if="visible && currentName && activeTab === 'schedule'"
+            :name="currentName"
+          />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-drawer>
@@ -81,11 +90,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection, TrendCharts } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
 import LxcMonitorPanel from './LxcMonitorPanel.vue'
+import LxcSchedulePanel from './LxcSchedulePanel.vue'
 
 const emit = defineEmits(['refresh'])
 
