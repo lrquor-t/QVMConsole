@@ -68,8 +68,11 @@
         <el-table-column label="创建时间" width="180" align="center">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right" align="center">
+        <el-table-column label="操作" width="130" fixed="right" align="center">
           <template #default="{ row }">
+            <el-tooltip content="模板设置" placement="top">
+              <el-button size="small" type="primary" plain circle :icon="Setting" @click="openEdit(row)" />
+            </el-tooltip>
             <el-tooltip content="删除模板" placement="top">
               <el-button size="small" type="danger" plain circle :icon="Delete" @click="handleDelete(row)" />
             </el-tooltip>
@@ -152,17 +155,47 @@
         <el-button type="primary" :loading="importing" :disabled="!canImport" @click="handleImport">导入</el-button>
       </template>
     </el-dialog>
+
+    <!-- 模板设置弹窗 -->
+    <el-dialog v-model="editVisible" title="模板设置" width="520px" append-to-body :close-on-click-modal="false">
+      <el-form :model="editForm" label-width="100px">
+        <el-form-item label="模板名称">
+          <el-input v-model="editForm.name" disabled />
+        </el-form-item>
+        <el-form-item label="显示名称">
+          <el-input v-model="editForm.display_name" placeholder="用户侧显示名（克隆下拉标题等）" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editForm.description" type="textarea" :rows="2" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="启用克隆">
+          <el-switch v-model="editForm.clone_visible" />
+          <span class="form-hint">关闭后该模板不出现在用户克隆下拉中</span>
+        </el-form-item>
+        <el-form-item label="禁用模板">
+          <el-switch v-model="editForm.disabled" />
+          <span class="form-hint">禁用后该模板不可用于创建容器</span>
+        </el-form-item>
+        <el-form-item label="创建后命令">
+          <el-input v-model="editForm.post_create_command" type="textarea" :rows="3" placeholder="可选：首次创建容器后 lxc-attach 执行" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editLoading" @click="handleSaveEdit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Delete, UploadFilled, Files, Coin, Collection } from '@element-plus/icons-vue'
+import { Plus, Refresh, Delete, UploadFilled, Files, Coin, Collection, Setting } from '@element-plus/icons-vue'
 import { ChunkUploader } from '@/utils/chunkUploader'
 import { getSettings } from '@/api/settings'
 import {
-  getLXCTemplateList, finalizeLXCTemplate, deleteLXCTemplate,
+  getLXCTemplateList, finalizeLXCTemplate, deleteLXCTemplate, updateLXCTemplate,
   lxcTemplateUploadInit, lxcTemplateUploadChunk, lxcTemplateUploadComplete, lxcTemplateUploadCancel,
   probeLXCTemplate
 } from '@/api/lxc'
@@ -181,6 +214,11 @@ const rawFile = ref(null)
 const probeOk = ref(false)
 const probeMsg = ref('')
 const importForm = ref({ name: '', mode: 'upload', host_path: '', distro: '', release: '', arch: '', post_create_command: '' })
+
+// 模板设置弹窗
+const editVisible = ref(false)
+const editLoading = ref(false)
+const editForm = ref({ name: '', display_name: '', description: '', clone_visible: true, disabled: false, post_create_command: '' })
 
 const canImport = computed(() => {
   if (!importForm.value.name) return false
@@ -427,6 +465,39 @@ const handleDelete = async (row) => {
   } catch (e) {}
 }
 
+const openEdit = (row) => {
+  editForm.value = {
+    name: row.name,
+    display_name: row.display_name || '',
+    description: row.description || '',
+    // clone_visible 默认 true：后端缺省 true，row 无该字段时按 true 回填
+    clone_visible: row.clone_visible !== false,
+    disabled: !!row.disabled,
+    post_create_command: row.post_create_command || '',
+  }
+  editVisible.value = true
+}
+
+const handleSaveEdit = async () => {
+  editLoading.value = true
+  try {
+    const res = await updateLXCTemplate(editForm.value.name, {
+      display_name: editForm.value.display_name,
+      description: editForm.value.description,
+      clone_visible: editForm.value.clone_visible,
+      disabled: editForm.value.disabled,
+      post_create_command: editForm.value.post_create_command,
+    })
+    ElMessage.success(res.message || '模板设置已更新')
+    editVisible.value = false
+    fetchData()
+  } catch (e) {
+    // 错误由 request 拦截器统一提示
+  } finally {
+    editLoading.value = false
+  }
+}
+
 onMounted(fetchData)
 </script>
 
@@ -607,6 +678,13 @@ html.dark .upload-progress-wrap :deep(.el-progress-bar__outer) {
   color: var(--el-text-color-secondary);
   margin-top: 4px;
   line-height: 1.4;
+}
+
+/* 设置弹窗开关旁的提示文字 */
+.form-hint {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 /* ===== 移动端 ===== */

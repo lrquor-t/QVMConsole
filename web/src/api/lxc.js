@@ -65,6 +65,11 @@ export function deleteLXCTemplate(name) {
   return request({ url: `/lxc/template/${name}`, method: 'delete' })
 }
 
+// 更新模板展示/管理元数据（管理员）
+export function updateLXCTemplate(name, data) {
+  return request({ url: `/lxc/template/${name}`, method: 'put', data })
+}
+
 // 构造终端 WS 地址（与 utils/vnc.js 的 buildVncWsUrl 风格一致）
 export function buildLXCConsoleWsUrl(name, token) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
