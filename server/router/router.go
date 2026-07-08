@@ -268,6 +268,11 @@ func Setup() *gin.Engine {
 				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
 				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)
 				lxcGroup.DELETE("/:name/snapshot/:snap", handler.DeleteLXCSnapshot)
+				// LXC 定时任务（弹性云限定，与 create/clone 一致）
+				lxcGroup.GET("/:name/schedules", middleware.ElasticCloudOnlyMiddleware(), handler.GetLXCSchedules)
+				lxcGroup.POST("/:name/schedules", middleware.ElasticCloudOnlyMiddleware(), handler.CreateLXCSchedule)
+				lxcGroup.PUT("/:name/schedules/:id", middleware.ElasticCloudOnlyMiddleware(), handler.UpdateLXCSchedule)
+				lxcGroup.DELETE("/:name/schedules/:id", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteLXCSchedule)
 				lxcGroup.POST("/:name/clone", middleware.ElasticCloudOnlyMiddleware(), handler.CloneFromContainer)
 
 				// LXC 多网卡管理（查询全员可访问；增删改仅管理员）

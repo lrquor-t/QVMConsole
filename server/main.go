@@ -100,6 +100,7 @@ func main() {
 	service.StartSchedulerEventCleanup()
 	service.StartPortForwardHTTPProbeScheduler()
 	service.StartVMScheduleRunner()
+	service.StartLXCScheduleRunner()
 	service.StartJWTSecretRotator()
 	service.StartExpiredUploadSessionCleanup() // 清理过期分片上传会话
 
@@ -677,6 +678,11 @@ func registerTaskHandlers() {
 	// 虚拟机定时任务动作
 	taskqueue.RegisterHandler(model.TaskTypeVMScheduleAction, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		return service.RunVMScheduledAction(ctx, task, progress)
+	})
+
+	// LXC 容器定时任务动作
+	taskqueue.RegisterHandler(model.TaskTypeLXCScheduleAction, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		return service.RunLXCScheduledAction(ctx, task, progress)
 	})
 
 	// 快照操作任务（创建/恢复/删除）
