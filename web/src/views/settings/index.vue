@@ -136,7 +136,7 @@
           <el-input v-model="form.lxc_lxc_path" />
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            所有 LXC 容器与模板金基底都创建在此目录下，路径为 &lt;目录&gt;/&lt;容器名&gt;/（rootfs 在其下）| 环境变量: KVM_LXC_LXC_PATH（修改将触发专用迁移流程：自动停止/重启运行中容器，并写 /etc/lxc/lxc.conf）
+            所有 LXC 容器与模板金基底都创建在此目录下，路径为 &lt;目录&gt;/&lt;容器名&gt;/（rootfs 在其下）| 环境变量: LXC_PATH（修改将触发专用迁移流程：自动停止/重启运行中容器，并写 /etc/lxc/lxc.conf）
           </div>
         </el-form-item>
 
@@ -148,7 +148,7 @@
               将随 LXC 容器目录切换到 {{ cascadedImportDir }}
             </template>
             <template v-else>
-              上传的 rootfs tarball 临时落盘位置（导入完成自动清理）| 环境变量: KVM_LXC_TEMPLATE_IMPORT_DIR
+              上传的 rootfs tarball 临时落盘位置（导入完成自动清理）| 环境变量: LXC_TEMPLATE_IMPORT_DIR
             </template>
           </div>
         </el-form-item>
@@ -160,7 +160,7 @@
           </el-select>
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            新容器/模板的后端存储。zfs 推荐（克隆秒级、零额外磁盘，需 lxc 目录在 zfs 上）；dir 兼容性最好但每容器整盘拷贝 | 环境变量: KVM_LXC_DEFAULT_BACKING
+            新容器/模板的后端存储。zfs 推荐（克隆秒级、零额外磁盘，需 lxc 目录在 zfs 上）；dir 兼容性最好但每容器整盘拷贝 | 环境变量: LXC_DEFAULT_BACKING
           </div>
           <div v-if="lxcIsZfs && form.lxc_default_backing !== 'zfs'" class="form-tip" style="color:#e6a23c">
             <el-icon><Warning /></el-icon>
@@ -172,7 +172,7 @@
           <el-input v-model="form.lxc_base_prefix" disabled />
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            模板金基底容器名前缀（如 lxc__tmpl__），带此前缀的容器不在容器列表显示 | 环境变量: KVM_LXC_BASE_PREFIX
+            模板金基底容器名前缀（如 lxc__tmpl__），带此前缀的容器不在容器列表显示 | 环境变量: LXC_BASE_PREFIX
           </div>
         </el-form-item>
             <!-- 网络设置 -->

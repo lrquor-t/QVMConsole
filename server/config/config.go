@@ -305,10 +305,10 @@ func Init() {
 		SessionFingerprintEnabled:             getEnvBool("KVM_SESSION_FINGERPRINT_ENABLED", true),
 		PasswordBreachCheckEnabled:            getEnvBool("KVM_PASSWORD_BREACH_CHECK_ENABLED", true),
 		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
-		LXCLxcPath:                            getEnv("KVM_LXC_LXC_PATH", "/var/lib/lxc"),
-		LXCTemplateImportDir:                  getEnv("KVM_LXC_TEMPLATE_IMPORT_DIR", filepath.Join("/var/lib/lxc", "_imports")),
-		LXCDefaultBacking:                     getEnv("KVM_LXC_DEFAULT_BACKING", "dir"),
-		LXCBasePrefix:                         getEnv("KVM_LXC_BASE_PREFIX", "lxc__tmpl__"),
+		LXCLxcPath:                            getEnv("LXC_PATH", "/var/lib/lxc"),
+		LXCTemplateImportDir:                  getEnv("LXC_TEMPLATE_IMPORT_DIR", filepath.Join("/var/lib/lxc", "_imports")),
+		LXCDefaultBacking:                     getEnv("LXC_DEFAULT_BACKING", "dir"),
+		LXCBasePrefix:                         getEnv("LXC_BASE_PREFIX", "lxc__tmpl__"),
 	}
 	// 解析可信代理列表
 	if proxies := getEnv("KVM_TRUSTED_PROXIES", ""); proxies != "" {
@@ -610,9 +610,9 @@ var keyToEnvVar = map[string]string{
 	"log_max_size_mb":                           "KVM_LOG_MAX_SIZE_MB",
 	"log_max_backups":                           "KVM_LOG_MAX_BACKUPS",
 	"network_wait_online_disabled":              "KVM_NETWORK_WAIT_ONLINE_DISABLED",
-	"lxc_lxc_path":                              "KVM_LXC_LXC_PATH",
-	"lxc_template_import_dir":                   "KVM_LXC_TEMPLATE_IMPORT_DIR",
-	"lxc_default_backing":                       "KVM_LXC_DEFAULT_BACKING",
+	"lxc_lxc_path":                              "LXC_PATH",
+	"lxc_template_import_dir":                   "LXC_TEMPLATE_IMPORT_DIR",
+	"lxc_default_backing":                       "LXC_DEFAULT_BACKING",
 }
 
 // LoadFromDB 从数据库加载持久化的设置覆盖当前配置
