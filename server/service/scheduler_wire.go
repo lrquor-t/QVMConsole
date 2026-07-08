@@ -2,6 +2,7 @@ package service
 
 import (
 	"kvm_console/model"
+	"kvm_console/service/lxc"
 	schedpkg "kvm_console/service/scheduler"
 	"kvm_console/service/vm/memory"
 )
@@ -43,6 +44,29 @@ func init() {
 		}
 		return nil
 	}
+
+	// ── 向 lxc 子包注册 scheduler 函数（LXC 定时任务执行事件用）──
+	lxc.HookRegisterScheduler = func(def lxc.SchedulerDefinition) {
+		RegisterScheduler(SchedulerDefinition{
+			Key:         def.Key,
+			Name:        def.Name,
+			Group:       def.Group,
+			Description: def.Description,
+			Enabled:     def.Enabled,
+		})
+	}
+	lxc.HookStartSchedulerEvent = func(input lxc.SchedulerEventStartInput) (*model.SchedulerEvent, error) {
+		return StartSchedulerEvent(SchedulerEventStartInput{
+			SchedulerKey:   input.SchedulerKey,
+			SchedulerName:  input.SchedulerName,
+			SchedulerGroup: input.SchedulerGroup,
+			VMName:         input.VMName,
+			VMBackend:      input.VMBackend,
+			TriggerReason:  input.TriggerReason,
+		})
+	}
+	lxc.HookFinishSchedulerEventSuccess = FinishSchedulerEventSuccess
+	lxc.HookFinishSchedulerEventFailed = FinishSchedulerEventFailed
 }
 
 // ── Type aliases（向后兼容，让 service 根包和外部调用方可直接使用类型名） ──
