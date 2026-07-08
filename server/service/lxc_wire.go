@@ -1,6 +1,9 @@
 package service
 
 import (
+	"context"
+
+	"kvm_console/model"
 	"kvm_console/service/lxc"
 	"kvm_console/service/lxc/zfsbacking"
 )
@@ -150,4 +153,27 @@ func LXCCloneFromSnapshot(p *lxc.CloneParams, progress func(int, string)) error 
 // LXCContainerSpecForQuota 取容器 CPU/Mem 规格（克隆配额校验用）。
 func LXCContainerSpecForQuota(name string) (cpu, memMB int, err error) {
 	return lxc.ContainerSpecForQuota(name)
+}
+
+// LXC 定时任务
+type LXCScheduleInput = lxc.LXCScheduleInput
+type LXCScheduleItem = lxc.LXCScheduleItem
+
+func LXCListSchedules(name string) ([]LXCScheduleItem, error) {
+	return lxc.ListLXCSchedules(name)
+}
+func LXCCreateLXCSchedule(name, createdBy string, in lxc.LXCScheduleInput) (*lxc.LXCScheduleItem, error) {
+	return lxc.CreateLXCSchedule(name, createdBy, in)
+}
+func LXCUpdateLXCSchedule(name string, id uint, in lxc.LXCScheduleInput) (*lxc.LXCScheduleItem, error) {
+	return lxc.UpdateLXCSchedule(name, id, in)
+}
+func LXCDeleteLXCSchedule(name string, id uint) error {
+	return lxc.DeleteLXCSchedule(name, id)
+}
+func StartLXCScheduleRunner() {
+	lxc.StartLXCScheduleRunner()
+}
+func RunLXCScheduledAction(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+	return lxc.RunLXCScheduledAction(ctx, task, progress)
 }
