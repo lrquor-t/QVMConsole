@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -240,4 +241,52 @@ func DeleteLXCTemplate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+}
+
+type updateLXCTemplateReq struct {
+	DisplayName       string `json:"display_name"`
+	Description       string `json:"description"`
+	PostCreateCommand string `json:"post_create_command"`
+	CloneVisible      bool   `json:"clone_visible"`
+	Disabled          bool   `json:"disabled"`
+}
+
+// UpdateLXCTemplate 更新模板展示/管理元数据（管理员）
+// PUT /api/lxc/template/:name
+func UpdateLXCTemplate(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少模板名称"})
+		return
+	}
+	var req updateLXCTemplateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	// 输入校验在 handler 边界 → 400
+	if len(strings.TrimSpace(req.DisplayName)) > 255 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "显示名称不能超过 255 字符"})
+		return
+	}
+	if len(strings.TrimSpace(req.Description)) > 512 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "描述不能超过 512 字符"})
+		return
+	}
+	params := &template.UpdateParams{
+		DisplayName:       req.DisplayName,
+		Description:       req.Description,
+		PostCreateCommand: req.PostCreateCommand,
+		CloneVisible:      req.CloneVisible,
+		Disabled:          req.Disabled,
+	}
+	if err := template.UpdateTemplate(name, params); err != nil {
+		if errors.Is(err, template.ErrTemplateNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新模板设置失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "模板设置已更新"})
 }

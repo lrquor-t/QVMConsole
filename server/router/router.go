@@ -294,6 +294,7 @@ func Setup() *gin.Engine {
 					lxcTmpl.POST("/upload/cancel", handler.LXCTemplateUploadCancel)
 					lxcTmpl.POST("/probe", handler.ProbeLXCTemplate)
 					lxcTmpl.GET("/:name/detail", handler.GetLXCTemplateDetail)
+					lxcTmpl.PUT("/:name", handler.UpdateLXCTemplate)
 					lxcTmpl.DELETE("/:name", handler.DeleteLXCTemplate)
 				}
 			}
