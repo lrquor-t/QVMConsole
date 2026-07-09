@@ -32,6 +32,7 @@ type CreateContainerParams struct {
 	Distro          string `json:"distro"`  // download 模式：发行版
 	Release         string `json:"release"` // download 模式：版本
 	Arch            string `json:"arch"`    // download 模式：架构
+	DiskLimitGB     int    `json:"disk_limit_gb"` // zfs backing：容器 rootfs refquota（GB），0=不限
 	ExtraNics       []AddLXCInterfaceRequest `json:"extra_nics"`
 }
 
@@ -89,7 +90,7 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 
 	// 克隆（按 backing 分支）：zfs 走手动 clone（CoW）+ 改 config；dir/overlay 走 lxc-copy。
 	progress(20, "克隆容器（"+tpl.Backing+"）")
-	if err := cloneContainer(params.Name, tpl); err != nil {
+	if err := cloneContainer(params.Name, tpl, params.DiskLimitGB); err != nil {
 		return err
 	}
 	progress(50, "克隆完成，写入配置")
@@ -149,7 +150,7 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 // zfs：zfs clone <parent>/<base>@base → <parent>/<name>（mountpoint <lxcpath>/<name>），克隆继承基底
 // config+rootfs（CoW），把 config 的 rootfs.path 改成 <lxcpath>/<name>/rootfs。
 // dir/overlay：lxc-copy（overlay 在 LXC 5.0.2 克隆会失败，错误带 stdout）。
-func cloneContainer(name string, tpl *model.LXCTemplate) error {
+func cloneContainer(name string, tpl *model.LXCTemplate, diskLimitGB int) error {
 	lxcpath := config.GlobalConfig.LXCLxcPath
 	if tpl.Backing == "zfs" {
 		parent, err := ZfsResolveParent(lxcpath)
@@ -158,6 +159,12 @@ func cloneContainer(name string, tpl *model.LXCTemplate) error {
 		}
 		if err := zfsCloneContainer(parent, tpl.BaseContainerName, name); err != nil {
 			return fmt.Errorf("zfs 克隆失败: %w", err)
+		}
+		// 磁盘上限（refquota）：仅 zfs backing、且填了值才设
+		if diskLimitGB > 0 {
+			if err := ZfsSetContainerRefquota(parent, name, int64(diskLimitGB)*1024*1024*1024); err != nil {
+				return fmt.Errorf("设置磁盘上限失败: %w", err)
+			}
 		}
 		// 克隆 dataset 已挂载在 <lxcpath>/<name>，config 继承自基底；改 rootfs.path 指向自己的 rootfs。
 		cfgPath := filepath.Join(lxcpath, name, "config")
@@ -301,6 +308,12 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 		zfsParent = p
 		if err := zfsCreateContainerDataset(zfsParent, params.Name); err != nil {
 			return err
+		}
+		// 磁盘上限（refquota）：仅 zfs backing、且填了值才设
+		if params.DiskLimitGB > 0 {
+			if err := ZfsSetContainerRefquota(zfsParent, params.Name, int64(params.DiskLimitGB)*1024*1024*1024); err != nil {
+				return fmt.Errorf("设置磁盘上限失败: %w", err)
+			}
 		}
 	}
 

@@ -25,6 +25,7 @@ type createLXCReq struct {
 	Distro          string `json:"distro"`
 	Release         string `json:"release"`
 	Arch            string `json:"arch"`
+	DiskLimitGB     int    `json:"disk_limit_gb"`
 	ExtraNics       []service.LXCAddInterfaceRequest `json:"extra_nics"`
 }
 
@@ -77,6 +78,7 @@ func CreateLXCContainer(c *gin.Context) {
 		Distro:          req.Distro,
 		Release:         req.Release,
 		Arch:            req.Arch,
+		DiskLimitGB:     req.DiskLimitGB,
 		ExtraNics:       req.ExtraNics,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCCreate, params, username.(string))
