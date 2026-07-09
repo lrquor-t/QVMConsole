@@ -449,3 +449,43 @@ func GetZFSErrors(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": list})
 }
+
+// GetZFSPropertiesHandler GET /api/storage-pool/zfs-property?dataset=
+func GetZFSPropertiesHandler(c *gin.Context) {
+	ds := strings.TrimSpace(c.Query("dataset"))
+	if ds == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 dataset 参数"})
+		return
+	}
+	info, err := service.GetZFSProperties(ds)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": info})
+}
+
+type setZFSPropertyReq struct {
+	Dataset  string `json:"dataset" binding:"required"`
+	Property string `json:"property" binding:"required"`
+	Value    string `json:"value" binding:"required"`
+}
+
+// SetZFSPropertyHandler PUT /api/storage-pool/zfs-property
+func SetZFSPropertyHandler(c *gin.Context) {
+	var req setZFSPropertyReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需 dataset/property/value"})
+		return
+	}
+	// 先校验（→400），再执行（→500）：校验错与命令错分别给码
+	if err := service.ValidateZFSProperty(req.Property, req.Value); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := service.SetZFSProperty(req.Dataset, req.Property, req.Value); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": req.Property + " 已更新"})
+}

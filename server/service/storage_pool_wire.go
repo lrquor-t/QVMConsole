@@ -111,6 +111,21 @@ func DeleteZFSDataset(fullName string) error {
 	return pool.DeleteZFSDataset(fullName)
 }
 
+// GetZFSProperties delegates to pool.GetZFSProperties
+func GetZFSProperties(dataset string) (pool.ZFSPropertyInfo, error) {
+	return pool.GetZFSProperties(dataset)
+}
+
+// SetZFSProperty delegates to pool.SetZFSProperty
+func SetZFSProperty(dataset, prop, value string) error {
+	return pool.SetZFSProperty(dataset, prop, value)
+}
+
+// ValidateZFSProperty delegates to pool.ValidateZFSProperty
+func ValidateZFSProperty(prop, value string) error {
+	return pool.ValidateZFSProperty(prop, value)
+}
+
 // GetZFSScrubStatus delegates to pool.GetZFSScrubStatus
 func GetZFSScrubStatus(poolName string) (pool.ZFSScrubStatus, error) {
 	return pool.GetZFSScrubStatus(poolName)

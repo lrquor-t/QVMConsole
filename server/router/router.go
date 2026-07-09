@@ -468,6 +468,8 @@ func Setup() *gin.Engine {
 				storagePool.POST("/zfs-scrub/stop", middleware.AdminMiddleware(), handler.StopZFSScrub)
 				storagePool.POST("/zfs-clear-errors", middleware.AdminMiddleware(), handler.ClearZFSErrors)
 				storagePool.GET("/zfs-errors", middleware.AdminMiddleware(), handler.GetZFSErrors)
+				storagePool.GET("/zfs-property", middleware.AdminMiddleware(), handler.GetZFSPropertiesHandler)
+				storagePool.PUT("/zfs-property", middleware.AdminMiddleware(), handler.SetZFSPropertyHandler)
 			}
 
 			// ==================== 节点管理（管理员） ====================
