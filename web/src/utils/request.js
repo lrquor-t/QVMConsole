@@ -151,11 +151,13 @@ service.interceptors.response.use(
     }
     const res = response.data
     if (res.code !== 200 && res.code !== 0) {
-      ElMessage({
-        message: res.message || '请求失败',
-        type: 'error',
-        duration: 5000
-      })
+      if (!response.config?.skipErrorHandler) {
+        ElMessage({
+          message: res.message || '请求失败',
+          type: 'error',
+          duration: 5000
+        })
+      }
       if (res.code === 401) {
         const userStore = useUserStore()
         userStore.logout()
@@ -190,7 +192,7 @@ service.interceptors.response.use(
 
     const serverMessage = error.response?.data?.message
     const displayMessage = serverMessage || error.message || '请求失败'
-    if (!error.response?.data?.data?.require_nvram_fix) {
+    if (!error.response?.data?.data?.require_nvram_fix && !error.config?.skipErrorHandler) {
       ElMessage({
         message: displayMessage,
         type: 'error',

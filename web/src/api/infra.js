@@ -148,8 +148,8 @@ export function deleteZFSPool(poolName) {
 }
 
 // 查询 ZFS scrub 状态与健康度
-export function getZFSScrubStatus(pool) {
-  return request({ url: '/storage-pool/zfs-scrub/status', method: 'get', params: { pool } })
+export function getZFSScrubStatus(pool, opts = {}) {
+  return request({ url: '/storage-pool/zfs-scrub/status', method: 'get', params: { pool }, ...opts })
 }
 
 // 启动 ZFS scrub

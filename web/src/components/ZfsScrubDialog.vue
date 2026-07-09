@@ -25,7 +25,7 @@
 
       <!-- 进度（运行中） -->
       <div v-if="status.scrub_state === 'running'" class="scrub-progress">
-        <el-progress :percentage="progressInt" :status="'warning'" />
+        <el-progress :percentage="progressInt" status="warning" />
         <div class="scrub-meta">
           <span>已扫描 {{ formatBytes(status.scanned) }} / {{ formatBytes(status.total) }}</span>
           <span v-if="status.time_remaining">剩余 {{ status.time_remaining }}</span>
@@ -132,7 +132,7 @@ function schedulePoll() {
   if (status.value.scrub_state === 'running') {
     pollTimer = setInterval(async () => {
       try {
-        const res = await getZFSScrubStatus(poolName.value)
+        const res = await getZFSScrubStatus(poolName.value, { skipErrorHandler: true })
         status.value = res.data || {}
         if (status.value.scrub_state !== 'running') {
           stopPoll()
@@ -207,7 +207,7 @@ function open(name) {
   errors.value = { files: [], total: 0, truncated: false, timed_out: false }
   errorsLoaded.value = false
   visible.value = true
-  fetchStatus()
+  fetchStatus().catch(() => {})
 }
 
 function handleClosed() {
