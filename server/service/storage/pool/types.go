@@ -48,8 +48,9 @@ type HostStoragePoolInfo struct {
 	LVCount int    `json:"lv_count,omitempty"`  // VG 节点的 LV 数量
 	IsLVMVG bool   `json:"is_lvm_vg,omitempty"` // 标记为 LVM VG 合成节点
 	// ZFS 扩展字段
-	IsZFSPool   bool   `json:"is_zfs_pool,omitempty"`   // 标记为 ZFS 存储池/数据集合成节点
-	ZFSVdevType string `json:"zfs_vdev_type,omitempty"` // ZFS 拓扑：stripe/mirror/raidz1/2/3
+	IsZFSPool         bool   `json:"is_zfs_pool,omitempty"`      // 标记为 ZFS 存储池/数据集合成节点
+	ZFSVdevType       string `json:"zfs_vdev_type,omitempty"`    // ZFS 拓扑：stripe/mirror/raidz1/2/3
+	ZFSExpandVdevType string `json:"expand_vdev_type,omitempty"` // 扩容锁定类型（纯池=该类型、混合="mixed"）
 }
 
 // VMStorageTarget 是创建虚拟机时可选择的落盘位置。

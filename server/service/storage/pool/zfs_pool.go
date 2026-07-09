@@ -21,25 +21,26 @@ import (
 // ZFSPoolRequest 创建 ZFS 存储池的请求参数。
 type ZFSPoolRequest struct {
 	DeviceIDs   []string `json:"device_ids"`   // 选中的磁盘设备 ID 列表
-	PoolName    string   `json:"pool_name"`     // zpool 名称
-	VdevType    string   `json:"vdev_type"`     // stripe / mirror / raidz1 / raidz2 / raidz3
-	Ashift      string   `json:"ashift"`        // 扇区对齐，默认 12（4K）
-	Compression string   `json:"compression"`   // lz4(默认) / zstd / off / gzip
-	DatasetName string   `json:"dataset_name"`  // VM 落盘数据集名，默认 vm-disks
-	MountPath   string   `json:"mount_path"`    // 数据集挂载点，留空自动生成
-	AtimeOff    bool     `json:"atime_off"`     // 是否关闭 atime（默认前端传 true）
+	PoolName    string   `json:"pool_name"`    // zpool 名称
+	VdevType    string   `json:"vdev_type"`    // stripe / mirror / raidz1 / raidz2 / raidz3
+	Ashift      string   `json:"ashift"`       // 扇区对齐，默认 12（4K）
+	Compression string   `json:"compression"`  // lz4(默认) / zstd / off / gzip
+	DatasetName string   `json:"dataset_name"` // VM 落盘数据集名，默认 vm-disks
+	MountPath   string   `json:"mount_path"`   // 数据集挂载点，留空自动生成
+	AtimeOff    bool     `json:"atime_off"`    // 是否关闭 atime（默认前端传 true）
 }
 
 // ZPoolInfo 扫描得到的 ZFS 存储池信息。
 type ZPoolInfo struct {
-	Name     string            `json:"name"`
-	Size     int64             `json:"size"`
-	Alloc    int64             `json:"alloc"`
-	Free     int64             `json:"free"`
-	Health   string            `json:"health"`
-	VdevType string            `json:"vdev_type"`
-	Members  []string          `json:"members"`
-	Datasets []ZFSDatasetInfo  `json:"datasets"`
+	Name           string           `json:"name"`
+	Size           int64            `json:"size"`
+	Alloc          int64            `json:"alloc"`
+	Free           int64            `json:"free"`
+	Health         string           `json:"health"`
+	VdevType       string           `json:"vdev_type"`
+	ExpandVdevType string           `json:"expand_vdev_type"` // 扩容锁定类型（纯池=该类型、混合="mixed"）
+	Members        []string         `json:"members"`
+	Datasets       []ZFSDatasetInfo `json:"datasets"`
 }
 
 // ZFSDatasetInfo ZFS 数据集信息。
@@ -529,14 +530,15 @@ func ListZPools() ([]ZPoolInfo, error) {
 
 		vdev, members := scanZPoolTopology(name)
 		pools = append(pools, ZPoolInfo{
-			Name:     name,
-			Size:     size,
-			Alloc:    alloc,
-			Free:     free,
-			Health:   health,
-			VdevType: vdev,
-			Members:  members,
-			Datasets: scanZFSDatasets(name),
+			Name:           name,
+			Size:           size,
+			Alloc:          alloc,
+			Free:           free,
+			Health:         health,
+			VdevType:       vdev,
+			ExpandVdevType: expandVdevType(scanZPoolTopVdevTypes(name)),
+			Members:        members,
+			Datasets:       scanZFSDatasets(name),
 		})
 	}
 	sort.Slice(pools, func(i, j int) bool { return pools[i].Name < pools[j].Name })
@@ -680,20 +682,21 @@ func injectZFSTree(pools []HostStoragePoolInfo, zPools []ZPoolInfo, mounts map[s
 	// 为每个 zpool 创建合成节点
 	for _, zp := range zPools {
 		zpoolNode := HostStoragePoolInfo{
-			ID:           normalizeStorageDeviceID("zfs-" + zp.Name),
-			Name:         zp.Name,
-			DisplayName:  "ZFS: " + zp.Name,
-			DevicePath:   "",
-			Type:         "zpool",
-			Size:         zp.Size,
-			Available:    zp.Free,
-			Used:         zp.Alloc,
-			IsZFSPool:    true,
-			ZFSVdevType:  zp.VdevType,
-			Readonly:     true,
-			CanFormat:    false,
-			CanUseForVM:  false,
-			StatusReason: fmt.Sprintf("ZFS 存储池（%s，%s）", vdevTypeLabel(zp.VdevType), zp.Health),
+			ID:                normalizeStorageDeviceID("zfs-" + zp.Name),
+			Name:              zp.Name,
+			DisplayName:       "ZFS: " + zp.Name,
+			DevicePath:        "",
+			Type:              "zpool",
+			Size:              zp.Size,
+			Available:         zp.Free,
+			Used:              zp.Alloc,
+			IsZFSPool:         true,
+			ZFSVdevType:       zp.VdevType,
+			ZFSExpandVdevType: zp.ExpandVdevType,
+			Readonly:          true,
+			CanFormat:         false,
+			CanUseForVM:       false,
+			StatusReason:      fmt.Sprintf("ZFS 存储池（%s，%s）", vdevTypeLabel(zp.VdevType), zp.Health),
 		}
 		if zp.Size > 0 {
 			zpoolNode.UsePercent = int(float64(zp.Alloc) / float64(zp.Size) * 100)
@@ -745,16 +748,16 @@ func buildZFSDatasetNode(poolName string, ds ZFSDatasetInfo, configs map[string]
 	}
 
 	node := HostStoragePoolInfo{
-		ID:         id,
-		Name:       comp,
+		ID:          id,
+		Name:        comp,
 		DisplayName: ds.Name,
-		Type:       "zdataset",
-		Size:       ds.Used + ds.Avail,
-		Used:       ds.Used,
-		Available:  ds.Avail,
-		FSType:     "zfs",
-		IsZFSPool:  true,
-		Configured: configured,
+		Type:        "zdataset",
+		Size:        ds.Used + ds.Avail,
+		Used:        ds.Used,
+		Available:   ds.Avail,
+		FSType:      "zfs",
+		IsZFSPool:   true,
+		Configured:  configured,
 	}
 	if configured {
 		node.DisplayName = cfg.DisplayName
@@ -791,3 +794,136 @@ func buildZFSMemberRefNode(poolName, devPath string) *HostStoragePoolInfo {
 	}
 }
 
+// ── ZFS 扩容：顶层 vdev 类型解析（按 tab 缩进）──
+
+// parseZPoolTopVdevTypes 解析 `zpool status -L <pool>` 的 stdout，按缩进层级
+// 取顶层 vdev（pool 行=1、顶层 vdev=2、成员盘=3，详见 statusIndentLevel），返回各顶层 vdev 类型。
+// 纯函数（命令由 scanZPoolTopVdevTypes 执行），便于用样例输出单测。
+func parseZPoolTopVdevTypes(statusOutput string) []string {
+	inConfig := false
+	var types []string
+	for _, line := range strings.Split(statusOutput, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "config:") {
+			inConfig = true
+			continue
+		}
+		if strings.HasPrefix(t, "errors:") {
+			break
+		}
+		if !inConfig {
+			continue
+		}
+		if statusIndentLevel(line) != 2 { // 仅顶层 vdev（pool=1、顶层 vdev=2、成员盘=3）
+			continue
+		}
+		f := strings.Fields(t)
+		if len(f) == 0 {
+			continue
+		}
+		types = append(types, classifyVdevName(f[0]))
+	}
+	return types
+}
+
+// statusIndentLevel 返回 zpool status 配置块某行的缩进层级。
+// 实测 `zpool status -L` 用 1 个前导 tab + 每 2 空格一级表示层级：
+// pool 行=1（\t）、顶层 vdev=2（\t+2 空格）、成员盘=3（\t+4 空格）。
+// 为兼容个别纯 tab 缩进的实现，按 tab=1 级、每 2 空格=1 级折算。
+func statusIndentLevel(line string) int {
+	tabs, spaces := 0, 0
+	for _, r := range line {
+		switch r {
+		case '\t':
+			tabs++
+		case ' ':
+			spaces++
+		default:
+			return tabs + spaces/2
+		}
+	}
+	return tabs + spaces/2
+}
+
+// classifyVdevName 按顶层 vdev 行首字段判定类型（裸设备/无前缀 → stripe）。
+func classifyVdevName(name string) string {
+	switch {
+	case strings.HasPrefix(name, "mirror-"):
+		return "mirror"
+	case strings.HasPrefix(name, "raidz3-"):
+		return "raidz3"
+	case strings.HasPrefix(name, "raidz2-"):
+		return "raidz2"
+	case strings.HasPrefix(name, "raidz1-"):
+		return "raidz1"
+	default:
+		return "stripe"
+	}
+}
+
+// expandVdevType 由顶层 vdev 类型列表派生扩容锁定类型：全相同→该类型；空/混合→"mixed"。
+func expandVdevType(types []string) string {
+	if len(types) == 0 {
+		return "mixed"
+	}
+	first := types[0]
+	for _, t := range types[1:] {
+		if t != first {
+			return "mixed"
+		}
+	}
+	return first
+}
+
+// scanZPoolTopVdevTypes 执行 zpool status -L 并解析顶层 vdev 类型（exec 包装，不单测）。
+func scanZPoolTopVdevTypes(pool string) []string {
+	r := utils.ExecCommandQuiet("zpool", "status", "-L", pool)
+	if r.Error != nil {
+		return nil
+	}
+	return parseZPoolTopVdevTypes(r.Stdout)
+}
+
+// buildZpoolAddArgs 拼装 zpool add 参数（纯函数，假定已校验）。
+// add -f -o ashift=12 <pool> [vdevKeyword] <disks...>
+func buildZpoolAddArgs(pool, vdevType string, devicePaths []string) []string {
+	args := []string{"add", "-f", "-o", "ashift=12", pool}
+	if kw := zfsVdevKeyword(vdevType); kw != "" { // stripe→""（裸盘直列）
+		args = append(args, kw)
+	}
+	args = append(args, devicePaths...)
+	return args
+}
+
+// AddZFSVdevs 给已存在的 zpool 加同类型顶层 vdev（扩容）。
+// 纯类型池仅允许加同类；混合池放行任意。复用建池的磁盘校验与稳定路径。
+func AddZFSVdevs(pool, vdevType string, deviceIDs []string) error {
+	if !zpoolExists(pool) {
+		return fmt.Errorf("ZFS 存储池 %s 不存在", pool)
+	}
+	vdev := normalizeZFSVdevType(vdevType)
+	if len(deviceIDs) == 0 {
+		return fmt.Errorf("至少需要选择一个物理磁盘")
+	}
+	minDisks := zfsVdevMinDisks(vdev)
+	if len(deviceIDs) < minDisks {
+		return fmt.Errorf("%s 至少需要 %d 块磁盘，当前选择 %d 块", vdevTypeLabel(vdev), minDisks, len(deviceIDs))
+	}
+	// 同类型强校验：纯类型池仅允许加同类
+	cur := expandVdevType(scanZPoolTopVdevTypes(pool))
+	if cur != "mixed" && cur != vdev {
+		return fmt.Errorf("扩容须与现有 vdev 类型一致（%s）", vdevTypeLabel(cur))
+	}
+	// 复用建池的磁盘校验 + 稳定路径
+	devicePaths, err := validateAndCollectPVTargets(deviceIDs)
+	if err != nil {
+		return fmt.Errorf("校验磁盘失败: %w", err)
+	}
+	devicePaths = resolveStableDevicePaths(devicePaths, readStableDeviceAliases())
+	args := buildZpoolAddArgs(pool, vdev, devicePaths)
+	ctx := context.Background()
+	if r := utils.ExecCommandContextWithTimeout(ctx, "zpool", 2*time.Minute, args...); r.Error != nil {
+		return fmt.Errorf("zpool add 失败: %s", strings.TrimSpace(r.Stderr))
+	}
+	return nil
+}
