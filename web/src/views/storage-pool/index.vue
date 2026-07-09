@@ -159,6 +159,7 @@
               </template>
               <template v-if="disk.is_zfs_pool">
                 <el-button size="small" plain type="primary" @click="openZfsScrub(disk.name)">Scrub / 健康</el-button>
+                <el-button size="small" plain type="warning" @click="openZfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="success" @click="openCreateDataset(disk.name)">创建数据集</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
@@ -774,6 +775,9 @@
 
     <!-- ZFS Dataset 属性 对话框 -->
     <ZfsPropertyDialog ref="zfsPropertyDialogRef" />
+
+    <!-- ZFS 存储池扩容 对话框 -->
+    <ZfsExpandDialog ref="zfsExpandDialogRef" @success="fetchData" />
   </div>
 </template>
 
@@ -784,6 +788,7 @@ import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowR
 import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool } from '@/api/infra'
 import ZfsScrubDialog from '@/components/ZfsScrubDialog.vue'
 import ZfsPropertyDialog from '@/components/ZfsPropertyDialog.vue'
+import ZfsExpandDialog from '@/components/ZfsExpandDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -805,6 +810,10 @@ const openZfsScrub = (poolName) => {
 }
 const zfsPropertyDialogRef = ref(null)
 const openZfsProperty = (dataset) => { zfsPropertyDialogRef.value?.open(dataset) }
+const zfsExpandDialogRef = ref(null)
+const openZfsExpand = (disk) => {
+  zfsExpandDialogRef.value?.open(disk.name, disk.expand_vdev_type)
+}
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
 const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))
