@@ -61,3 +61,11 @@ func zfsCreateContainerDataset(parent, name string) error {
 	return zfsbacking.CreateContainerDataset(parent, name)
 }
 func isZfsContainer(name string) bool { return zfsbacking.IsZfsContainer(name) }
+
+// —— 容器磁盘配额（refquota）——
+func ZfsSetContainerRefquota(parent, name string, bytes int64) error {
+	return zfsbacking.SetContainerRefquota(parent, name, bytes)
+}
+func ZfsGetContainerRefquota(parent, name string) (int64, error) {
+	return zfsbacking.GetContainerRefquota(parent, name)
+}

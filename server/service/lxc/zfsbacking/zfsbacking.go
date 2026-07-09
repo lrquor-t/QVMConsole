@@ -10,6 +10,7 @@ package zfsbacking
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -319,4 +320,33 @@ func IsZfsContainer(name string) bool {
 		return false
 	}
 	return strings.TrimSpace(res.Stdout) == p
+}
+
+// SetContainerRefquota 设/取消容器 dataset 的 refquota。bytes>0 设上限；<=0 取消(refquota=none)。
+func SetContainerRefquota(parent, name string, bytes int64) error {
+	val := "none"
+	if bytes > 0 {
+		val = strconv.FormatInt(bytes, 10)
+	}
+	if res := utils.ExecCommand("zfs", "set", "refquota="+val, ContainerDataset(parent, name)); res.Error != nil {
+		return fmt.Errorf("zfs set refquota 失败: %w (%s)", res.Error, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// GetContainerRefquota 读容器 refquota（字节，用 -p 取精确值）；none/0/异常→0。
+func GetContainerRefquota(parent, name string) (int64, error) {
+	res := utils.ExecCommand("zfs", "get", "-Hp", "-o", "value", "refquota", ContainerDataset(parent, name))
+	if res.Error != nil {
+		return 0, fmt.Errorf("zfs get refquota 失败: %w", res.Error)
+	}
+	v := strings.TrimSpace(res.Stdout)
+	if v == "" || v == "none" || v == "-" {
+		return 0, nil
+	}
+	bytes, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, nil // 兜底：非常规值视作 0
+	}
+	return bytes, nil
 }
