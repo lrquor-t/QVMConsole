@@ -158,6 +158,7 @@
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">删除存储卷</el-button>
               </template>
               <template v-if="disk.is_zfs_pool">
+                <el-button size="small" plain type="primary" @click="openZfsScrub(disk.name)">Scrub / 健康</el-button>
                 <el-button size="small" plain type="success" @click="openCreateDataset(disk.name)">创建数据集</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
@@ -766,6 +767,9 @@
         <el-button type="primary" :loading="creatingDataset" @click="handleCreateDataset">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- ZFS Scrub / 健康 对话框 -->
+    <ZfsScrubDialog ref="zfsScrubDialogRef" />
   </div>
 </template>
 
@@ -774,6 +778,7 @@ import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick } from
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
 import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool } from '@/api/infra'
+import ZfsScrubDialog from '@/components/ZfsScrubDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -789,6 +794,10 @@ const currentRow = ref(null)
 
 // 创建 ZFS 数据集
 const createDatasetVisible = ref(false)
+const zfsScrubDialogRef = ref(null)
+const openZfsScrub = (poolName) => {
+  zfsScrubDialogRef.value?.open(poolName)
+}
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
 const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))
