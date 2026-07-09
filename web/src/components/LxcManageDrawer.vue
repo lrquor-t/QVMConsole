@@ -26,6 +26,11 @@
           <div class="hero-meta">
             <el-tag :type="heroStatusType" size="small" effect="light">{{ heroStatusText }}</el-tag>
             <span class="hero-meta-item">{{ currentBacking || 'dir' }} backing</span>
+            <span v-if="currentBacking === 'zfs'" class="hero-meta-item">
+              配额 <el-input-number v-model="diskLimitGB" :min="0" :step="10" size="small" style="width:110px" />
+              GB
+              <el-button size="small" type="primary" link :loading="savingDiskLimit" @click="saveDiskLimit">保存</el-button>
+            </span>
             <span v-if="currentConfig.cpu_shares" class="hero-meta-item">{{ currentConfig.cpu_shares }} cpu</span>
             <span v-if="currentConfig.memory_mb" class="hero-meta-item">{{ currentConfig.memory_mb }}MB</span>
           </div>
@@ -90,7 +95,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock } from '@element-plus/icons-vue'
+import { getLXCDiskLimit, setLXCDiskLimit } from '@/api/lxc'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
@@ -105,6 +112,23 @@ const currentName = ref('')
 const currentStatus = ref('')
 const currentBacking = ref('')
 const currentConfig = ref({})
+
+// 磁盘配额（仅 zfs backing）
+const diskLimitGB = ref(0)
+const savingDiskLimit = ref(false)
+const loadDiskLimit = async () => {
+  if (currentBacking.value !== 'zfs' || !currentName.value) return
+  try { const r = await getLXCDiskLimit(currentName.value); diskLimitGB.value = r.data?.gb || 0 }
+  catch {} // 非 zfs 静默
+}
+const saveDiskLimit = async () => {
+  savingDiskLimit.value = true
+  try {
+    await setLXCDiskLimit(currentName.value, diskLimitGB.value)
+    ElMessage.success('磁盘配额已更新')
+  } catch (e) { ElMessage.error(e?.message || '更新失败') }
+  finally { savingDiskLimit.value = false }
+}
 
 // —— 抽屉宽度可拖拽调节（localStorage 持久化，写法沿用 RecentTaskPanel）——
 const STORAGE_KEY_WIDTH = 'lxc-manage-drawer-width'
@@ -190,6 +214,7 @@ const open = (row, tab = 'snapshot') => {
   activeTab.value = tab
   drawerWidth.value = clampWidth(drawerWidth.value)
   visible.value = true
+  loadDiskLimit()
 }
 
 const onClosed = () => {

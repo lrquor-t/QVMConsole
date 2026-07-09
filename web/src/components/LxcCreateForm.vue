@@ -63,6 +63,10 @@
             <div class="form-tip"><el-icon><InfoFilled /></el-icon> 相对优先级（cgroup2 cpu.weight，范围 1–10000，系统默认 100），不限制核数；值越大，CPU 紧张时越优先分配。</div>
           </el-form-item>
           <el-form-item label="内存(MB)"><el-input-number v-model="form.memory_mb" :min="0" :step="512" /></el-form-item>
+          <el-form-item v-if="diskLimitVisible" label="磁盘上限(GB)">
+            <el-input-number v-model="form.disk_limit_gb" :min="0" :step="10" />
+            <div class="form-tip"><el-icon><InfoFilled /></el-icon> 仅 zfs 后端生效，限制容器 rootfs 数据量；0/空=不限。</div>
+          </el-form-item>
           <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
           <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
           <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
@@ -137,7 +141,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { createLXC, getLXCTemplateList, getLXCDownloadList } from '@/api/lxc'
+import { createLXC, getLXCTemplateList, getLXCDownloadList, getLXCBackingInfo } from '@/api/lxc'
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
 import { getSettings } from '@/api/settings'
 import { generateRandomLXCName } from '@/utils/lxc'
@@ -157,7 +161,7 @@ const steps = [
 const formRef = ref(null)
 const loading = ref(false)
 
-const defaultForm = () => ({ name: '', template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 2048, autostart: false, group_name: '', remark: '' })
+const defaultForm = () => ({ name: '', template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 2048, disk_limit_gb: 0, autostart: false, group_name: '', remark: '' })
 const form = reactive(defaultForm())
 const rules = {
   name: [
@@ -189,9 +193,21 @@ const fetchDownloadList = async () => {
   catch (e) { ElMessage.error('获取镜像清单失败（需宿主机外网）') }
   finally { downloadLoading.value = false }
 }
+// backing 判定：clone 看选中模板 backing；download 看 backing-info is_zfs
+const downloadIsZfs = ref(false)
+const fetchBackingInfo = async () => {
+  try { const r = await getLXCBackingInfo(); downloadIsZfs.value = !!r.data?.is_zfs } catch {}
+}
+const diskLimitVisible = computed(() => {
+  if (form.source === 'clone') {
+    const t = templates.value.find(x => x.name === form.template)
+    return !!t && t.backing === 'zfs'
+  }
+  return downloadIsZfs.value
+})
 watch(() => form.distro, () => { form.release = ''; form.arch = '' })
 watch(() => form.release, () => { form.arch = dlArches.value.includes('amd64') ? 'amd64' : (dlArches.value[0] || '') })
-watch(() => form.source, (s) => { if (s === 'download') fetchDownloadList() })
+watch(() => form.source, (s) => { if (s === 'download') { fetchDownloadList(); fetchBackingInfo() } })
 
 // 网口
 const extraNics = ref([]) // [{switch_id, security_group_id}]
@@ -298,6 +314,7 @@ const submit = async () => {
       name: form.name, source: form.source,
       template: form.template, distro: form.distro, release: form.release, arch: form.arch,
       cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, autostart: form.autostart,
+      disk_limit_gb: form.disk_limit_gb,
       group_name: form.group_name, remark: form.remark,
       switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
       extra_nics: nics.extraNics
