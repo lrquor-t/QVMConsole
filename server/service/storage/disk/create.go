@@ -194,7 +194,7 @@ func AttachExistingDisk(vmName, diskPath, bus string) (string, error) {
 			return "", fmt.Errorf("移动磁盘文件到默认目录失败: %v", err)
 		}
 		// set permissions
-		utils.ExecCommand("chown", "libvirt-qemu:kvm", destPath)
+		_ = utils.ChownLibvirtQEMU(destPath)
 		diskPath = destPath
 	}
 

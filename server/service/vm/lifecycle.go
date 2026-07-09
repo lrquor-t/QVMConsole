@@ -9,6 +9,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/service/libvirt_rpc"
 	"kvm_console/service/vm/memory"
+	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
 
@@ -108,6 +109,20 @@ func startVM(name string, fixOnReboot bool) error {
 	fixBackingStoreXML(name)
 	if err := memory.ApplyPendingVMMemoryConfig(name); err != nil {
 		return fmt.Errorf("应用动态内存待迁移配置失败: %w", err)
+	}
+
+	// 检查UEFI NVRAM文件是否存在（如果虚拟机配置了UEFI启动）
+	if libvirt_rpc.IsLibvirtRPCAvailable() {
+		vmXML, getErr := libvirt_rpc.GetDomainXMLRPC(name, 0)
+		if getErr == nil {
+			bootType := vm_xml.ParseVMBootTypeFromDomainXML(vmXML)
+			if bootType == vm_xml.VMBootTypeUEFI || bootType == vm_xml.VMBootTypeUEFISecure {
+				nvramPath := vm_xml.GetVMNVRAMPath(name)
+				if _, err := os.Stat(nvramPath); os.IsNotExist(err) {
+					return fmt.Errorf("UEFI NVRAM文件不存在: %s, 请检查虚拟机UEFI配置", nvramPath)
+				}
+			}
+		}
 	}
 
 	freeze, err := GetVMFreeze(name)

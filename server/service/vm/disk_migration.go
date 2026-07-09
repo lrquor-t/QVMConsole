@@ -524,9 +524,8 @@ func removeSourceDiskAfterPivot(plan *vmDiskMigrationPlan) error {
 }
 
 func SetLibvirtDiskFileOwner(path string) error {
-	result := utils.ExecCommand("chown", "libvirt-qemu:kvm", path)
-	if result.Error != nil {
-		return fmt.Errorf("设置硬盘文件权限失败: %s", result.Stderr)
+	if err := utils.ChownLibvirtQEMU(path); err != nil {
+		return fmt.Errorf("设置硬盘文件权限失败: %w", err)
 	}
 	return nil
 }

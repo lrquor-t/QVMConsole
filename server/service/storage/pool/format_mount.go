@@ -149,7 +149,7 @@ func ensureVMStorageDir(dir string) error {
 	if err := snapshot.EnsureLibvirtStorageAppArmorAccessForPaths([]string{dir}); err != nil {
 		return fmt.Errorf("配置 libvirt 自定义存储访问规则失败: %w", err)
 	}
-	utils.ExecCommand("chown", "libvirt-qemu:kvm", dir)
+	_ = utils.ChownLibvirtQEMU(dir)
 	return nil
 }
 

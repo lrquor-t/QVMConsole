@@ -191,7 +191,7 @@ func DeleteVMWithDisks(name string, deleteDisks []string, transferDisks []string
 			if err := os.Rename(diskPath, destPath); err != nil {
 				logger.App.Warn("转移磁盘到用户存储失败", "path", diskPath, "error", err)
 			} else {
-				utils.ExecCommand("chown", "libvirt-qemu:kvm", destPath)
+				_ = utils.ChownLibvirtQEMU(destPath)
 			}
 		}
 	}

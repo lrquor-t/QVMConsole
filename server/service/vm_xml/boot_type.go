@@ -110,6 +110,11 @@ func resolveVMNVRAMPath(name, xmlContent string) string {
 	return fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", cleanName)
 }
 
+// GetVMNVRAMPath 获取虚拟机的NVRAM文件路径（公共函数）
+func GetVMNVRAMPath(name string) string {
+	return resolveVMNVRAMPath(name, "")
+}
+
 // ResolveOVMFLoaderPath 根据是否启用安全引导选择相应的 OVMF Code 固件路径。
 func ResolveOVMFLoaderPath(secure bool) string {
 	candidates := []string{
@@ -354,6 +359,10 @@ func CreateQCOW2NVRAMFromTemplate(templatePath, nvramPath string) error {
 	nvramPath = strings.TrimSpace(nvramPath)
 	if templatePath == "" || nvramPath == "" {
 		return fmt.Errorf("NVRAM 模板路径或目标路径为空")
+	}
+	// 检查模板文件是否存在
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		return fmt.Errorf("OVMF模板文件不存在: %s, 请确认已安装OVMF固件 ( Debian/Ubuntu: apt install ovmf, CentOS/RHEL: yum install edk2-ovmf )", templatePath)
 	}
 	if err := os.MkdirAll(filepath.Dir(nvramPath), 0755); err != nil {
 		return fmt.Errorf("创建 UEFI NVRAM 目录失败: %w", err)

@@ -219,7 +219,7 @@ func UploadUserStorageFile(c *gin.Context) {
 	}
 
 	// 设置文件权限（project quota 不依赖文件 owner，保持 libvirt-qemu:kvm 确保 VM 可访问）
-	utils.ExecCommand("chown", "libvirt-qemu:kvm", destPath)
+	_ = utils.ChownLibvirtQEMU(destPath)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"kvm_console/config"
 	"kvm_console/logger"
@@ -238,6 +239,20 @@ func DisableLibvirtDefaultNetworkIfNeeded() {
 	if result := utils.ExecShell("virsh net-info default 2>/dev/null | awk '/^Autostart:/ {print $2}'"); strings.TrimSpace(result.Stdout) == "yes" {
 		utils.ExecCommand("virsh", "net-autostart", "default", "--disable")
 	}
+	// 等待端口释放，确保 libvirt dnsmasq 完全停止
+ waitForPortRelease:
+	for i := 0; i < 5; i++ {
+		result := utils.ExecShellQuiet(fmt.Sprintf("ss -tlnp | grep -q '%s:53'", OvsGatewayIP()))
+		if result.Error != nil {
+			// 端口未被占用，可以继续
+			break waitForPortRelease
+		}
+		// 端口仍被占用，等待后重试
+		time.Sleep(time.Second)
+	}
+	// 杀掉残留的 libvirt dnsmasq 进程
+	utils.ExecShellQuiet("pkill -f 'dnsmasq.*192.168.122' || true")
+	time.Sleep(500 * time.Millisecond)
 }
 
 // EnsureSystemdUnitEnabled enables a systemd unit if not already enabled.

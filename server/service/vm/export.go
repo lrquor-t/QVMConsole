@@ -171,7 +171,7 @@ func ExportVM(ctx context.Context, params *ExportVMParams, progressFn func(int, 
 	progressFn(90, "设置文件权限...")
 
 	// 设置文件权限（确保 VM 和 web 服务都能访问）
-	utils.ExecCommand("chown", "libvirt-qemu:kvm", exportPath)
+	_ = utils.ChownLibvirtQEMU(exportPath)
 
 	// 获取导出文件大小
 	sizeResult := utils.ExecShell(fmt.Sprintf("du -h %s | awk '{print $1}'", utils.ShellSingleQuote(exportPath)))
