@@ -57,6 +57,16 @@ func LXCUpdateContainerConfig(name string, u lxc.ContainerConfigUpdate) error {
 	return lxc.UpdateContainerConfig(name, u)
 }
 
+// LXCGetDiskLimit 读取容器磁盘配额（refquota，GB；0=不限）。非 zfs 容器返回错误。
+func LXCGetDiskLimit(name string) (int, error) {
+	return lxc.LXCGetDiskLimit(name)
+}
+
+// LXCSetDiskLimit 设置容器磁盘配额（gb>0 设上限；0 取消）。非 zfs 容器返回错误。
+func LXCSetDiskLimit(name string, gb int) error {
+	return lxc.LXCSetDiskLimit(name, gb)
+}
+
 // LXCCheckQuota 校验用户 LXC 配额（admin 不限）。
 func LXCCheckQuota(username string, cpu, ramMB int) error {
 	return lxc.CheckLXCQuota(username, cpu, ramMB)

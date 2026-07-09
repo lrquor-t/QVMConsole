@@ -264,6 +264,8 @@ func Setup() *gin.Engine {
 				lxcGroup.GET("/:name/stats/history", handler.GetLXCStatsHistory)
 				lxcGroup.GET("/:name/console/ws", handler.LxcConsoleWS)
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
+				lxcGroup.GET("/:name/disk-limit", middleware.AdminMiddleware(), handler.GetLXCDiskLimit)
+				lxcGroup.PUT("/:name/disk-limit", middleware.AdminMiddleware(), handler.SetLXCDiskLimit)
 				lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
 				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
 				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)

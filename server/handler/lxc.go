@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -56,6 +57,43 @@ func UpdateLXCConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
+}
+
+// GetLXCDiskLimit GET /api/lxc/:name/disk-limit
+func GetLXCDiskLimit(c *gin.Context) {
+	gb, err := service.LXCGetDiskLimit(c.Param("name"))
+	if err != nil {
+		// 非 zfs 容器也算业务错误，返 400 让前端静默/隐藏字段
+		code := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "非 zfs") {
+			code = http.StatusBadRequest
+		}
+		c.JSON(code, gin.H{"code": code, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": gin.H{"gb": gb}})
+}
+
+type setLXCDiskLimitReq struct {
+	GB int `json:"gb"`
+}
+
+// SetLXCDiskLimit PUT /api/lxc/:name/disk-limit
+func SetLXCDiskLimit(c *gin.Context) {
+	var req setLXCDiskLimitReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := service.LXCSetDiskLimit(c.Param("name"), req.GB); err != nil {
+		code := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "非 zfs") {
+			code = http.StatusBadRequest
+		}
+		c.JSON(code, gin.H{"code": code, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "磁盘配额已更新"})
 }
 
 // ListLXCSnapshots 列出容器快照。
