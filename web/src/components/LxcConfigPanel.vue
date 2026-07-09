@@ -25,16 +25,30 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card v-if="backing === 'zfs'" shadow="hover" class="cfg-card">
+      <div class="section-title">存储</div>
+      <el-form label-width="90px" :disabled="diskSaving">
+        <el-form-item label="磁盘配额(GB)">
+          <el-input-number v-model="diskLimitGB" :min="0" :step="10" />
+          <div class="cfg-hint">refquota，限制容器 rootfs 数据量；0 = 不限。缩小到低于已用空间会被 ZFS 拒绝。</div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="diskSaving" @click="saveDiskLimit">保存配额</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { updateLXCConfig } from '@/api/lxc'
+import { updateLXCConfig, getLXCDiskLimit, setLXCDiskLimit } from '@/api/lxc'
 
 const props = defineProps({
   name: { type: String, required: true },
+  backing: { type: String, default: '' },
   initialConfig: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits(['saved'])
@@ -63,6 +77,26 @@ const save = async () => {
     emit('saved')
   } catch (e) {} finally { saving.value = false }
 }
+
+// 磁盘配额（refquota，仅 zfs backing；独立端点，单独保存）
+const diskLimitGB = ref(0)
+const diskSaving = ref(false)
+const loadDiskLimit = async () => {
+  if (props.backing !== 'zfs' || !props.name) { diskLimitGB.value = 0; return }
+  diskLimitGB.value = 0
+  try { const r = await getLXCDiskLimit(props.name); diskLimitGB.value = r.data?.gb || 0 }
+  catch {} // 非 zfs / 读取失败静默
+}
+const saveDiskLimit = async () => {
+  diskSaving.value = true
+  try {
+    await setLXCDiskLimit(props.name, diskLimitGB.value)
+    ElMessage.success('磁盘配额已更新')
+  } catch (e) { ElMessage.error(e?.message || '更新失败') }
+  finally { diskSaving.value = false }
+}
+// 切容器或 backing 变化时重载配额（config tab 为 lazy，挂载时 immediate 触发首次加载）
+watch(() => [props.name, props.backing], loadDiskLimit, { immediate: true })
 </script>
 
 <style scoped>
