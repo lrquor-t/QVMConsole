@@ -1,9 +1,12 @@
 package pool
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"kvm_console/utils"
 )
 
 // ── 类型 ──
@@ -227,4 +230,60 @@ func parseZpoolErrors(raw string) []string {
 		files = append(files, c)
 	}
 	return files
+}
+
+// ── 命令封装（exec wrapper；不单测，靠真机手测）──
+
+// GetZFSScrubStatus 读取某 zpool 的 scrub 状态与健康度。
+func GetZFSScrubStatus(pool string) (ZFSScrubStatus, error) {
+	res := utils.ExecCommand("zpool", "status", pool)
+	if res.Error != nil {
+		return ZFSScrubStatus{}, fmt.Errorf("读取 zpool %s 状态失败: %w", pool, res.Error)
+	}
+	return parseZpoolStatus(res.Stdout, pool)
+}
+
+// StartZFSScrub 启动 scrub（已在 scrub 时 zpool 会报错，由前端按 state 禁用按钮兜底）。
+func StartZFSScrub(pool string) error {
+	if res := utils.ExecCommand("zpool", "scrub", pool); res.Error != nil {
+		return fmt.Errorf("启动 scrub 失败: %w (%s)", res.Error, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// StopZFSScrub 停止正在进行的 scrub。
+func StopZFSScrub(pool string) error {
+	if res := utils.ExecCommand("zpool", "scrub", "-s", pool); res.Error != nil {
+		return fmt.Errorf("停止 scrub 失败: %w (%s)", res.Error, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// ClearZFSErrors 清除瞬时错误计数（zpool clear；无错误时无害空操作）。
+func ClearZFSErrors(pool string) error {
+	if res := utils.ExecCommand("zpool", "clear", pool); res.Error != nil {
+		return fmt.Errorf("清除错误失败: %w (%s)", res.Error, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// GetZFSErrors 读取永久错误文件清单（zpool status -v，截断前 200 条）。
+// -v 在错误文件极多时可能卡顿，被 ExecCommand 的 30s 超时兜底；超时返回空 + TimedOut。
+func GetZFSErrors(pool string) (ZFSErrorList, error) {
+	res := utils.ExecCommand("zpool", "status", "-v", pool)
+	out := ZFSErrorList{Pool: pool, Files: []string{}}
+	if res.Error != nil {
+		// 超时/异常：返回空清单并标注，不当硬错误（主状态端点不受影响）
+		out.TimedOut = true
+		return out, nil
+	}
+	files := parseZpoolErrors(res.Stdout)
+	out.Total = len(files)
+	if len(files) > zfsErrorsMaxFiles {
+		out.Truncated = true
+		out.Files = files[:zfsErrorsMaxFiles]
+	} else {
+		out.Files = files
+	}
+	return out, nil
 }
