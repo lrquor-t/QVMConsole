@@ -69,21 +69,6 @@ func parseZFSSize(s string) (int64, bool) {
 	return int64(f * m), true
 }
 
-// formatZFSSize 字节数 → ZFS 大小字符串（向上取整到合适单位）。
-func formatZFSSize(bytes int64) string {
-	if bytes <= 0 {
-		return "none"
-	}
-	u := []string{"B", "K", "M", "G", "T", "P"}
-	v := float64(bytes)
-	i := 0
-	for v >= 1024 && i < len(u)-1 {
-		v /= 1024
-		i++
-	}
-	return strconv.FormatFloat(v, 'f', 0, 64) + u[i]
-}
-
 // validateZFSPropValue 校验属性名白名单 + 值合法（未导出，供 Set 内部 + Validate 复用）。
 func validateZFSPropValue(prop, value string) error {
 	if !zfsEditableProps[prop] {

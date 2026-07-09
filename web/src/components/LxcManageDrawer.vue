@@ -118,6 +118,7 @@ const diskLimitGB = ref(0)
 const savingDiskLimit = ref(false)
 const loadDiskLimit = async () => {
   if (currentBacking.value !== 'zfs' || !currentName.value) return
+  diskLimitGB.value = 0
   try { const r = await getLXCDiskLimit(currentName.value); diskLimitGB.value = r.data?.gb || 0 }
   catch {} // 非 zfs 静默
 }

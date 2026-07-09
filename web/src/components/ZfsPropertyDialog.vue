@@ -61,7 +61,8 @@ const sourceText = (s) => {
   if (!s) return '-'
   if (s === 'local') return '本地'
   if (s === 'default') return '默认'
-  if (s.startsWith('inherited')) return '继承' + s.replace('inherited', '')
+  if (s.startsWith('inherited from ')) return '继承自 ' + s.replace('inherited from ', '')
+  if (s.startsWith('inherited')) return '继承自父级'
   return s
 }
 const formatBytes = (n) => {
@@ -81,6 +82,8 @@ async function fetchInfo() {
     form.atime = info.value.atime?.value || 'off'
     form.quota = info.value.quota?.value && info.value.quota.value !== 'none' ? info.value.quota.value : ''
     form.refquota = info.value.refquota?.value && info.value.refquota.value !== 'none' ? info.value.refquota.value : ''
+  } catch (e) {
+    ElMessage.error(e?.message || '读取属性失败')
   } finally {
     loading.value = false
   }
@@ -96,9 +99,11 @@ async function handleSave() {
       ['refquota', form.refquota || 'none']
     ]
     for (const [prop, val] of targets) {
-      const cur = prop === 'compression' || prop === 'atime' ? (info.value[prop]?.value || '') : (info.value[prop]?.value === 'none' ? '' : (info.value[prop]?.value || ''))
+      const raw = info.value[prop]?.value || ''
+      // 压缩/atime 空值归一为 off；quota/refquota 空值归一为 none——两侧同口径比较
+      const cur = (prop === 'compression' || prop === 'atime') ? (raw || 'off') : (raw || 'none')
       if ((val || '') === (cur || '')) continue // 未变跳过
-      const res = await setZFSProperty(dataset.value, prop, val)
+      await setZFSProperty(dataset.value, prop, val)
       ElMessage.success(prop + ' 已更新')
     }
     await fetchInfo()
