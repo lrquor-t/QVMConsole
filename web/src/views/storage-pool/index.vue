@@ -317,6 +317,7 @@
               <el-button size="small" plain @click="openConfig(part)">配置</el-button>
               <el-button size="small" plain type="primary" :disabled="!part.can_use_for_vm || part.is_default" @click="handleSetDefault(part)">设为默认</el-button>
               <el-button size="small" plain type="warning" :disabled="!part.can_format" @click="openFormat(part)">格式化挂载</el-button>
+              <el-button v-if="part.type === 'zdataset'" size="small" plain type="primary" @click="openZfsProperty(part.display_name)">属性</el-button>
               <el-button v-if="part.type === 'zdataset'" size="small" plain type="danger" @click="openDeleteDataset(part)">删除数据集</el-button>
             </div>
           </div>
@@ -770,6 +771,9 @@
 
     <!-- ZFS Scrub / 健康 对话框 -->
     <ZfsScrubDialog ref="zfsScrubDialogRef" />
+
+    <!-- ZFS Dataset 属性 对话框 -->
+    <ZfsPropertyDialog ref="zfsPropertyDialogRef" />
   </div>
 </template>
 
@@ -779,6 +783,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
 import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool } from '@/api/infra'
 import ZfsScrubDialog from '@/components/ZfsScrubDialog.vue'
+import ZfsPropertyDialog from '@/components/ZfsPropertyDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -798,6 +803,8 @@ const zfsScrubDialogRef = ref(null)
 const openZfsScrub = (poolName) => {
   zfsScrubDialogRef.value?.open(poolName)
 }
+const zfsPropertyDialogRef = ref(null)
+const openZfsProperty = (dataset) => { zfsPropertyDialogRef.value?.open(dataset) }
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
 const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))
