@@ -146,3 +146,28 @@ export function deleteZFSPool(poolName) {
     data: { pool_name: poolName }
   })
 }
+
+// 查询 ZFS scrub 状态与健康度
+export function getZFSScrubStatus(pool) {
+  return request({ url: '/storage-pool/zfs-scrub/status', method: 'get', params: { pool } })
+}
+
+// 启动 ZFS scrub
+export function startZFSScrub(pool) {
+  return request({ url: '/storage-pool/zfs-scrub/start', method: 'post', data: { pool } })
+}
+
+// 停止 ZFS scrub
+export function stopZFSScrub(pool) {
+  return request({ url: '/storage-pool/zfs-scrub/stop', method: 'post', data: { pool } })
+}
+
+// 清除 ZFS 瞬时错误计数
+export function clearZFSErrors(pool) {
+  return request({ url: '/storage-pool/zfs-clear-errors', method: 'post', data: { pool } })
+}
+
+// 查询 ZFS 永久错误文件清单
+export function getZFSErrors(pool) {
+  return request({ url: '/storage-pool/zfs-errors', method: 'get', params: { pool } })
+}
