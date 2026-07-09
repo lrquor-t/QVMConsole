@@ -171,3 +171,13 @@ export function clearZFSErrors(pool) {
 export function getZFSErrors(pool) {
   return request({ url: '/storage-pool/zfs-errors', method: 'get', params: { pool } })
 }
+
+// 读取 ZFS dataset 属性（compression/atime/quota/refquota + 来源 + 池可用）
+export function getZFSProperty(dataset) {
+  return request({ url: '/storage-pool/zfs-property', method: 'get', params: { dataset } })
+}
+
+// 设置 ZFS dataset 单个属性
+export function setZFSProperty(dataset, property, value) {
+  return request({ url: '/storage-pool/zfs-property', method: 'put', data: { dataset, property, value } })
+}

@@ -54,6 +54,16 @@ export function deleteLXCSnapshot(name, snap) {
   return request({ url: `/lxc/${name}/snapshot/${snap}`, method: 'delete' })
 }
 
+// 读取容器磁盘配额（GB，0=不限）
+export function getLXCDiskLimit(name) {
+  return request({ url: `/lxc/${name}/disk-limit`, method: 'get' })
+}
+
+// 设置/取消容器磁盘配额（gb>0 设上限，0 取消）
+export function setLXCDiskLimit(name, gb) {
+  return request({ url: `/lxc/${name}/disk-limit`, method: 'put', data: { gb } })
+}
+
 // 模板
 export function getLXCTemplateList() {
   return request({ url: '/lxc/template/list', method: 'get' })
