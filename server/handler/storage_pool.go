@@ -366,6 +366,35 @@ func DeleteZFSPool(c *gin.Context) {
 	})
 }
 
+type expandZFSPoolReq struct {
+	Pool      string   `json:"pool" binding:"required"`
+	VdevType  string   `json:"vdev_type" binding:"required"`
+	DeviceIDs []string `json:"device_ids"`
+}
+
+// ExpandZFSPool 给已存在 zpool 加同类型 vdev 扩容（同步，高风险验证）。
+// POST /api/storage-pool/expand-zfs-pool
+func ExpandZFSPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "expand_zfs_pool") {
+		return
+	}
+	var req expandZFSPoolReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需指定 pool/vdev_type/device_ids"})
+		return
+	}
+	if err := service.AddZFSVdevs(req.Pool, req.VdevType, req.DeviceIDs); err != nil {
+		// zpool 命令失败（服务端）→ 500；其余（池不存在/类型不一致/磁盘不足/已用）→ 400
+		if strings.HasPrefix(err.Error(), "zpool add 失败") {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "存储池 " + req.Pool + " 已扩容"})
+}
+
 // zfsPoolNameReq scrub/clear 动作的 pool 参数。
 type zfsPoolNameReq struct {
 	Pool string `json:"pool" binding:"required"`

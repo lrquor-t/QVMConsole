@@ -101,6 +101,11 @@ func DeleteZFSPool(ctx context.Context, poolName string, progress func(int, stri
 	return pool.DeleteZFSPool(ctx, poolName, progress)
 }
 
+// AddZFSVdevs delegates to pool.AddZFSVdevs
+func AddZFSVdevs(poolName, vdevType string, deviceIDs []string) error {
+	return pool.AddZFSVdevs(poolName, vdevType, deviceIDs)
+}
+
 // CreateZFSDataset delegates to pool.CreateZFSDataset
 func CreateZFSDataset(poolName, dsName string) error {
 	return pool.CreateZFSDataset(poolName, dsName)
