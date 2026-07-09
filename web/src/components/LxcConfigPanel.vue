@@ -1,22 +1,17 @@
 <template>
   <div class="lxc-config-panel">
     <el-card shadow="hover" class="cfg-card">
-      <div class="section-title">计算</div>
-      <el-form :model="form" label-width="90px" :disabled="saving">
+      <div class="section-title">基本配置</div>
+      <el-form :model="form" label-width="110px" :disabled="saving">
         <el-form-item label="CPU 权重">
           <el-input-number v-model="form.cpu_shares" :min="0" />
-          <div class="cfg-hint">cgroup cpu.shares，越大优先级越高（默认 256）</div>
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup cpu.shares，越大优先级越高（默认 256）</div>
         </el-form-item>
         <el-form-item label="内存(MB)">
           <el-input-number v-model="form.memory_mb" :min="0" />
-          <div class="cfg-hint">cgroup memory.limit_in_bytes</div>
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup memory.limit_in_bytes</div>
         </el-form-item>
-      </el-form>
-    </el-card>
-
-    <el-card shadow="hover" class="cfg-card">
-      <div class="section-title">启动与元数据</div>
-      <el-form :model="form" label-width="90px" :disabled="saving">
+        <el-divider style="margin: 6px 0 14px" />
         <el-form-item label="自动启动"><el-switch v-model="form.autostart" /></el-form-item>
         <el-form-item label="分组"><el-input v-model="form.group_name" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
@@ -28,10 +23,10 @@
 
     <el-card v-if="backing === 'zfs'" shadow="hover" class="cfg-card">
       <div class="section-title">存储</div>
-      <el-form label-width="90px" :disabled="diskSaving">
+      <el-form label-width="110px" :disabled="diskSaving">
         <el-form-item label="磁盘配额(GB)">
           <el-input-number v-model="diskLimitGB" :min="0" :step="10" />
-          <div class="cfg-hint">refquota，限制容器 rootfs 数据量；0 = 不限。缩小到低于已用空间会被 ZFS 拒绝。</div>
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> refquota，限制容器 rootfs 数据量；0 = 不限。缩小到低于已用空间会被 ZFS 拒绝。</div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="diskSaving" @click="saveDiskLimit">保存配额</el-button>
@@ -44,6 +39,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { updateLXCConfig, getLXCDiskLimit, setLXCDiskLimit } from '@/api/lxc'
 
 const props = defineProps({
@@ -116,8 +112,11 @@ watch(() => [props.name, props.backing], loadDiskLimit, { immediate: true })
 .cfg-hint {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  margin-top: 4px;
+  margin-top: 6px;
   line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .section-title {
   font-size: 16px;
