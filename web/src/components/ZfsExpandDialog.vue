@@ -12,7 +12,7 @@
         该池已混合多种 vdev 类型，扩容类型可自选，但可能加剧不一致。
       </el-alert>
 
-      <el-form label-width="100px">
+      <el-form label-width="100px" class="expand-form">
         <el-form-item label="vdev 类型">
           <el-select v-model="form.vdev_type" :disabled="lockedType !== 'mixed'" style="width:100%">
             <el-option v-for="v in vdevOptions" :key="v.value" :label="v.label" :value="v.value" />
@@ -125,6 +125,7 @@ defineExpose({ open })
 
 <style scoped>
 .expand-body { display: flex; flex-direction: column; gap: 12px; }
+.expand-form { margin-top: 8px; }
 .expand-alert { margin: 0; }
 .expand-hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
 .pv-disk-item { border: none; }
