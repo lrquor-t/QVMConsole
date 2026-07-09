@@ -147,6 +147,11 @@ export function deleteZFSPool(poolName) {
   })
 }
 
+// 扩容 ZFS 存储池（加同类型 vdev）
+export function expandZFSPool(data) {
+  return request({ url: '/storage-pool/expand-zfs-pool', method: 'post', data })
+}
+
 // 查询 ZFS scrub 状态与健康度
 export function getZFSScrubStatus(pool, opts = {}) {
   return request({ url: '/storage-pool/zfs-scrub/status', method: 'get', params: { pool }, ...opts })
