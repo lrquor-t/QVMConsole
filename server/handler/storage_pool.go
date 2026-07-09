@@ -365,3 +365,87 @@ func DeleteZFSPool(c *gin.Context) {
 		"data":    gin.H{"task_id": task.ID},
 	})
 }
+
+// zfsPoolNameReq scrub/clear 动作的 pool 参数。
+type zfsPoolNameReq struct {
+	Pool string `json:"pool" binding:"required"`
+}
+
+func resolvePoolFromQuery(c *gin.Context) (string, bool) {
+	pool := strings.TrimSpace(c.Query("pool"))
+	if pool == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 pool 参数"})
+		return "", false
+	}
+	return pool, true
+}
+
+// GetZFSScrubStatus GET /api/storage-pool/zfs-scrub/status?pool=
+func GetZFSScrubStatus(c *gin.Context) {
+	pool, ok := resolvePoolFromQuery(c)
+	if !ok {
+		return
+	}
+	status, err := service.GetZFSScrubStatus(pool)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
+}
+
+// StartZFSScrub POST /api/storage-pool/zfs-scrub/start
+func StartZFSScrub(c *gin.Context) {
+	var req zfsPoolNameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要指定 pool"})
+		return
+	}
+	if err := service.StartZFSScrub(req.Pool); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已启动: " + req.Pool})
+}
+
+// StopZFSScrub POST /api/storage-pool/zfs-scrub/stop
+func StopZFSScrub(c *gin.Context) {
+	var req zfsPoolNameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要指定 pool"})
+		return
+	}
+	if err := service.StopZFSScrub(req.Pool); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已停止: " + req.Pool})
+}
+
+// ClearZFSErrors POST /api/storage-pool/zfs-clear-errors
+func ClearZFSErrors(c *gin.Context) {
+	var req zfsPoolNameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要指定 pool"})
+		return
+	}
+	if err := service.ClearZFSErrors(req.Pool); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "错误计数已清除: " + req.Pool})
+}
+
+// GetZFSErrors GET /api/storage-pool/zfs-errors?pool=
+func GetZFSErrors(c *gin.Context) {
+	pool, ok := resolvePoolFromQuery(c)
+	if !ok {
+		return
+	}
+	list, err := service.GetZFSErrors(pool)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": list})
+}
