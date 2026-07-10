@@ -1335,6 +1335,13 @@ restart_ovs_dnsmasq_service() {
 
 setup_ovs_foundation() {
     info "准备 OVS 网络地基..."
+
+    # 内部子函数，任何失败只警告不中断安装
+    _setup_ovs_inner || warn "OVS 网络地基配置部分失败，可在面板 OVS 诊断中执行修复"
+    success "OVS 网络地基已准备"
+}
+
+_setup_ovs_inner() {
     load_env_file
     local bridge="${KVM_OVS_BRIDGE:-br-ovs}"
     local subnet="${KVM_SUBNET_PREFIX:-192.168.122}"
@@ -1350,8 +1357,14 @@ setup_ovs_foundation() {
         warn "未检测到默认出口网卡，OVS NAT 将在面板网络修复时再次尝试。也可在 $ENV_FILE 配置 KVM_OVS_UPLINK"
     fi
 
-    systemctl enable --now openvswitch-switch 2>/dev/null || true
-    if ! ovs-vsctl --may-exist add-br "$bridge" 2>/dev/null; then
+    systemctl enable --now openvswitch-switch 2>/dev/null || \
+        systemctl enable --now openvswitch 2>/dev/null || true
+    # 等待 OVS 数据库就绪，避免 ovs-vsctl 挂起
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        ovs-vsctl --no-wait show 2>/dev/null && break
+        sleep 1
+    done
+    if ! ovs-vsctl --timeout=5 --may-exist add-br "$bridge" 2>/dev/null; then
         warn "创建 OVS 网桥失败，跳过 OVS 网络配置"
         return 0
     fi
@@ -1448,7 +1461,6 @@ EOF
         virsh net-destroy default >/dev/null 2>&1 || true
         virsh net-autostart default --disable >/dev/null 2>&1 || true
     fi
-    success "OVS 网络地基已准备"
 }
 
 setup_sshd_foundation() {
