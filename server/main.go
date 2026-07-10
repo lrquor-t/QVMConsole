@@ -154,6 +154,14 @@ func registerTaskHandlers() {
 			return "", fmt.Errorf("克隆完成，但绑定 VPC 网络失败: %w", err)
 		}
 		attachTaskExtraNICs(params.Name, task.Params)
+		// 绑定克隆时指定的固定 IP（主卡 order0 + 附加卡 order i+1），任一失败回滚
+		fixedPlans := []service.NICFixedIP{{Order: 0, IP: params.FixedIP}}
+		for i, nic := range params.ExtraNics {
+			fixedPlans = append(fixedPlans, service.NICFixedIP{Order: i + 1, IP: nic.FixedIP})
+		}
+		if err := service.BindStaticIPForNICs(params.Name, fixedPlans); err != nil {
+			return "", fmt.Errorf("克隆完成，但绑定固定 IP 失败: %w", err)
+		}
 		// 应用 IOPS 限制
 		applyCloneIOPS(params)
 		if saveErr := service.SaveVMCredential(params.Name, params.User, params.Password, "clone", task.CreatedBy, false); saveErr != nil {
@@ -187,6 +195,14 @@ func registerTaskHandlers() {
 			return "", fmt.Errorf("原生链式克隆完成，但绑定 VPC 网络失败: %w", err)
 		}
 		attachTaskExtraNICs(params.Name, task.Params)
+		// 绑定链式克隆时指定的固定 IP（主卡 order0 + 附加卡 order i+1），任一失败回滚
+		fixedPlans := []service.NICFixedIP{{Order: 0, IP: params.FixedIP}}
+		for i, nic := range params.ExtraNics {
+			fixedPlans = append(fixedPlans, service.NICFixedIP{Order: i + 1, IP: nic.FixedIP})
+		}
+		if err := service.BindStaticIPForNICs(params.Name, fixedPlans); err != nil {
+			return "", fmt.Errorf("克隆完成，但绑定固定 IP 失败: %w", err)
+		}
 		// 应用 IOPS 限制
 		applyLinkedCloneIOPS(params)
 		refreshVMCacheAfterTask(params.Name)
@@ -346,6 +362,14 @@ func registerTaskHandlers() {
 			return "", fmt.Errorf("虚拟机创建完成，但绑定 VPC 网络失败: %w", err)
 		}
 		attachTaskExtraNICs(params.Name, task.Params)
+		// 绑定创建时指定的固定 IP（主卡 order0 + 附加卡 order i+1），任一失败回滚
+		fixedPlans := []service.NICFixedIP{{Order: 0, IP: params.FixedIP}}
+		for i, nic := range params.ExtraNics {
+			fixedPlans = append(fixedPlans, service.NICFixedIP{Order: i + 1, IP: nic.FixedIP})
+		}
+		if err := service.BindStaticIPForNICs(params.Name, fixedPlans); err != nil {
+			return "", fmt.Errorf("虚拟机创建完成，但绑定固定 IP 失败: %w", err)
+		}
 		refreshVMCacheAfterTask(params.Name)
 		resultJSON, _ := json.Marshal(map[string]string{
 			"vm_name":   params.Name,
