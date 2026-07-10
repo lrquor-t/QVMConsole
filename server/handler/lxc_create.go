@@ -12,21 +12,21 @@ import (
 )
 
 type createLXCReq struct {
-	Name            string `json:"name" binding:"required"`
-	Template        string `json:"template"`
-	Remark          string `json:"remark"`
-	GroupName       string `json:"group_name"`
-	CPUShares       int    `json:"cpu_shares"`
-	MemoryMB        int    `json:"memory_mb"`
-	Autostart       bool   `json:"autostart"`
-	SwitchID        uint   `json:"switch_id"`
-	SecurityGroupID uint   `json:"security_group_id"`
-	FixedIP         string `json:"fixed_ip,omitempty"`
-	Source          string `json:"source"` // clone（默认/空）| download
-	Distro          string `json:"distro"`
-	Release         string `json:"release"`
-	Arch            string `json:"arch"`
-	DiskLimitGB     int    `json:"disk_limit_gb"`
+	Name            string                           `json:"name" binding:"required"`
+	Template        string                           `json:"template"`
+	Remark          string                           `json:"remark"`
+	GroupName       string                           `json:"group_name"`
+	CPUShares       int                              `json:"cpu_shares"`
+	MemoryMB        int                              `json:"memory_mb"`
+	Autostart       bool                             `json:"autostart"`
+	SwitchID        uint                             `json:"switch_id"`
+	SecurityGroupID uint                             `json:"security_group_id"`
+	FixedIP         string                           `json:"fixed_ip,omitempty"`
+	Source          string                           `json:"source"` // clone（默认/空）| download
+	Distro          string                           `json:"distro"`
+	Release         string                           `json:"release"`
+	Arch            string                           `json:"arch"`
+	DiskLimitGB     int                              `json:"disk_limit_gb"`
 	ExtraNics       []service.LXCAddInterfaceRequest `json:"extra_nics"`
 }
 

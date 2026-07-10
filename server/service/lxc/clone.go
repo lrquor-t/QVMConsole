@@ -14,11 +14,11 @@ import (
 
 // CloneParams 「从快照克隆容器」异步任务参数（task.Params JSON）。
 type CloneParams struct {
-	SrcName string `json:"src_name"`             // 源容器名
-	Snap    string `json:"snap"`                 // 源 zfs 快照名
-	DstName string `json:"dst_name"`             // 新容器名
-	Remark  string `json:"remark"`               // 新容器备注
-	FixedIP string `json:"fixed_ip,omitempty"`   // 主卡克隆后绑定的固定 IP，空=动态 DHCP
+	SrcName string `json:"src_name"`           // 源容器名
+	Snap    string `json:"snap"`               // 源 zfs 快照名
+	DstName string `json:"dst_name"`           // 新容器名
+	Remark  string `json:"remark"`             // 新容器备注
+	FixedIP string `json:"fixed_ip,omitempty"` // 主卡克隆后绑定的固定 IP，空=动态 DHCP
 }
 
 // ParseCloneParams 反序列化克隆任务参数。

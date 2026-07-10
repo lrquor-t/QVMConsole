@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"kvm_console/config"
+	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service/ip_resolver"
 	"kvm_console/service/libvirt_rpc"
@@ -772,7 +773,9 @@ func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
 		mac, switchID, err := bindOneNICStaticIP(vmName, p.Order, ip)
 		if err != nil {
 			for _, d := range doneList {
-				_, _ = RemoveVPCStaticHost(d.switchID, vmName, d.mac)
+				if _, rmErr := RemoveVPCStaticHost(d.switchID, vmName, d.mac); rmErr != nil {
+					logger.App.Warn("回滚静态绑定失败", "switchID", d.switchID, "vmName", vmName, "mac", d.mac, "error", rmErr)
+				}
 			}
 			return fmt.Errorf("网卡 #%d 绑定固定 IP %s 失败: %w", p.Order, ip, err)
 		}

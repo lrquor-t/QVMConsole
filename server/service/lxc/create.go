@@ -18,22 +18,22 @@ import (
 
 // CreateContainerParams 异步创建容器参数（task.Params JSON）。
 type CreateContainerParams struct {
-	Name            string `json:"name"`
-	Template        string `json:"template"`
-	OwnerUsername   string `json:"owner_username"`
-	Remark          string `json:"remark"`
-	GroupName       string `json:"group_name"`
-	CPUShares       int    `json:"cpu_shares"`
-	MemoryMB        int    `json:"memory_mb"`
-	Autostart       bool   `json:"autostart"`
-	SwitchID        uint   `json:"switch_id"`
-	SecurityGroupID uint   `json:"security_group_id"`
-	FixedIP         string `json:"fixed_ip,omitempty"` // 主卡创建时绑定的固定 IP，空=动态 DHCP
-	Source          string `json:"source"`             // clone（默认/空）| download
-	Distro          string `json:"distro"`  // download 模式：发行版
-	Release         string `json:"release"` // download 模式：版本
-	Arch            string `json:"arch"`    // download 模式：架构
-	DiskLimitGB     int    `json:"disk_limit_gb"` // zfs backing：容器 rootfs refquota（GB），0=不限
+	Name            string                   `json:"name"`
+	Template        string                   `json:"template"`
+	OwnerUsername   string                   `json:"owner_username"`
+	Remark          string                   `json:"remark"`
+	GroupName       string                   `json:"group_name"`
+	CPUShares       int                      `json:"cpu_shares"`
+	MemoryMB        int                      `json:"memory_mb"`
+	Autostart       bool                     `json:"autostart"`
+	SwitchID        uint                     `json:"switch_id"`
+	SecurityGroupID uint                     `json:"security_group_id"`
+	FixedIP         string                   `json:"fixed_ip,omitempty"` // 主卡创建时绑定的固定 IP，空=动态 DHCP
+	Source          string                   `json:"source"`             // clone（默认/空）| download
+	Distro          string                   `json:"distro"`             // download 模式：发行版
+	Release         string                   `json:"release"`            // download 模式：版本
+	Arch            string                   `json:"arch"`               // download 模式：架构
+	DiskLimitGB     int                      `json:"disk_limit_gb"`      // zfs backing：容器 rootfs refquota（GB），0=不限
 	ExtraNics       []AddLXCInterfaceRequest `json:"extra_nics"`
 }
 
