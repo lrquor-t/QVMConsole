@@ -15,6 +15,11 @@ export function createLXC(data) {
   return request({ url: '/lxc/create', method: 'post', data })
 }
 
+// 批量创建
+export function batchCreateLXC(data) {
+  return request({ url: '/lxc/batch-create', method: 'post', data })
+}
+
 // 启动/停止/重启
 export function operateLXC(name, action) {
   return request({ url: `/lxc/${name}/operate`, method: 'post', data: { action } })

@@ -322,6 +322,11 @@ export const endpointGroups = [
         response: 'data: task_id。创建为异步任务，请轮询任务详情。',
         notes: [admin, 'clone 模式从模板克隆 rootfs 并按 sw.BridgeName 覆盖 lxc.net.0.link；download 模式走 lxc-create -t download 拉取官方镜像。容器建好后按 extra_nics 顺序逐张追加（运行中热插拔 / 离线写 config 持久化）。', '非 admin 受 LXC 配额校验（数量/CPU/内存），超限返回 400。']
       }),
+      ep('POST', '/lxc/batch-create', '批量创建 LXC 容器（异步）', {
+        body: 'JSON: prefix(必填, 名称前缀, 需符合容器名规则), start_num(起始序号, 默认 1), count(必填, 1-100), source(clone|download, 默认 clone), template(clone 必填, 模板容器名), distro/release/arch(download 必填, 官方镜像三元组), cpu_shares, memory_mb, disk_limit_gb, autostart(bool), group_name, remark, switch_id(主网卡交换机), security_group_id, extra_nics[{switch_id, security_group_id}](可选, 顶层 switch_id 决定主卡 order=0)',
+        response: 'data: task_id。批量创建为异步任务，请轮询任务详情；task.Result 返回逐项 [{name, error?}]。',
+        notes: [admin, '容器名按 prefix-NN 生成（2 位补零，如 web-01；序号 ≥100 自动升 3 位如 web-100），由 service.BatchName(prefix, start_num+i) 派生，创建与预检共用同一格式杜绝漂移。', 'clone 模式并发克隆模板（上限复用 BatchCloneMaxConcurrency，默认 10）；download 模式复用 lxc 镜像缓存。', '提交前整批预检：生成名格式非法 → 400；任一已存在 → 整批 409 中止（不创建任何项）。', '部分成功语义：单项失败不影响其余，失败项在 task.Result 记 error，无半成品 LXCCache 残留。支持任务取消（未开始项中止、已成功项保留）。', '非 admin 受 LXC 配额校验，数量/CPU/内存均按 ×count 累计（LXCCheckQuotaForBatch），超限返回 400。']
+      }),
       ep('GET', '/lxc/:name/snapshots', '列出容器快照', { pathParams: ['name'], notes: ['返回新→旧排序；每项 {name, created_at, comment}。zfs 容器读 zfs 快照 + user property 备注；dir 容器解析 lxc-snapshot -L。'] }),
       ep('POST', '/lxc/:name/snapshot', '创建快照', { pathParams: ['name'], body: 'JSON: comment(可选，快照备注)', notes: ['异步任务，返回 task_id。zfs 容器快照名为 snap-<时间戳>；dir 容器由 lxc-snapshot 自动命名为 snap0/snap1。备注：zfs 存为 user property kvm_console:comment，dir 经 lxc-snapshot -c 写入。'] }),
       ep('POST', '/lxc/:name/snapshot/:snap/restore', '恢复快照', { pathParams: ['name', 'snap'], notes: ['会先自动关机容器；zfs 容器用 zfs rollback -r（销毁该快照之后创建的快照）。'] }),

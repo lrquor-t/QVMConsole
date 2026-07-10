@@ -54,6 +54,15 @@
             </el-input>
             <div class="form-tip">小写字母/数字/-，2-63 字符，开头字母/数字。</div>
           </el-form-item>
+          <el-form-item label="创建数量">
+            <el-input-number v-model="form.batch_count" :min="1" :max="100" style="width: 100%;" />
+            <div class="form-tip" v-if="form.batch_count > 1">
+              <el-icon><InfoFilled /></el-icon>
+              批量模式下名称作为前缀，将创建 {{ form.batch_count }} 个容器：
+              {{ batchPreviewNames.slice(0, 3).join('、') }}{{ batchPreviewNames.length > 3 ? ' …' : '' }}
+              （共 {{ form.batch_count * form.memory_mb }}MB 内存<span v-if="form.disk_limit_gb > 0">，每容器上限 {{ form.disk_limit_gb }}GB 磁盘</span>）
+            </div>
+          </el-form-item>
           <el-form-item label="容器目录">
             <el-input :model-value="containerPathPreview" disabled />
             <div class="form-tip">容器将创建于此；目录随名称变化，由系统设置「LXC 容器目录」决定。</div>
@@ -122,6 +131,12 @@
             <el-descriptions-item label="自动启动">{{ form.autostart ? '是' : '否' }}</el-descriptions-item>
             <el-descriptions-item label="分组/备注">{{ form.group_name || '-' }} / {{ form.remark || '-' }}</el-descriptions-item>
             <el-descriptions-item label="网口" :span="2">{{ nicsSummary }}</el-descriptions-item>
+            <el-descriptions-item v-if="form.batch_count > 1" label="将创建的容器" :span="2">
+              <div class="form-tip">
+                <el-tag v-for="nm in batchPreviewNames.slice(0, 12)" :key="nm" type="info" style="margin: 2px;">{{ nm }}</el-tag>
+                <span v-if="batchPreviewNames.length > 12"> …共 {{ batchPreviewNames.length }} 个</span>
+              </div>
+            </el-descriptions-item>
           </el-descriptions>
         </div>
       </el-form>
@@ -141,7 +156,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { createLXC, getLXCTemplateList, getLXCDownloadList, getLXCBackingInfo } from '@/api/lxc'
+import { createLXC, batchCreateLXC, getLXCTemplateList, getLXCDownloadList, getLXCBackingInfo } from '@/api/lxc'
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
 import { getSettings } from '@/api/settings'
 import { generateRandomLXCName } from '@/utils/lxc'
@@ -161,7 +176,7 @@ const steps = [
 const formRef = ref(null)
 const loading = ref(false)
 
-const defaultForm = () => ({ name: '', template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 2048, disk_limit_gb: 0, autostart: false, group_name: '', remark: '' })
+const defaultForm = () => ({ name: '', batch_count: 1, template: '', source: 'clone', distro: '', release: '', arch: '', cpu_shares: 256, memory_mb: 2048, disk_limit_gb: 0, autostart: false, group_name: '', remark: '' })
 const form = reactive(defaultForm())
 const rules = {
   name: [
@@ -270,6 +285,15 @@ const nicsSummary = computed(() => {
   if (!valid.length) return '无（裸网）'
   return valid.map((n, i) => `#${i + 1} ${switchOf(n.switch_id)?.name || '?'}${n.security_group_id ? '(SG)' : ''}`).join('，')
 })
+// 批量预览名（与后端 BatchName 格式一致：prefix-NN，2 位补零，>99 自动升 3 位）
+const batchPreviewNames = computed(() => {
+  const n = form.batch_count || 1
+  if (n <= 1) return []
+  const prefix = form.name || 'xxx'
+  const names = []
+  for (let i = 1; i <= n; i++) names.push(`${prefix}-${String(i).padStart(2, '0')}`)
+  return names
+})
 
 // 导航
 const handleGenerateName = async () => {
@@ -310,22 +334,35 @@ const submit = async () => {
   await formRef.value.validate(async (valid) => {
     if (!valid) { ElMessage.warning('表单有误'); return }
     const nics = buildAllNicsPayload()
-    const payload = {
-      name: form.name, source: form.source,
-      template: form.template, distro: form.distro, release: form.release, arch: form.arch,
-      cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, autostart: form.autostart,
-      disk_limit_gb: form.disk_limit_gb,
-      group_name: form.group_name, remark: form.remark,
-      switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
-      extra_nics: nics.extraNics
-    }
     loading.value = true
     try {
-      await createLXC(payload)
-      ElMessage.success('创建任务已提交')
+      if (form.batch_count > 1) {
+        await batchCreateLXC({
+          prefix: form.name,
+          start_num: 1,
+          count: form.batch_count,
+          source: form.source,
+          template: form.template, distro: form.distro, release: form.release, arch: form.arch,
+          cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, disk_limit_gb: form.disk_limit_gb,
+          autostart: form.autostart, group_name: form.group_name, remark: form.remark,
+          switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
+          extra_nics: nics.extraNics
+        })
+        ElMessage.success(`批量创建任务已提交（${form.batch_count} 个），请在任务中查看进度`)
+      } else {
+        await createLXC({
+          name: form.name, source: form.source,
+          template: form.template, distro: form.distro, release: form.release, arch: form.arch,
+          cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, disk_limit_gb: form.disk_limit_gb,
+          autostart: form.autostart, group_name: form.group_name, remark: form.remark,
+          switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
+          extra_nics: nics.extraNics
+        })
+        ElMessage.success('创建任务已提交')
+      }
       visible.value = false
       emit('success')
-    } catch (e) {} finally { loading.value = false }
+    } catch (e) { /* request 拦截器已弹 toast */ } finally { loading.value = false }
   })
 }
 const onClosed = () => { step.value = 0 }
