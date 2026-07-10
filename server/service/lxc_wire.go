@@ -192,3 +192,25 @@ func StartLXCScheduleRunner() {
 func RunLXCScheduledAction(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 	return lxc.RunLXCScheduledAction(ctx, task, progress)
 }
+
+// ── 批量创建 ---
+
+// LXCBatchCreateContainerParams 批量创建容器参数（透出 lxc.BatchCreateContainerParams）。
+type LXCBatchCreateContainerParams = lxc.BatchCreateContainerParams
+
+// LXCBatchResult 单容器批量创建结果。
+type LXCBatchResult = lxc.LXCBatchResult
+
+// LXCBatchName 生成批量容器名（prefix-NN），handler 预检/前端语义与创建共用。
+func LXCBatchName(prefix string, n int) string { return lxc.BatchName(prefix, n) }
+
+// LXCNameExists 容器名是否已占用（DB 行 或 lxc-info）。
+func LXCNameExists(name string) bool { return lxc.NameExists(name) }
+
+// LXCValidateName 容器名校验（正则 + 保留前缀）。
+func LXCValidateName(name string) error { return lxc.ValidateName(name) }
+
+// LXCParseBatchCreateContainerParams 反序列化批量创建任务参数。
+func LXCParseBatchCreateContainerParams(s string) (*lxc.BatchCreateContainerParams, error) {
+	return lxc.ParseBatchCreateContainerParams(s)
+}

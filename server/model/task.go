@@ -63,6 +63,7 @@ const (
 	TaskTypeMakeVMIndependent               = "make_vm_independent"                // 链式克隆虚拟机转为独立虚拟机
 	TaskTypeMergeTemplate                   = "merge_template"                     // 模板合并
 	TaskTypeLXCCreate                       = "lxc_create"                         // 创建 LXC 容器
+	TaskTypeLXCBatchCreate                  = "lxc_batch_create"                   // 批量创建容器
 	TaskTypeLXCDestroy                      = "lxc_destroy"                        // 销毁 LXC 容器
 	TaskTypeLXCSnapshot                     = "lxc_snapshot"                       // LXC 容器快照
 	TaskTypeLXCTemplateImport               = "lxc_template_import"                // 导入 LXC 模板（rootfs tarball）

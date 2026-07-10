@@ -60,6 +60,9 @@ func validateContainerName(name string) error {
 	return nil
 }
 
+// ValidateName 导出容器名校验，供 handler 批量预检复用（避免正则重复）。
+func ValidateName(name string) error { return validateContainerName(name) }
+
 func isReservedName(name string) bool {
 	prefix := config.GlobalConfig.LXCBasePrefix
 	return len(name) > len(prefix) && name[:len(prefix)] == prefix
