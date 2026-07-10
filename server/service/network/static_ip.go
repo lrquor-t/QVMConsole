@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"kvm_console/config"
 	"kvm_console/model"
 	"kvm_console/service/ip_resolver"
 	"kvm_console/service/libvirt_rpc"
@@ -661,4 +663,122 @@ func RemovePortForwardsForIP(targetIP string) {
 	if len(ruleIDs) > 0 {
 		go SavePortForwardRules()
 	}
+}
+
+// NICFixedIP 单张网卡的固定 IP 计划（IP 为空=该卡维持动态 DHCP）。
+type NICFixedIP struct {
+	Order int
+	IP    string
+}
+
+// nicMAC 解析 vm_name 指定 interfaceOrder 网卡的 MAC（多网卡固定 IP 用）。
+// VM：走 HookGetVMMACByOrder；LXC：读 lxc config 的 lxc.net.<order>.hwaddr。order=0 与 firstNICMAC 一致。
+func nicMAC(vmName string, order int) string {
+	vmName = strings.TrimSpace(vmName)
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ? AND interface_order = ?", vmName, order).First(&b).Error; err != nil {
+		return ""
+	}
+	if strings.TrimSpace(b.Kind) == "lxc" {
+		return lxcNICMACByNameOrder(vmName, order)
+	}
+	if HookGetVMMACByOrder != nil {
+		return strings.ToLower(strings.TrimSpace(HookGetVMMACByOrder(vmName, order)))
+	}
+	if order == 0 {
+		return ip_resolver.GetFirstVMMAC(vmName)
+	}
+	return ""
+}
+
+// lxcNICMACByNameOrder 直接读 LXC 配置文件取 lxc.net.<order>.hwaddr（避免 import lxc 包导致循环依赖）。
+func lxcNICMACByNameOrder(name string, order int) string {
+	cfgPath := filepath.Join(config.GlobalConfig.LXCLxcPath, name, "config")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		if order == 0 {
+			var row model.LXCCache
+			if model.DB.Where("name = ?", name).First(&row).Error == nil {
+				return strings.ToLower(strings.TrimSpace(row.MacAddress))
+			}
+		}
+		return ""
+	}
+	prefix := fmt.Sprintf("lxc.net.%d.hwaddr", order)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix+" ") || strings.HasPrefix(line, prefix+"\t") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.ToLower(strings.TrimSpace(parts[1]))
+			}
+		}
+	}
+	return ""
+}
+
+// switchHasManagedDHCP 判断交换机是否有本系统管理的独立 dnsmasq（即可写 dhcp-hosts 预留）。
+// 对齐 ApplyVPCSwitchRuntime（switch_runtime.go:38-93）：仅 NAT 且 VLANID>0 且有 DHCP 池才起独立 dnsmasq。
+// 直通桥(bridge)提前 return 不起 dnsmasq；系统基础交换机(VLANID==0)用全局 br-ovs 也不起独立 dnsmasq。
+func switchHasManagedDHCP(sw model.VPCSwitch) bool {
+	return strings.TrimSpace(sw.BridgeMode) == "nat" && sw.VLANID != 0 &&
+		strings.TrimSpace(sw.DHCPStart) != "" && strings.TrimSpace(sw.DHCPEnd) != ""
+}
+
+// bindOneNICStaticIP 为单张网卡绑定指定 IP。无独立 dnsmasq 的交换机返回空（跳过）。
+// 返回写入的 mac、switchID（用于回滚）。
+func bindOneNICStaticIP(vmName string, order int, ip string) (string, uint, error) {
+	vmName = strings.TrimSpace(vmName)
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ? AND interface_order = ?", vmName, order).First(&b).Error; err != nil {
+		return "", 0, fmt.Errorf("未找到网卡绑定记录(order=%d)", order)
+	}
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, b.SwitchID).Error; err != nil {
+		return "", 0, fmt.Errorf("交换机不存在(id=%d)", b.SwitchID)
+	}
+	if !switchHasManagedDHCP(sw) {
+		return "", 0, nil // 无独立 dnsmasq（直通桥/系统交换机VLANID==0/无DHCP池），跳过
+	}
+	mac := nicMAC(vmName, order)
+	if mac == "" {
+		return "", 0, fmt.Errorf("无法获取网卡 #%d 的 MAC", order)
+	}
+	normalized, err := normalizeIPForVPC(ip, sw)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := UpsertVPCStaticHost(sw, vmName, mac, normalized); err != nil {
+		return "", 0, err
+	}
+	_, _ = HookRemoveOVSStaticHost(vmName, mac) // 清全局 OVS 旧条目，与 BindStaticIP 一致
+	go refreshNIC(vmName, mac, "")
+	return mac, sw.ID, nil
+}
+
+// BindStaticIPForNICs 为多张网卡逐个绑定固定 IP。IP 为空的项跳过。
+// 任一非空项失败时，回滚本次已成功写入的 dhcp-hosts 条目并返回错误（VM 不销毁）。
+func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
+	type done struct {
+		switchID uint
+		mac      string
+	}
+	var doneList []done
+	for _, p := range plans {
+		ip := strings.TrimSpace(p.IP)
+		if ip == "" {
+			continue
+		}
+		mac, switchID, err := bindOneNICStaticIP(vmName, p.Order, ip)
+		if err != nil {
+			for _, d := range doneList {
+				_, _ = RemoveVPCStaticHost(d.switchID, vmName, d.mac)
+			}
+			return fmt.Errorf("网卡 #%d 绑定固定 IP %s 失败: %w", p.Order, ip, err)
+		}
+		if mac != "" {
+			doneList = append(doneList, done{switchID, mac})
+		}
+	}
+	return nil
 }

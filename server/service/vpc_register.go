@@ -329,6 +329,7 @@ func init() {
 	vpcpkg.HookGetFirewallVMIP = getFirewallVMIP
 	vpcpkg.HookPublicIPNATPrivateIPsForVM = PublicIPNATPrivateIPsForVM
 	vpcpkg.HookGetVMMACByOrder = GetVMMACByOrder
+	netpkg.HookGetVMMACByOrder = GetVMMACByOrder
 	vpcpkg.HookAttachVMInterface = vmpkg.AttachVMInterface
 	vpcpkg.HookDetachVMInterface = vmpkg.DetachVMInterface
 
