@@ -57,6 +57,7 @@ type CreateVMParams struct {
 	SystemDiskIOPS  *DiskIOPSTune                  `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
 	SwitchID        uint                           `json:"switch_id,omitempty"`
 	SecurityGroupID uint                           `json:"security_group_id,omitempty"`
+	FixedIP         string                         `json:"fixed_ip,omitempty"` // 主网口固定 IP（空=动态 DHCP）
 	ExtraNics       []AddVMInterfaceRequest        `json:"extra_nics,omitempty"`
 	StoragePoolID   string                         `json:"storage_pool_id,omitempty"`
 	HostDevices     []HostDeviceParam              `json:"host_devices,omitempty"` // 硬件直通设备

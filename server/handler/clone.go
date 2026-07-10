@@ -60,6 +60,7 @@ type CloneVmRequest struct {
 	MemoryDynamic        *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID             uint                              `json:"switch_id"`
 	SecurityGroupID      uint                              `json:"security_group_id"`
+	FixedIP              string                            `json:"fixed_ip,omitempty"` // 主网口固定 IP（空=动态 DHCP）
 	ExtraNics            []service.AddVMInterfaceRequest   `json:"extra_nics"`
 	StoragePoolID        string                            `json:"storage_pool_id"`
 	ExtraDisks           []service.ExtraDiskParam          `json:"extra_disks"`
@@ -228,6 +229,19 @@ func CloneVm(c *gin.Context) {
 		return
 	}
 
+	// 预检：主卡固定 IP
+	if err := service.ValidateFixedIPForSwitch(req.SwitchID, req.FixedIP); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	// 预检：附加网卡固定 IP
+	for _, nic := range req.ExtraNics {
+		if err := service.ValidateFixedIPForSwitch(nic.SwitchID, nic.FixedIP); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+	}
+
 	params := &clonepkg.CloneParams{
 		Name:                 req.Name,
 		Remark:               req.Remark,
@@ -261,6 +275,7 @@ func CloneVm(c *gin.Context) {
 		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
+		FixedIP:              req.FixedIP,
 		ExtraNics:            req.ExtraNics,
 		StoragePoolID:        req.StoragePoolID,
 		ExtraDisks:           req.ExtraDisks,
