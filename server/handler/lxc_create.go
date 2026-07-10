@@ -21,6 +21,7 @@ type createLXCReq struct {
 	Autostart       bool   `json:"autostart"`
 	SwitchID        uint   `json:"switch_id"`
 	SecurityGroupID uint   `json:"security_group_id"`
+	FixedIP         string `json:"fixed_ip,omitempty"`
 	Source          string `json:"source"` // clone（默认/空）| download
 	Distro          string `json:"distro"`
 	Release         string `json:"release"`
@@ -63,6 +64,18 @@ func CreateLXCContainer(c *gin.Context) {
 			return
 		}
 	}
+	// 预检：主卡固定 IP
+	if err := service.ValidateFixedIPForSwitch(req.SwitchID, req.FixedIP); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	// 预检：附加网卡固定 IP
+	for _, nic := range req.ExtraNics {
+		if err := service.ValidateFixedIPForSwitch(nic.SwitchID, nic.FixedIP); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+	}
 	params := &service.LXCCreateContainerParams{
 		Name:            req.Name,
 		Template:        req.Template,
@@ -74,6 +87,7 @@ func CreateLXCContainer(c *gin.Context) {
 		Autostart:       req.Autostart,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID,
+		FixedIP:         req.FixedIP,
 		Source:          source,
 		Distro:          req.Distro,
 		Release:         req.Release,

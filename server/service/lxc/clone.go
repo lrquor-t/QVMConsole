@@ -14,10 +14,11 @@ import (
 
 // CloneParams 「从快照克隆容器」异步任务参数（task.Params JSON）。
 type CloneParams struct {
-	SrcName string `json:"src_name"` // 源容器名
-	Snap    string `json:"snap"`     // 源 zfs 快照名
-	DstName string `json:"dst_name"` // 新容器名
-	Remark  string `json:"remark"`   // 新容器备注
+	SrcName string `json:"src_name"`             // 源容器名
+	Snap    string `json:"snap"`                 // 源 zfs 快照名
+	DstName string `json:"dst_name"`             // 新容器名
+	Remark  string `json:"remark"`               // 新容器备注
+	FixedIP string `json:"fixed_ip,omitempty"`   // 主卡克隆后绑定的固定 IP，空=动态 DHCP
 }
 
 // ParseCloneParams 反序列化克隆任务参数。
@@ -53,6 +54,13 @@ func srcPrimaryVPC(src string) (switchID, sgID uint) {
 		return b.SwitchID, b.SecurityGroupID
 	}
 	return 0, 0
+}
+
+// SourcePrimarySwitchID 透出源容器主卡（order0）所属交换机 ID，供克隆 handler 预检固定 IP。
+// 无绑定返回 0。
+func SourcePrimarySwitchID(src string) uint {
+	switchID, _ := srcPrimaryVPC(src)
+	return switchID
 }
 
 // ValidateCloneFromSnapshot 同步预校验（handler 即时返回 400 用）。

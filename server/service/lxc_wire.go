@@ -165,6 +165,11 @@ func LXCContainerSpecForQuota(name string) (cpu, memMB int, err error) {
 	return lxc.ContainerSpecForQuota(name)
 }
 
+// LXCSourcePrimarySwitchID 取源容器主卡（order0）所属交换机 ID（克隆预检固定 IP 用）。
+func LXCSourcePrimarySwitchID(src string) uint {
+	return lxc.SourcePrimarySwitchID(src)
+}
+
 // LXC 定时任务
 type LXCScheduleInput = lxc.LXCScheduleInput
 type LXCScheduleItem = lxc.LXCScheduleItem

@@ -29,10 +29,11 @@ type ContainerDetail struct {
 
 // AddLXCInterfaceRequest 增/改 LXC 网卡入参。
 type AddLXCInterfaceRequest struct {
-	SwitchID             uint `json:"switch_id" binding:"required"`
-	SecurityGroupID      uint `json:"security_group_id"`
-	BandwidthInboundAvg  int  `json:"bandwidth_inbound_avg"` // Mbps，0=不限
-	BandwidthOutboundAvg int  `json:"bandwidth_outbound_avg"`
+	SwitchID             uint   `json:"switch_id" binding:"required"`
+	SecurityGroupID      uint   `json:"security_group_id"`
+	BandwidthInboundAvg  int    `json:"bandwidth_inbound_avg"`  // Mbps，0=不限
+	BandwidthOutboundAvg int    `json:"bandwidth_outbound_avg"`
+	FixedIP              string `json:"fixed_ip,omitempty"` // 创建时绑定的固定 IP，空=动态 DHCP
 }
 
 // LXCInterfaceInfo 单张网卡视图（config + 绑定 + 运行态）。
