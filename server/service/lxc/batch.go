@@ -158,6 +158,11 @@ func BatchCreateContainer(ctx context.Context, params *BatchCreateContainerParam
 		}(i)
 	}
 	wg.Wait()
+	// CreateContainer 不收 ctx，cancelled 标志永不会被 ErrTaskCanceled 置位；
+	// 故 wait 后显式检查 ctx，确保取消时返回 ErrTaskCanceled（任务标记 canceled，而非误报 success）。
+	if ctx.Err() != nil {
+		return results, taskqueue.ErrTaskCanceled
+	}
 	if atomic.LoadInt32(&cancelled) == 1 {
 		return results, taskqueue.ErrTaskCanceled
 	}
