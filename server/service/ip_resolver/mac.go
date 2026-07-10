@@ -2,6 +2,7 @@ package ip_resolver
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"kvm_console/service/libvirt_rpc"
@@ -67,6 +68,31 @@ func GetVMBridgeInterface(vmName string) string {
 		}
 	}
 	return ""
+}
+
+// ListNeighborIPsInCIDR 读宿主机邻居表，返回 CIDR 内非 FAILED/INCOMPLETE 的 IP（best-effort，供 ARP 占用增强）。
+func ListNeighborIPsInCIDR(cidr string) []string {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil
+	}
+	res := utils.ExecShell("ip neigh show")
+	var out []string
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 1 {
+			continue
+		}
+		ip := net.ParseIP(fields[0])
+		if ip == nil || !ipnet.Contains(ip) {
+			continue
+		}
+		if strings.Contains(line, "FAILED") || strings.Contains(line, "INCOMPLETE") {
+			continue
+		}
+		out = append(out, ip.String())
+	}
+	return out
 }
 
 // HasVMBridgeVLANTag 检测虚拟机桥接接口是否带有 OVS VLAN tag

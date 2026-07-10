@@ -1059,3 +1059,19 @@ func DeletePortForwardIP(c *gin.Context) {
 		"message": "映射已删除",
 	})
 }
+
+// GetAvailableVPCIPs 列出指定 VPC 交换机子网内可分配的 IP
+func GetAvailableVPCIPs(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无效的交换机 ID"})
+		return
+	}
+	ips, err := netservice.AvailableVPCIPs(uint(id))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": ips})
+}

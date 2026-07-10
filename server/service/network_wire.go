@@ -243,6 +243,11 @@ func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
 	return netpkg.BindStaticIPForNICs(vmName, plans)
 }
 
+// ValidateFixedIPForSwitch delegates to network.ValidateFixedIPForSwitch
+func ValidateFixedIPForSwitch(switchID uint, ip string) error {
+	return netpkg.ValidateFixedIPForSwitch(switchID, ip)
+}
+
 // getHostIP delegates to network.GetHostIP
 func getHostIP() string {
 	return netpkg.GetHostIP()

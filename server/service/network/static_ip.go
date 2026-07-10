@@ -782,3 +782,77 @@ func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
 	}
 	return nil
 }
+
+// AvailableVPCIPs 列出交换机子网内当前可分配的 IP（静态绑定 + 租约 + 邻居表 均算占用）。
+func AvailableVPCIPs(switchID uint) ([]string, error) {
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, switchID).Error; err != nil {
+		return nil, fmt.Errorf("交换机不存在")
+	}
+	if !switchHasManagedDHCP(sw) { // 无独立 dnsmasq → 无可分配 IP（switchHasManagedDHCP 由 Task 1 提供）
+		return []string{}, nil
+	}
+	used := map[string]bool{sw.GatewayIP: true}
+	if hosts, err := HookListVPCStaticHosts(sw.ID); err == nil {
+		for _, h := range hosts {
+			used[h.IP] = true
+		}
+	}
+	if leases, err := HookListVPCDHCPLeasesForSwitch(sw.ID); err == nil {
+		for _, l := range leases {
+			used[l.IP] = true
+		}
+	}
+	for _, ip := range ip_resolver.ListNeighborIPsInCIDR(sw.CIDR) { // ARP 增强（失败已内部降级）
+		used[ip] = true
+	}
+	start := net.ParseIP(sw.DHCPStart).To4()
+	end := net.ParseIP(sw.DHCPEnd).To4()
+	if start == nil || end == nil {
+		return nil, fmt.Errorf("交换机 DHCP 地址池无效")
+	}
+	var free []string
+	for ip := append(net.IP(nil), start...); compareIPv4(ip, end) <= 0; incrementIPv4(ip) {
+		if !used[ip.String()] {
+			free = append(free, ip.String())
+		}
+	}
+	return free, nil
+}
+
+// IsVPCIPFree 判断指定 IP 在该交换机下当前是否空闲。
+func IsVPCIPFree(switchID uint, ip string) bool {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return true
+	}
+	free, err := AvailableVPCIPs(switchID)
+	if err != nil {
+		return false
+	}
+	for _, f := range free {
+		if f == ip {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateFixedIPForSwitch 校验指定 IP 在该交换机下可绑定（在子网、非网关/广播、当前空闲）。空=不绑定，返回 nil。
+func ValidateFixedIPForSwitch(switchID uint, ip string) error {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return nil
+	}
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, switchID).Error; err != nil {
+		return fmt.Errorf("交换机不存在")
+	}
+	if _, err := normalizeIPForVPC(ip, sw); err != nil {
+		return err
+	}
+	if !IsVPCIPFree(switchID, ip) {
+		return fmt.Errorf("IP %s 已被占用", ip)
+	}
+	return nil
+}
