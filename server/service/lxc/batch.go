@@ -1,10 +1,15 @@
 package lxc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
+	"kvm_console/config"
 	"kvm_console/model"
+	"kvm_console/taskqueue"
 	"kvm_console/utils"
 )
 
@@ -63,4 +68,98 @@ func NameExists(name string) bool {
 		return true
 	}
 	return false
+}
+
+// BatchCreateContainer 并发批量创建容器。
+// 部分成功：单项失败记 Error、不回滚、不中断其余（CreateContainer 失败自带 DestroyContainer 回滚）。
+// 支持 ctx 取消：返回 (results, taskqueue.ErrTaskCanceled)。并发上限复用 VM 的 BatchCloneMaxConcurrency。
+func BatchCreateContainer(ctx context.Context, params *BatchCreateContainerParams, progressFn func(int, string)) ([]LXCBatchResult, error) {
+	maxConcurrency := config.GlobalConfig.BatchCloneMaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 10
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make([]LXCBatchResult, params.Count)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrency)
+	var completed, cancelled int32
+
+	if progressFn == nil {
+		progressFn = func(int, string) {}
+	}
+	progressFn(0, fmt.Sprintf("开始批量创建 %d 个容器（最大并发 %d）…", params.Count, maxConcurrency))
+
+	for i := 0; i < params.Count; i++ {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return results[:completed], taskqueue.ErrTaskCanceled
+		default:
+		}
+		wg.Add(1)
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			wg.Wait()
+			return results[:completed], taskqueue.ErrTaskCanceled
+		}
+		go func(index int) {
+			defer utils.RecoverAndLog("lxc-batch")
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			if atomic.LoadInt32(&cancelled) == 1 {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			name := BatchName(params.Prefix, params.StartNum+index)
+			cp := &CreateContainerParams{
+				Name:            name,
+				OwnerUsername:   params.OwnerUsername,
+				Source:          params.Source,
+				Template:        params.Template,
+				Distro:          params.Distro,
+				Release:         params.Release,
+				Arch:            params.Arch,
+				Remark:          params.Remark,
+				GroupName:       params.GroupName,
+				CPUShares:       params.CPUShares,
+				MemoryMB:        params.MemoryMB,
+				DiskLimitGB:     params.DiskLimitGB,
+				Autostart:       params.Autostart,
+				SwitchID:        params.SwitchID,
+				SecurityGroupID: params.SecurityGroupID,
+			}
+			// 子项内部进度不外报，整体进度按完成数计。
+			err := CreateContainer(cp, func(int, string) {})
+			if err == taskqueue.ErrTaskCanceled {
+				atomic.StoreInt32(&cancelled, 1)
+				cancel()
+				return
+			}
+			mu.Lock()
+			if err != nil {
+				results[index] = LXCBatchResult{Name: name, Error: err.Error()}
+			} else {
+				results[index] = LXCBatchResult{Name: name}
+			}
+			done := atomic.AddInt32(&completed, 1)
+			progressFn(int(done*100/int32(params.Count)), fmt.Sprintf("已完成 %d/%d 个", done, params.Count))
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	if atomic.LoadInt32(&cancelled) == 1 {
+		return results, taskqueue.ErrTaskCanceled
+	}
+	return results, nil
 }

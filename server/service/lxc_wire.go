@@ -214,3 +214,13 @@ func LXCValidateName(name string) error { return lxc.ValidateName(name) }
 func LXCParseBatchCreateContainerParams(s string) (*lxc.BatchCreateContainerParams, error) {
 	return lxc.ParseBatchCreateContainerParams(s)
 }
+
+// LXCBatchCreateContainer 并发批量创建容器（部分成功，支持取消）。
+func LXCBatchCreateContainer(ctx context.Context, params *lxc.BatchCreateContainerParams, progress func(int, string)) ([]lxc.LXCBatchResult, error) {
+	return lxc.BatchCreateContainer(ctx, params, progress)
+}
+
+// LXCCheckQuotaForBatch 批量创建配额校验（×n）。
+func LXCCheckQuotaForBatch(username string, cpu, ramMB, n int) error {
+	return lxc.CheckLXCQuotaForBatch(username, cpu, ramMB, n)
+}

@@ -149,3 +149,35 @@ func CheckLXCQuota(username string, cpu, ramMB int) error {
 	}
 	return nil
 }
+
+// CheckLXCQuotaForBatch 批量创建配额校验：数量按 n、CPU/内存按 ×n（admin 不限）。
+func CheckLXCQuotaForBatch(username string, cpu, ramMB, n int) error {
+	var u model.User
+	if err := model.DB.Where("username = ?", username).First(&u).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+	if u.Role == "admin" {
+		return nil
+	}
+	var count int64
+	var sumCPU, sumRAM int
+	{
+		var rows []model.LXCCache
+		model.DB.Where("owner_username = ? AND present = ?", username, true).Find(&rows)
+		count = int64(len(rows))
+		for _, r := range rows {
+			sumCPU += r.CPUShares
+			sumRAM += r.MemoryMB
+		}
+	}
+	if u.MaxLXCCount > 0 && count+int64(n) > int64(u.MaxLXCCount) {
+		return fmt.Errorf("超过容器数量配额 %d", u.MaxLXCCount)
+	}
+	if u.MaxLXCCPU > 0 && sumCPU+cpu*n > u.MaxLXCCPU {
+		return fmt.Errorf("超过 CPU 配额 %d", u.MaxLXCCPU)
+	}
+	if u.MaxLXCRAMMB > 0 && sumRAM+ramMB*n > u.MaxLXCRAMMB {
+		return fmt.Errorf("超过内存配额 %d MB", u.MaxLXCRAMMB)
+	}
+	return nil
+}
