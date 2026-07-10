@@ -1532,7 +1532,7 @@
                     </el-col>
                     <el-col :span="8">
                       <el-form-item label="VPC 交换机" style="margin-bottom: 8px;" label-width="85px">
-                        <el-select :model-value="nic.switch_id" placeholder="选择交换机" style="width: 100%;" filterable @update:model-value="(v) => nic.switch_id = v" @focus="loadVPCOptions">
+                        <el-select :model-value="nic.switch_id" placeholder="选择交换机" style="width: 100%;" filterable @update:model-value="(v) => { nic.switch_id = v; nic.fixed_ip = '' }" @focus="loadVPCOptions">
                           <el-option
                             v-for="item in vpcSwitches"
                             :key="item.id"
@@ -1555,6 +1555,15 @@
                       </el-form-item>
                     </el-col>
                   </el-row>
+                  <el-row :gutter="16" v-if="isExtraNicNat(nic) && form.batch_count <= 1">
+                    <el-col :span="24">
+                      <el-form-item label="固定 IP" style="margin-bottom: 8px;" label-width="85px">
+                        <el-input :model-value="nic.fixed_ip" placeholder="留空则动态 DHCP" style="width: calc(100% - 80px)" @update:model-value="(v) => nic.fixed_ip = v" />
+                        <el-button size="small" type="primary" plain style="margin-left: 8px" @click="openPicker(nic)">选择</el-button>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <div v-else-if="nic.switch_id" class="form-tip" style="margin: 0 0 8px;">该网络/批量模式不支持固定 IP</div>
                 </div>
               </div>
               <div v-else class="form-section-card-body">
@@ -2397,6 +2406,7 @@
       <el-button type="primary" @click="confirmAddPassthroughDevices">添加选中设备</el-button>
     </template>
   </el-dialog>
+  <IpPickerDialog v-model="pickerVisible" :switch-id="pickerNic?.switch_id" @select="onPickerSelect" />
 </template>
 
 
@@ -2409,6 +2419,7 @@ import { spiceEnabledByDefault } from '@/utils/site'
 import { getStorageFiles } from '@/api/storage'
 import { selfCloneVm } from '@/api/user'
 import { getVPCSecurityGroups, getVPCSwitches } from '@/api/vpc'
+import IpPickerDialog from '@/components/IpPickerDialog.vue'
 import { getCPUAffinityPresets, getSettings, getHostCPUCores, getPublicSystemInfo } from '@/api/settings'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, ArrowRight, Discount } from '@element-plus/icons-vue'
@@ -3348,7 +3359,8 @@ const addExtraNic = () => {
   extraNics.value.push({
     nic_model: form.nic_model || 'virtio',
     switch_id: vpcSwitches.value.length > 0 ? vpcSwitches.value[0].id : null,
-    security_group_id: null
+    security_group_id: null,
+    fixed_ip: ''
   })
 }
 const removeExtraNic = (index) => {
@@ -3363,14 +3375,26 @@ const switchOptionLabelNic = (item) => {
   return `${prefix}${item.name} (${item.cidr})`
 }
 const getExtraNicSwitch = (nic) => vpcSwitches.value.find(item => item.id === nic.switch_id) || null
+// 仅受管 DHCP 交换机（NAT + vlan + cidr）支持固定 IP；直通桥接/系统网络不支持
+const isExtraNicNat = (nic) => {
+  const s = getExtraNicSwitch(nic)
+  return !!s && s.bridge_mode === 'nat' && s.vlan_id > 0 && !!s.cidr
+}
+// 固定 IP 选择弹框（主卡/附加卡共用，按目标网卡的 switch_id 查询可分配 IP）
+const pickerVisible = ref(false)
+const pickerNic = ref(null)
+const openPicker = (nic) => { pickerNic.value = nic; pickerVisible.value = true }
+const onPickerSelect = (ip) => { if (pickerNic.value) pickerNic.value.fixed_ip = ip }
 
 // 构建网口提交数据（全部网口），返回 { primary, extraNics }
+// 注：VmForm 无独立主卡选择，第一个有效网口(validNics[0])即主卡，其 fixed_ip 透传至 payload 顶层 fixed_ip
 const buildAllNicsPayload = () => {
   const validNics = extraNics.value.filter(n => n.switch_id)
   if (validNics.length === 0) {
     return {
       primarySwitchId: 0,
       primarySecurityGroupId: 0,
+      primaryFixedIp: '',
       extraNics: []
     }
   }
@@ -3378,11 +3402,13 @@ const buildAllNicsPayload = () => {
   const rest = validNics.slice(1).map(n => ({
     switch_id: n.switch_id,
     security_group_id: n.security_group_id || 0,
-    nic_model: n.nic_model || 'virtio'
+    nic_model: n.nic_model || 'virtio',
+    fixed_ip: n.fixed_ip || ''
   }))
   return {
     primarySwitchId: first.switch_id,
     primarySecurityGroupId: first.security_group_id || 0,
+    primaryFixedIp: first.fixed_ip || '',
     extraNics: rest
   }
 }
@@ -5228,6 +5254,7 @@ const submitForm = async () => {
             disable_system_init: !form.system_init_enabled || undefined,
             switch_id: nicsPayload.primarySwitchId,
             security_group_id: nicsPayload.primarySecurityGroupId,
+            fixed_ip: nicsPayload.primaryFixedIp || undefined,
             storage_pool_id: form.storage_pool_id,
             autostart: form.autostart,
             freeze: form.freeze,
@@ -5346,6 +5373,7 @@ const submitForm = async () => {
             floppy_image: form.floppy_image || '',
             switch_id: nicsPayload.primarySwitchId,
             security_group_id: nicsPayload.primarySecurityGroupId,
+            fixed_ip: nicsPayload.primaryFixedIp || undefined,
             storage_pool_id: form.storage_pool_id,
             nic_model: form.nic_model,
             autostart: form.autostart,
