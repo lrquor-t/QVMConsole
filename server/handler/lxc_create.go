@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -87,6 +88,107 @@ func CreateLXCContainer(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "创建任务已提交", "data": gin.H{"task_id": task.ID}})
+}
+
+type batchCreateLXCReq struct {
+	Prefix          string                           `json:"prefix" binding:"required"`
+	StartNum        int                              `json:"start_num"`
+	Count           int                              `json:"count" binding:"required"`
+	Source          string                           `json:"source"` // clone（默认/空）| download
+	Template        string                           `json:"template"`
+	Distro          string                           `json:"distro"`
+	Release         string                           `json:"release"`
+	Arch            string                           `json:"arch"`
+	Remark          string                           `json:"remark"`
+	GroupName       string                           `json:"group_name"`
+	CPUShares       int                              `json:"cpu_shares"`
+	MemoryMB        int                              `json:"memory_mb"`
+	DiskLimitGB     int                              `json:"disk_limit_gb"`
+	Autostart       bool                             `json:"autostart"`
+	SwitchID        uint                             `json:"switch_id"`
+	SecurityGroupID uint                             `json:"security_group_id"`
+	ExtraNics       []service.LXCAddInterfaceRequest `json:"extra_nics"`
+}
+
+// BatchCreateLXC 提交异步批量创建容器任务（clone/download，并发，部分成功）。
+func BatchCreateLXC(c *gin.Context) {
+	var req batchCreateLXCReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: prefix/count 必填"})
+		return
+	}
+	source := req.Source
+	if source == "" {
+		source = "clone"
+	}
+	switch source {
+	case "clone":
+		if req.Template == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "克隆模式必须选择模板"})
+			return
+		}
+	case "download":
+		if strings.TrimSpace(req.Distro) == "" || strings.TrimSpace(req.Release) == "" || strings.TrimSpace(req.Arch) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "镜像下载模式必须填写发行版/版本/架构"})
+			return
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未知来源: " + req.Source})
+		return
+	}
+	if req.Count < 1 || req.Count > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "创建数量须在 1-100 之间"})
+		return
+	}
+	if req.StartNum <= 0 {
+		req.StartNum = 1
+	}
+	username, _ := c.Get("username")
+	role, _ := c.Get("role")
+	if role != "admin" {
+		if err := service.LXCCheckQuotaForBatch(username.(string), req.CPUShares, req.MemoryMB, req.Count); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+	}
+	// 重名 + 命名格式预检（与创建共用 service.LXCBatchName，杜绝格式漂移）
+	for i := 0; i < req.Count; i++ {
+		name := service.LXCBatchName(req.Prefix, req.StartNum+i)
+		if err := service.LXCValidateName(name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("生成的容器名 %q 非法: %s", name, err.Error())})
+			return
+		}
+		if service.LXCNameExists(name) {
+			c.JSON(http.StatusConflict, gin.H{"code": 409, "message": fmt.Sprintf("容器 '%s' 已存在", name)})
+			return
+		}
+	}
+	params := &service.LXCBatchCreateContainerParams{
+		Prefix:          req.Prefix,
+		StartNum:        req.StartNum,
+		Count:           req.Count,
+		OwnerUsername:   username.(string),
+		Source:          source,
+		Template:        req.Template,
+		Distro:          req.Distro,
+		Release:         req.Release,
+		Arch:            req.Arch,
+		Remark:          req.Remark,
+		GroupName:       req.GroupName,
+		CPUShares:       req.CPUShares,
+		MemoryMB:        req.MemoryMB,
+		DiskLimitGB:     req.DiskLimitGB,
+		Autostart:       req.Autostart,
+		SwitchID:        req.SwitchID,
+		SecurityGroupID: req.SecurityGroupID,
+		ExtraNics:       req.ExtraNics,
+	}
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCBatchCreate, params, username.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交批量创建任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "批量创建任务已提交", "data": gin.H{"task_id": task.ID}})
 }
 
 type operateLXCReq struct {

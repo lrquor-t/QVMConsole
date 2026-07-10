@@ -375,6 +375,34 @@ func registerTaskHandlers() {
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
+	// 批量创建 LXC 容器任务（clone/download，并发，部分成功）
+	taskqueue.RegisterHandler(model.TaskTypeLXCBatchCreate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		params, err := service.LXCParseBatchCreateContainerParams(task.Params)
+		if err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		results, err := service.LXCBatchCreateContainer(ctx, params, progress)
+		if err != nil {
+			return "", err // 取消/致命错误：照 VM 直接返回（任务标记 canceled/failed）
+		}
+		// 逐成功项附加网卡（order≥1；主卡 order0 由 CreateContainer→AttachContainerToVPC 处理）
+		for _, r := range results {
+			if r.Name == "" || r.Error != "" {
+				continue
+			}
+			for i, nic := range params.ExtraNics {
+				if nic.SwitchID == 0 {
+					continue
+				}
+				if err := service.LXCAddContainerInterface(r.Name, nic); err != nil {
+					logger.App.Warn("批量创建时添加附加网口失败", "container", r.Name, "order", i+1, "error", err)
+				}
+			}
+		}
+		out, _ := json.Marshal(results)
+		return string(out), nil // task.Result = 逐项 [{name, error?}]
+	})
+
 	// 销毁 LXC 容器任务
 	taskqueue.RegisterHandler(model.TaskTypeLXCDestroy, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		// task.Params 为容器名字符串（SubmitWithStruct(string) → JSON "name"）
