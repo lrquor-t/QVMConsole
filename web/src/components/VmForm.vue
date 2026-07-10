@@ -1555,7 +1555,7 @@
                       </el-form-item>
                     </el-col>
                   </el-row>
-                  <el-row :gutter="16" v-if="isExtraNicNat(nic) && form.batch_count <= 1">
+                  <el-row :gutter="16" v-if="isExtraNicNat(nic) && form.batch_count <= 1 && form.create_mode !== 'import'">
                     <el-col :span="24">
                       <el-form-item label="固定 IP" style="margin-bottom: 8px;" label-width="85px">
                         <el-input :model-value="nic.fixed_ip" placeholder="留空则动态 DHCP" style="width: calc(100% - 80px)" @update:model-value="(v) => nic.fixed_ip = v" />
@@ -1563,7 +1563,7 @@
                       </el-form-item>
                     </el-col>
                   </el-row>
-                  <div v-else-if="nic.switch_id" class="form-tip" style="margin: 0 0 8px;">该网络/批量模式不支持固定 IP</div>
+                  <div v-else-if="nic.switch_id" class="form-tip" style="margin: 0 0 8px;">该网络/批量/导入模式不支持固定 IP</div>
                 </div>
               </div>
               <div v-else class="form-section-card-body">
@@ -3413,6 +3413,13 @@ const buildAllNicsPayload = () => {
   }
 }
 
+// 批量/导入模式不透传每网卡固定 IP（简报排除 batch+import；仅单机 create/clone 支持）
+const nicsWithoutFixedIp = (nics) => nics.map(n => ({
+  switch_id: n.switch_id,
+  security_group_id: n.security_group_id,
+  nic_model: n.nic_model
+}))
+
 // 构建额外网口提交数据（兼容旧接口）
 const buildExtraNicsPayload = () => {
   return buildAllNicsPayload().extraNics
@@ -5106,7 +5113,7 @@ const submitForm = async () => {
               nic_model: form.nic_model, video_model: form.video_model, spice_enabled: form.spice_enabled,
               cpu_topology_mode: form.cpu_topology_mode,
               first_boot_reboot_mode: form.first_boot_reboot_mode,
-              extra_nics: nicsPayload.extraNics,
+              extra_nics: nicsWithoutFixedIp(nicsPayload.extraNics),
               extra_import_disks: form.extra_import_disks.filter(d => d.disk_path || d.disk_file).map(d => ({
                 disk_path: d.disk_path,
                 disk_file: d.disk_file,
@@ -5164,7 +5171,7 @@ const submitForm = async () => {
             spice_enabled: form.spice_enabled,
             cpu_topology_mode: form.cpu_topology_mode,
             first_boot_reboot_mode: form.first_boot_reboot_mode,
-            extra_nics: nicsPayload.extraNics,
+            extra_nics: nicsWithoutFixedIp(nicsPayload.extraNics),
           }
           const cpuLimitPercent = buildCPULimitPercentPayload()
           if (cpuLimitPercent !== undefined) {
@@ -5221,7 +5228,7 @@ const submitForm = async () => {
               first_boot_reboot_mode: form.first_boot_reboot_mode,
               switch_id: nicsPayload.primarySwitchId,
               security_group_id: nicsPayload.primarySecurityGroupId,
-              extra_nics: nicsPayload.extraNics,
+              extra_nics: nicsWithoutFixedIp(nicsPayload.extraNics),
               // OpenWrt 网络配置
               static_ip: isOpenWrtTemplate.value ? form.static_ip : undefined,
               gateway: isOpenWrtTemplate.value ? form.gateway : undefined,
