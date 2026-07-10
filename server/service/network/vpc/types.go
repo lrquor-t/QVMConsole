@@ -78,7 +78,6 @@ type AddVMInterfaceRequest struct {
 	NicModel             string `json:"nic_model"`
 	BandwidthInboundAvg  int    `json:"bandwidth_inbound_avg"`
 	BandwidthOutboundAvg int    `json:"bandwidth_outbound_avg"`
-	FixedIP              string `json:"fixed_ip,omitempty"` // 固定 IP（空=动态 DHCP）
 }
 
 // VMInterfaceInfo 网口信息

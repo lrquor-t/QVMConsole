@@ -103,15 +103,6 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
-                <el-row v-if="isNicNatSwitch(nic)" :gutter="16">
-                  <el-col :span="24">
-                    <el-form-item label="固定 IP" label-width="100px">
-                      <el-input v-model="nic.fixed_ip" placeholder="留空则动态 DHCP" style="width:calc(100% - 80px)" />
-                      <el-button size="small" type="primary" plain style="margin-left:8px" @click="openPicker(nic)">选择</el-button>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <div v-else-if="nic.switch_id" class="nic-hint">该网络不支持固定 IP（直通/桥接模式）</div>
               </div>
             </div>
             <div v-else class="form-section-card-body">
@@ -142,7 +133,6 @@
       <el-button v-if="step < steps.length - 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button type="warning" :loading="loading" :disabled="!allRequiredFilled" @click="submit">立即创建</el-button>
     </template>
-    <IpPickerDialog v-model="pickerVisible" :switch-id="pickerNic?.switch_id" @select="onPickerSelect" />
   </el-dialog>
 </template>
 
@@ -155,7 +145,6 @@ import { createLXC, getLXCTemplateList, getLXCDownloadList, getLXCBackingInfo } 
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
 import { getSettings } from '@/api/settings'
 import { generateRandomLXCName } from '@/utils/lxc'
-import IpPickerDialog from '@/components/IpPickerDialog.vue'
 
 const emit = defineEmits(['success'])
 const userStore = useUserStore()
@@ -264,30 +253,18 @@ const onNicSwitchChange = async (nic) => {
   const sw = switchOf(nic.switch_id)
   const cur = vpcSecurityGroups.value.find(g => g.id === nic.security_group_id)
   if (cur && sw && sw.username && cur.username !== sw.username) nic.security_group_id = null
-  // 切换交换机 = 换子网，旧固定 IP 必然失效，清空避免下发到错误子网
-  nic.fixed_ip = ''
 }
-const addNic = async () => { await loadVPCOptions(); extraNics.value.push({ switch_id: vpcSwitches.value[0]?.id ?? null, security_group_id: null, fixed_ip: '' }) }
+const addNic = async () => { await loadVPCOptions(); extraNics.value.push({ switch_id: vpcSwitches.value[0]?.id ?? null, security_group_id: null }) }
 const buildAllNicsPayload = () => {
   const valid = extraNics.value.filter(n => n.switch_id)
-  if (!valid.length) return { primarySwitchId: 0, primarySecurityGroupId: 0, primaryFixedIp: '', extraNics: [] }
+  if (!valid.length) return { primarySwitchId: 0, primarySecurityGroupId: 0, extraNics: [] }
   const first = valid[0]
   return {
     primarySwitchId: first.switch_id,
     primarySecurityGroupId: first.security_group_id || 0,
-    primaryFixedIp: first.fixed_ip || '',
-    extraNics: valid.slice(1).map(n => ({ switch_id: n.switch_id, security_group_id: n.security_group_id || 0, fixed_ip: n.fixed_ip || '' }))
+    extraNics: valid.slice(1).map(n => ({ switch_id: n.switch_id, security_group_id: n.security_group_id || 0 }))
   }
 }
-// 固定 IP：仅受管 DHCP 交换机（NAT + vlan + cidr）支持；直通桥接/系统网络不支持
-const isNicNatSwitch = (nic) => {
-  const s = vpcSwitches.value.find(x => x.id === nic.switch_id)
-  return !!s && s.bridge_mode === 'nat' && s.vlan_id > 0 && !!s.cidr
-}
-const pickerVisible = ref(false)
-const pickerNic = ref(null)
-const openPicker = (nic) => { pickerNic.value = nic; pickerVisible.value = true }
-const onPickerSelect = (ip) => { if (pickerNic.value) pickerNic.value.fixed_ip = ip }
 const nicsSummary = computed(() => {
   const valid = extraNics.value.filter(n => n.switch_id)
   if (!valid.length) return '无（裸网）'
@@ -339,7 +316,7 @@ const submit = async () => {
       cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, autostart: form.autostart,
       disk_limit_gb: form.disk_limit_gb,
       group_name: form.group_name, remark: form.remark,
-      switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId, fixed_ip: nics.primaryFixedIp,
+      switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
       extra_nics: nics.extraNics
     }
     loading.value = true

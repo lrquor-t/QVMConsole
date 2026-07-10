@@ -333,7 +333,6 @@ func Setup() *gin.Engine {
 				network.GET("/static-ip/list", handler.GetStaticIPList)
 				network.POST("/static-ip/bind", handler.BindStaticIP)
 				network.POST("/static-ip/unbind", middleware.ElasticCloudOnlyMiddleware(), handler.UnbindStaticIP)
-				network.GET("/vpc/switches/:id/available-ips", handler.GetAvailableVPCIPs)
 
 				// 端口转发
 				network.GET("/port-forward/list", handler.GetPortForwardList)

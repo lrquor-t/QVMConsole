@@ -12,7 +12,6 @@ type PortForwardRule = netpkg.PortForwardRule
 type PortForwardAddParams = netpkg.PortForwardAddParams
 type PortForwardUpdateParams = netpkg.PortForwardUpdateParams
 type PortForwardAutoAddParams = netpkg.PortForwardAutoAddParams
-type NICFixedIP = netpkg.NICFixedIP
 
 // init wires network package function variables to service root implementations.
 // This breaks the circular dependency: network package cannot import service,
@@ -236,16 +235,6 @@ func deleteLivePortForwardByStableKey(ruleKey string, preserveProbeState bool) e
 // AddPortForward delegates to network.AddPortForward
 func AddPortForward(params *PortForwardAddParams) error {
 	return netpkg.AddPortForward(params)
-}
-
-// BindStaticIPForNICs delegates to network.BindStaticIPForNICs
-func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
-	return netpkg.BindStaticIPForNICs(vmName, plans)
-}
-
-// ValidateFixedIPForSwitch delegates to network.ValidateFixedIPForSwitch
-func ValidateFixedIPForSwitch(switchID uint, ip string) error {
-	return netpkg.ValidateFixedIPForSwitch(switchID, ip)
 }
 
 // getHostIP delegates to network.GetHostIP

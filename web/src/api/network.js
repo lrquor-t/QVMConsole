@@ -179,7 +179,3 @@ export function deleteNetworkCapture(taskId) {
   return request({ url: `/network/captures/${taskId}`, method: 'delete' })
 }
 
-// 获取 VPC 交换机子网内可分配的 IP 列表
-export function getAvailableIPs(switchId) {
-  return request({ url: `/network/vpc/switches/${switchId}/available-ips`, method: 'get' })
-}
