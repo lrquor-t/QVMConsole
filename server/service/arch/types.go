@@ -22,6 +22,7 @@ type ArchProfile interface {
 	DefaultCPUMode() string                      // 默认 CPU 模式（host-passthrough）
 	DefaultCPUModel(virtType string) string      // QEMU 软件虚拟化时的 CPU 模型（x86: qemu64, ARM: cortex-a72）
 	SupportedDiskBus() []string                  // 支持的磁盘总线（x86: virtio/scsi/sata/ide, ARM: virtio/scsi）
+	GetCDROMBus() string                         // CDROM 设备总线（x86: sata, ARM: usb）
 	SupportedNicModels() []string                // 支持的网卡模型（x86: virtio/e1000e/rtl8139, ARM: virtio）
 	UEFIFirmwarePath(secureBoot bool) string     // UEFI 固件路径（x86: OVMF, ARM: AAVMF）
 	UEFIVarsTemplatePath(secureBoot bool) string // UEFI 变量模板路径

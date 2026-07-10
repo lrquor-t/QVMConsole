@@ -76,6 +76,10 @@ const props = defineProps({
   disablePolling: {
     type: Boolean,
     default: false // 为 true 时禁用自行 XHR 轮询，由外部通过 externalStats 驱动
+  },
+  diskIoMode: {
+    type: String,
+    default: 'throughput' // 'throughput' | 'iops'
   }
 })
 
@@ -94,28 +98,47 @@ const historyLoading = ref(false)
 let charts = []
 let timer = null
 
-const commonChartOptions = (yAxisMax = undefined) => ({
-  tooltip: { trigger: 'axis' },
-  grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
-  textStyle: { color: '#8f9399' },
-  xAxis: { 
-    type: 'category', 
-    boundaryGap: false, 
-    data: [],
-    axisLine: { lineStyle: { color: 'rgba(150, 150, 150, 0.3)' } }
-  },
-  yAxis: { 
+const commonChartOptions = (yAxisMax = undefined, yAxisFormatter = undefined) => {
+  const yAxis = { 
     type: 'value', 
     max: yAxisMax,
     splitLine: { lineStyle: { color: 'rgba(150, 150, 150, 0.15)' } }
-  },
-  dataZoom: [
-    { type: 'inside', start: 0, end: 100 },
-    { type: 'slider', start: 0, end: 100, bottom: 0, textStyle: { color: '#8f9399' } }
-  ],
-})
+  }
+  if (yAxisFormatter) {
+    yAxis.axisLabel = { formatter: yAxisFormatter }
+  }
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+    textStyle: { color: '#8f9399' },
+    xAxis: { 
+      type: 'category', 
+      boundaryGap: false, 
+      data: [],
+      axisLine: { lineStyle: { color: 'rgba(150, 150, 150, 0.3)' } }
+    },
+    yAxis,
+    dataZoom: [
+      { type: 'inside', start: 0, end: 100 },
+      { type: 'slider', start: 0, end: 100, bottom: 0, textStyle: { color: '#8f9399' } }
+    ],
+  }
+}
 
 const initCharts = () => {
+  // Y 轴流量值自动单位转换（图表内部数据以 KB/s 为单位）
+  const formatAxisTraffic = (valueKB) => {
+    if (valueKB == null || valueKB === '' || Number(valueKB) < 0) return '0 KB/s'
+    const units = ['KB/s', 'MB/s', 'GB/s', 'TB/s']
+    let val = Number(valueKB)
+    let idx = 0
+    while (val >= 1024 && idx < units.length - 1) {
+      val /= 1024
+      idx += 1
+    }
+    return `${val.toFixed(1)} ${units[idx]}`
+  }
+
   const cpuChart = echarts.init(cpuChartRef.value)
   cpuChart.setOption({
     ...commonChartOptions(100),
@@ -132,24 +155,32 @@ const initCharts = () => {
 
   const netChart = echarts.init(netChartRef.value)
   netChart.setOption({
-    ...commonChartOptions(),
-    title: { text: '网络流量 (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } },
+    ...commonChartOptions(undefined, formatAxisTraffic),
+    title: { text: '网络流量', textStyle: { fontSize: 14, color: '#8f9399' } },
     series: [
       { name: '接收', type: 'line', smooth: true, data: [] },
       { name: '发送', type: 'line', smooth: true, data: [] }
-    ]
+    ],
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) => formatAxisTraffic(value)
+    }
   })
 
   const diskChart = echarts.init(diskChartRef.value)
   diskChart.setOption({
-    ...commonChartOptions(),
-    title: { text: isLXC ? '磁盘使用量 (GB)' : '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } },
+    ...commonChartOptions(undefined, isLXC ? undefined : getDiskYAxisFormatter()),
+    title: { text: isLXC ? '磁盘使用量 (GB)' : getDiskChartTitle(), textStyle: { fontSize: 14, color: '#8f9399' } },
     series: isLXC
       ? [{ name: '已用', type: 'line', smooth: true, areaStyle: {}, data: [] }]
       : [
           { name: '读取', type: 'line', smooth: true, data: [] },
           { name: '写入', type: 'line', smooth: true, data: [] }
-        ]
+        ],
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) => props.diskIoMode === 'iops' ? value.toFixed(0) + ' IOPS' : formatAxisTraffic(value)
+    }
   })
 
   charts = [cpuChart, memChart, netChart, diskChart]
@@ -210,7 +241,7 @@ const updateChartsWithData = (stats) => {
   netOpt.series[1].data.push(txRate.toFixed(1))
   charts[2].setOption(netOpt)
 
-  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率(KB/s 增量)
+  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率（吞吐量/IOPS 双模式）
   const diskOpt = charts[3].getOption()
   if (diskOpt.xAxis[0].data.length > 30) diskOpt.xAxis[0].data.shift()
   diskOpt.xAxis[0].data.push(timeStr)
@@ -219,13 +250,22 @@ const updateChartsWithData = (stats) => {
     if (diskOpt.series[0].data.length > 30) diskOpt.series[0].data.shift()
     diskOpt.series[0].data.push(Number(usedGB.toFixed(2)))
   } else {
-    const rdRate = prevDisk.rd > 0 ? Math.max(0, (stats.disk_rd_bytes - prevDisk.rd) / 1024 / sseInterval) : 0
-    const wrRate = prevDisk.wr > 0 ? Math.max(0, (stats.disk_wr_bytes - prevDisk.wr) / 1024 / sseInterval) : 0
-    prevDisk = { rd: stats.disk_rd_bytes, wr: stats.disk_wr_bytes }
     if (diskOpt.series[0].data.length > 30) diskOpt.series[0].data.shift()
     if (diskOpt.series[1].data.length > 30) diskOpt.series[1].data.shift()
-    diskOpt.series[0].data.push(rdRate.toFixed(1))
-    diskOpt.series[1].data.push(wrRate.toFixed(1))
+    if (props.diskIoMode === 'iops') {
+      // IOPS 模式：基于累计操作次数计算
+      const rdIops = prevDisk.rd > 0 ? Math.max(0, (stats.disk_rd_ops - prevDisk.rd) / sseInterval) : 0
+      const wrIops = prevDisk.wr > 0 ? Math.max(0, (stats.disk_wr_ops - prevDisk.wr) / sseInterval) : 0
+      prevDisk = { rd: stats.disk_rd_ops, wr: stats.disk_wr_ops }
+      diskOpt.series[0].data.push(rdIops)
+      diskOpt.series[1].data.push(wrIops)
+    } else {
+      const rdRate = prevDisk.rd > 0 ? Math.max(0, (stats.disk_rd_bytes - prevDisk.rd) / 1024 / sseInterval) : 0
+      const wrRate = prevDisk.wr > 0 ? Math.max(0, (stats.disk_wr_bytes - prevDisk.wr) / 1024 / sseInterval) : 0
+      prevDisk = { rd: stats.disk_rd_bytes, wr: stats.disk_wr_bytes }
+      diskOpt.series[0].data.push(rdRate.toFixed(1))
+      diskOpt.series[1].data.push(wrRate.toFixed(1))
+    }
   }
   charts[3].setOption(diskOpt)
 }
@@ -266,6 +306,37 @@ watch(() => props.name, () => {
   })
   if (chartMode.value === 'realtime') updateCharts()
   else if (chartMode.value === 'history') fetchLast24Hours()
+})
+
+// 监听磁盘 IO 模式切换，更新图表标题和 Y 轴格式
+const getDiskChartTitle = () => props.diskIoMode === 'iops' ? '磁盘 I/O (IOPS)' : '磁盘 I/O'
+const getDiskYAxisFormatter = () => {
+  if (props.diskIoMode === 'iops') {
+    return (value) => {
+      if (value >= 1000) return (value / 1000).toFixed(1) + 'K IOPS'
+      return value.toFixed(0) + ' IOPS'
+    }
+  }
+  return (valueKB) => {
+    if (valueKB == null || valueKB === '' || Number(valueKB) < 0) return '0 KB/s'
+    const units = ['KB/s', 'MB/s', 'GB/s', 'TB/s']
+    let val = Number(valueKB)
+    let idx = 0
+    while (val >= 1024 && idx < units.length - 1) {
+      val /= 1024
+      idx += 1
+    }
+    return `${val.toFixed(1)} ${units[idx]}`
+  }
+}
+watch(() => props.diskIoMode, () => {
+  if (charts[3]) {
+    charts[3].setOption({
+      title: { text: getDiskChartTitle(), textStyle: { fontSize: 14, color: '#8f9399' } },
+      yAxis: { axisLabel: { formatter: getDiskYAxisFormatter() } }
+    })
+    prevDisk = { rd: 0, wr: 0 }
+  }
 })
 
 const fetchHistoryData = async (start, end) => {
@@ -373,12 +444,12 @@ const renderHistoryCharts = (records) => {
     }
   }
   charts[2].setOption({
-    title: { text: '网络流量 (KB/s) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
+    title: { text: '网络流量 - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
     xAxis: { data: timeLabels },
     series: [{ data: netRx }, { data: netTx }]
   })
 
-  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率(KB/s 增量)
+  // 磁盘：LXC 画使用量(GB 绝对值)；vm/host 画 I/O 速率（吞吐量/IOPS 双模式）
   if (isLXC) {
     charts[3].setOption({
       title: { text: '磁盘使用量 (GB) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
@@ -387,6 +458,7 @@ const renderHistoryCharts = (records) => {
     })
   } else {
     const diskRd = [], diskWr = []
+    const isIopsMode = props.diskIoMode === 'iops'
     for (let i = 0; i < records.length; i++) {
       if (i === 0) {
         diskRd.push(0)
@@ -395,18 +467,23 @@ const renderHistoryCharts = (records) => {
         const dt = (new Date(records[i].recorded_at) - new Date(records[i - 1].recorded_at)) / 1000
         let rd = 0, wr = 0
         if (dt > 0) {
-          rd = Math.max(0, (records[i].disk_rd_bytes - records[i - 1].disk_rd_bytes) / 1024 / dt)
-          wr = Math.max(0, (records[i].disk_wr_bytes - records[i - 1].disk_wr_bytes) / 1024 / dt)
+          if (isIopsMode) {
+            rd = Math.max(0, (records[i].disk_rd_ops - records[i - 1].disk_rd_ops) / dt)
+            wr = Math.max(0, (records[i].disk_wr_ops - records[i - 1].disk_wr_ops) / dt)
+          } else {
+            rd = Math.max(0, (records[i].disk_rd_bytes - records[i - 1].disk_rd_bytes) / 1024 / dt)
+            wr = Math.max(0, (records[i].disk_wr_bytes - records[i - 1].disk_wr_bytes) / 1024 / dt)
+            // 防抖动限制
+            if (rd > 10 * 1024 * 1024) rd = 0
+            if (wr > 10 * 1024 * 1024) wr = 0
+          }
         }
-        // 防抖动：单次跳变 > 10GB/s 当作 0（计数器回环/重启归零）
-        if (rd > 10 * 1024 * 1024) rd = 0
-        if (wr > 10 * 1024 * 1024) wr = 0
-        diskRd.push(rd.toFixed(1))
-        diskWr.push(wr.toFixed(1))
+        diskRd.push(isIopsMode ? rd : rd.toFixed(1))
+        diskWr.push(isIopsMode ? wr : wr.toFixed(1))
       }
     }
     charts[3].setOption({
-      title: { text: '磁盘 I/O (KB/s) - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
+      title: { text: getDiskChartTitle() + ' - 历史', textStyle: { fontSize: 14, color: '#8f9399' } },
       xAxis: { data: timeLabels },
       series: [{ data: diskRd }, { data: diskWr }]
     })
@@ -426,8 +503,8 @@ const onChartModeChange = (mode) => {
     })
     if (charts[0]) charts[0].setOption({ title: { text: 'CPU 使用率 (%)', textStyle: { fontSize: 14, color: '#8f9399' } } })
     if (charts[1]) charts[1].setOption({ title: { text: '内存使用率 (%)', textStyle: { fontSize: 14, color: '#8f9399' } } })
-    if (charts[2]) charts[2].setOption({ title: { text: '网络流量 (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } } })
-    if (charts[3]) charts[3].setOption({ title: { text: isLXC ? '磁盘使用量 (GB)' : '磁盘 I/O (KB/s)', textStyle: { fontSize: 14, color: '#8f9399' } } })
+    if (charts[2]) charts[2].setOption({ title: { text: '网络流量', textStyle: { fontSize: 14, color: '#8f9399' } } })
+    if (charts[3]) charts[3].setOption({ title: { text: isLXC ? '磁盘使用量 (GB)' : getDiskChartTitle(), textStyle: { fontSize: 14, color: '#8f9399' } } })
     prevNet = { rx: 0, tx: 0 }
     prevDisk = { rd: 0, wr: 0 }
   } else if (mode === 'history') {

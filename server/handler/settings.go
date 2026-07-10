@@ -95,9 +95,11 @@ type SettingsResponse struct {
 	NetworkWaitOnlineDisabled bool   `json:"network_wait_online_disabled"`
 	NetworkWaitOnlineSummary  string `json:"network_wait_online_summary"`
 	// 安全防护
-	SessionFingerprintEnabled  bool   `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled       bool   `json:"request_filter_enabled"`
-	PasswordBreachCheckEnabled bool   `json:"password_breach_check_enabled"`
+	SessionFingerprintEnabled  bool `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       bool `json:"request_filter_enabled"`
+	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
+	// 硬件直通
+	HardwarePassthroughEnabled bool   `json:"hardware_passthrough_enabled"`
 	MenuLayout                 string `json:"menu_layout"` // 菜单树原始 JSON
 }
 
@@ -164,9 +166,11 @@ type UpdateSettingsRequest struct {
 	// 网络等待就绪检测
 	NetworkWaitOnlineDisabled *bool `json:"network_wait_online_disabled"`
 	// 安全防护
-	SessionFingerprintEnabled  *bool   `json:"session_fingerprint_enabled"`
-	RequestFilterEnabled       *bool   `json:"request_filter_enabled"`
-	PasswordBreachCheckEnabled *bool   `json:"password_breach_check_enabled"`
+	SessionFingerprintEnabled  *bool `json:"session_fingerprint_enabled"`
+	RequestFilterEnabled       *bool `json:"request_filter_enabled"`
+	PasswordBreachCheckEnabled *bool `json:"password_breach_check_enabled"`
+	// 硬件直通
+	HardwarePassthroughEnabled *bool   `json:"hardware_passthrough_enabled"`
 	MenuLayout                 *string `json:"menu_layout"`
 	// LXC 设置（lxc_lxc_path 仅作探测，实际改动由 relocate 流程接管）
 	LXCLxcPath           *string `json:"lxc_lxc_path"`
@@ -297,6 +301,7 @@ func GetSettings(c *gin.Context) {
 			RequestFilterEnabled:                  cfg.RequestFilterEnabled,
 			PasswordBreachCheckEnabled:            cfg.PasswordBreachCheckEnabled,
 			MenuLayout:                            menuLayout,
+			HardwarePassthroughEnabled:            cfg.HardwarePassthroughEnabled,
 		},
 	})
 }
@@ -648,6 +653,9 @@ func UpdateSettings(c *gin.Context) {
 	}
 	if req.PasswordBreachCheckEnabled != nil {
 		cfg.PasswordBreachCheckEnabled = *req.PasswordBreachCheckEnabled
+	}
+	if req.HardwarePassthroughEnabled != nil {
+		cfg.HardwarePassthroughEnabled = *req.HardwarePassthroughEnabled
 	}
 
 	if cfg.AutoPortStart >= cfg.AutoPortEnd {

@@ -160,11 +160,13 @@ func GetVMStats(name string) (*VmStats, error) {
 				if strings.HasSuffix(fields[1], ".iso") {
 					continue
 				}
-				var diskRdBytes, diskWrBytes int64
+				var diskRdBytes, diskWrBytes, diskRdOps, diskWrOps int64
 				if libvirt_rpc.IsLibvirtRPCAvailable() {
-					if rd, wr, err := libvirt_rpc.GetDomainBlockStatsRPC(name, dev); err == nil {
+					if rdReq, rd, wrReq, wr, err := libvirt_rpc.GetDomainBlockStatsRPC(name, dev); err == nil {
 						diskRdBytes = rd
 						diskWrBytes = wr
+						diskRdOps = rdReq
+						diskWrOps = wrReq
 					} else {
 						logger.Libvirt.Warn("GetDomainBlockStatsRPC 失败，降级为 virsh", "domain", name, "device", dev, "error", err)
 					}
@@ -174,10 +176,14 @@ func GetVMStats(name string) (*VmStats, error) {
 					if blkResult.Error == nil {
 						diskRdBytes = parseBlkStat(blkResult.Stdout, "rd_bytes")
 						diskWrBytes = parseBlkStat(blkResult.Stdout, "wr_bytes")
+						diskRdOps = parseBlkStat(blkResult.Stdout, "rd_req")
+						diskWrOps = parseBlkStat(blkResult.Stdout, "wr_req")
 					}
 				}
 				stats.DiskRdBytes += diskRdBytes
 				stats.DiskWrBytes += diskWrBytes
+				stats.DiskRdOps += diskRdOps
+				stats.DiskWrOps += diskWrOps
 				break // 只取第一个磁盘
 			}
 		}

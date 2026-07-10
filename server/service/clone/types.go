@@ -67,6 +67,9 @@ type CloneParams struct {
 	PCIERootPorts         int                            `json:"pcie_root_ports,omitempty"`     // q35 预留 pcie-root-port 数量
 	PostBootCommand       string                         `json:"post_boot_command,omitempty"`   // Linux 模板启动后执行的自定义命令
 	PostBootBlocking      bool                           `json:"post_boot_blocking,omitempty"`  // 启动后命令阻塞模式
+	NestedVirt            *bool                          `json:"nested_virt,omitempty"`         // 嵌套虚拟化开关
+	KVMHidden             *bool                          `json:"kvm_hidden,omitempty"`          // 隐藏 KVM 标志
+	VendorID              string                         `json:"vendor_id,omitempty"`           // Hyper-V vendor_id 伪装
 }
 
 // BatchCloneParams 批量克隆参数
@@ -114,6 +117,9 @@ type BatchCloneParams struct {
 	Gateway             string                     `json:"gateway,omitempty"`             // OpenWrt 网关
 	DNS                 string                     `json:"dns,omitempty"`                 // OpenWrt DNS
 	PCIERootPorts       int                        `json:"pcie_root_ports,omitempty"`     // q35 预留 pcie-root-port 数量
+	NestedVirt          *bool                      `json:"nested_virt,omitempty"`         // 嵌套虚拟化开关
+	KVMHidden           *bool                      `json:"kvm_hidden,omitempty"`          // 隐藏 KVM 标志
+	VendorID            string                     `json:"vendor_id,omitempty"`           // Hyper-V vendor_id 伪装
 }
 
 // ReinstallParams 重装系统参数

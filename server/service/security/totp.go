@@ -50,9 +50,9 @@ func ValidateTOTPCode(secret, code string) error {
 
 // RecoveryCodesConfig 恢复码配置
 const (
-	RecoveryCodeCount = 10  // 生成恢复码数量
+	RecoveryCodeCount = 10                                 // 生成恢复码数量
 	RecoveryCodeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 避免易混淆字符 0/O/1/I
-	RecoveryCodeLen   = 16  // 每组恢复码长度
+	RecoveryCodeLen   = 16                                 // 每组恢复码长度
 )
 
 // TOTPRecoverySetup 恢复码结果（仅绑定/重新生成时返回一次）
@@ -104,7 +104,7 @@ func ValidateAndConsumeRecoveryCode(encryptedEnc, inputCode string) (bool, strin
 	// 解密
 	plainJSON, err := DecryptSecurityText(encryptedEnc)
 	if err != nil {
-		return false, encryptedEnc, fmt.Errorf("读取恢复码失败")
+		return false, encryptedEnc, fmt.Errorf("恢复码解密失败，加密密钥可能已变更，请重新生成恢复码")
 	}
 
 	var hashedCodes []string

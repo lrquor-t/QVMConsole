@@ -44,3 +44,4 @@ tmp/
 docs/
 server/.env
 server/**/*.env
+.claude/

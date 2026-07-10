@@ -111,6 +111,9 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 				Gateway:             params.Gateway,
 				DNS:                 params.DNS,
 				PCIERootPorts:       params.PCIERootPorts,
+				NestedVirt:          params.NestedVirt,
+				KVMHidden:           params.KVMHidden,
+				VendorID:            params.VendorID,
 			}
 
 			subProgress := func(_ int, msg string) {

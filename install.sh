@@ -1161,6 +1161,37 @@ ensure_directories() {
     touch "$OVS_CONFIG_DIR/dhcp-hosts"
     touch /etc/projects /etc/projid
 
+    # ARM 架构部署旧版 AAVMF 兼容固件（解决统信 UOS 等 OS 的 UEFI 引导兼容性问题）
+    if [ "$ARCH" = "aarch64" ]; then
+        local firmware_dir="${INSTALL_DIR}/firmware"
+        mkdir -p "$firmware_dir"
+        if [ ! -f "$firmware_dir/AAVMF_CODE_legacy.fd" ]; then
+            info "部署 ARM UEFI 兼容固件..."
+            # 优先从 Ubuntu 24.04 仓库下载旧版 EDK2
+            local efi_deb_url="http://ports.ubuntu.com/pool/main/e/edk2/qemu-efi-aarch64_2024.02-2_all.deb"
+            local efi_deb_file="/tmp/qemu-efi-legacy.deb"
+            if wget -q "$efi_deb_url" -O "$efi_deb_file" 2>/dev/null || \
+               wget -q "http://mirrors.aliyun.com/ubuntu-ports/pool/main/e/edk2/qemu-efi-aarch64_2024.02-2_all.deb" -O "$efi_deb_file" 2>/dev/null; then
+                local efi_extract="/tmp/efi-legacy-extract"
+                rm -rf "$efi_extract"
+                mkdir -p "$efi_extract"
+                dpkg-deb -x "$efi_deb_file" "$efi_extract" 2>/dev/null
+                if [ -f "$efi_extract/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd" ]; then
+                    cp -f "$efi_extract/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd" "$firmware_dir/AAVMF_CODE_legacy.fd"
+                    cp -f "$efi_extract/usr/share/AAVMF/AAVMF_VARS.fd" "$firmware_dir/AAVMF_VARS_legacy.fd"
+                    success "ARM UEFI 兼容固件部署完成"
+                else
+                    warn "旧版固件提取失败，跳过兼容固件部署"
+                fi
+                rm -rf "$efi_extract" "$efi_deb_file"
+            else
+                warn "下载旧版 AAVMF 固件失败，跳过兼容固件部署（可手动放置到 $firmware_dir）"
+            fi
+        else
+            success "ARM UEFI 兼容固件已存在"
+        fi
+    fi
+
     if getent group vmoperator >/dev/null 2>&1; then
         true
     else
@@ -1415,7 +1446,7 @@ extract_tarball() {
     tar -xzf "$tarball_path" -C "$TMP_RELEASE_DIR"
 
     local found_bin
-    found_bin=$(find "$TMP_RELEASE_DIR" -maxdepth 3 -name "kvm-console" -type f -perm /111 2>/dev/null | head -1)
+    found_bin=$(find "$TMP_RELEASE_DIR" -maxdepth 3 -name "kvm-console" -type f -perm /111 2>/dev/null | sed -n '1p') || true
     if [ -z "$found_bin" ]; then
         error "发行包中未找到 kvm-console 可执行文件"
         exit 1
@@ -1512,6 +1543,45 @@ install_files() {
     cp -f "${RELEASE_SOURCE_DIR}/kvm-console" "${INSTALL_DIR}/kvm-console"
     chmod +x "${INSTALL_DIR}/kvm-console"
 
+    # 如果发行包包含宿主机原生版二进制，一并部署并自动选择
+    if [ -f "${RELEASE_SOURCE_DIR}/kvm-console-native" ]; then
+        cp -f "${RELEASE_SOURCE_DIR}/kvm-console-native" "${INSTALL_DIR}/kvm-console-native"
+        chmod +x "${INSTALL_DIR}/kvm-console-native"
+        info "已部署宿主机原生版二进制 kvm-console-native"
+
+        # 检测宿主机 glibc 版本，自动选择最合适的二进制作为主程序
+        local glibc_ver
+        glibc_ver=$(ldd --version 2>&1 | sed -n '1 s/.* //p') || true
+        if [ -z "$glibc_ver" ] || ! echo "$glibc_ver" | grep -qE '^[0-9]+\.[0-9]+$'; then
+            glibc_ver=$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || echo "0")
+        fi
+        info "检测到宿主机 GLIBC 版本: ${glibc_ver}"
+
+        # 版本比较：若 glibc >= 2.34 则切换为原生版
+        local need_compat=true
+        IFS=. read -r major minor <<< "$glibc_ver"
+        minor=${minor:-0}
+        if [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 34 ]; }; then
+            need_compat=false
+        fi
+
+        if [ "$need_compat" = false ]; then
+            # 额外检测 CPU 是否支持 AVX2+FMA（native 版可能使用这些指令）
+            # Ivy Bridge 等 CPU 仅支持 AVX1，运行含 FMA/AVX2 的二进制会 SIGILL 崩溃
+            if [ "$ARCH" = "x86_64" ] && ! grep -q 'avx2' /proc/cpuinfo 2>/dev/null; then
+                warn "CPU 不支持 AVX2/FMA 指令集，保留 zig 兼容版作为主程序（原生版可能崩溃）"
+                info "原生版保留为 kvm-console-native，可手动测试切换"
+            else
+                info "GLIBC ≥ 2.34 且 CPU 支持 AVX2，切换宿主机原生版为主程序（兼容版保留为 kvm-console-compat）"
+                mv -f "${INSTALL_DIR}/kvm-console" "${INSTALL_DIR}/kvm-console-compat"
+                mv -f "${INSTALL_DIR}/kvm-console-native" "${INSTALL_DIR}/kvm-console"
+                success "已切换为宿主机原生版"
+            fi
+        else
+            info "GLIBC < 2.34，继续使用 zig 兼容版作为主程序（原生版保留为 kvm-console-native）"
+        fi
+    fi
+
     info "安装前端静态文件..."
     rm -rf "${INSTALL_DIR}/web-dist"
     cp -r "${RELEASE_SOURCE_DIR}/web-dist" "${INSTALL_DIR}/web-dist"
@@ -1594,30 +1664,124 @@ uninstall_app() {
     success "${APP_NAME} 已卸载"
 }
 
+BOX_INNER_WIDTH=64
+
+# 测算可视化宽度，剔除所有ANSI转义序列
+get_visual_width() {
+    local txt="$1"
+    local stripped=$(sed -E $'s/\x1b\[[0-9;]*[mKHF]//g' <<<"$txt")
+    echo -n "$stripped" | wc -L
+}
+
+# 纯文本补齐空格，右填充到BOX_INNER_WIDTH
+pad_plain() {
+    local raw="$1"
+    local w=$(get_visual_width "$raw")
+    local pad=$(( BOX_INNER_WIDTH - w ))
+    (( pad < 0 )) && pad=0
+    local space_str
+    space_str=$(printf "%${pad}s" "")
+    printf '%s%s' "$raw" "$space_str"
+}
+
+# 新增：文本居中函数，左右自动分配空格
+center_text() {
+    local raw="$1"
+    local w=$(get_visual_width "$raw")
+    local total_pad=$(( BOX_INNER_WIDTH - w ))
+    (( total_pad < 0 )) && total_pad=0
+    local left_pad=$(( total_pad / 2 ))
+    local right_pad=$(( total_pad - left_pad ))
+    # 左侧空格 + 文字 + 右侧空格
+    printf "%${left_pad}s%s%${right_pad}s" "" "$raw" ""
+}
+
 show_info() {
     local host_ip
     host_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     host_ip=${host_ip:-localhost}
 
+    # 拼接固定边框字符串，边框统一使用青色
+    top_border="${CYAN}╔$(printf '═%.0s' $(seq 1 $BOX_INNER_WIDTH))╗${NC}"
+    mid_border="${CYAN}╠$(printf '═%.0s' $(seq 1 $BOX_INNER_WIDTH))╣${NC}"
+    bot_border="${CYAN}╚$(printf '═%.0s' $(seq 1 $BOX_INNER_WIDTH))╝${NC}"
+
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "$top_border"
+
+    # 标题居中，标题文字保持青色
     if [ "$MODE" = "install" ]; then
-        echo -e "${CYAN}║       ${APP_NAME} 安装完成！                     ║${NC}"
+        title_raw="${APP_NAME} 安装完成！"
     else
-        echo -e "${CYAN}║       ${APP_NAME} 更新完成！                     ║${NC}"
+        title_raw="${APP_NAME} 更新完成！"
     fi
-    echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  访问地址: ${GREEN}http://${host_ip}:${KVM_PORT}${NC}"
-    echo -e "${CYAN}║${NC}  安装目录: ${GREEN}${INSTALL_DIR}${NC}"
-    echo -e "${CYAN}║${NC}  配置文件: ${GREEN}${ENV_FILE}${NC}"
+    title_filled=$(center_text "$title_raw")
+    title_line="${CYAN}║${title_filled}║${NC}"
+    echo -e "$title_line"
+
+    echo -e "$mid_border"
+
+    # ========== 信息区块：标签普通白色，后面路径/地址部分单独绿色 ==========
+    # 访问地址行
+    label1="  访问地址:"
+    val1=" http://${host_ip}:${KVM_PORT}"
+    plain1="${label1}${val1}"
+    pad1=$(pad_plain "$plain1")
+    # 截取填充后的空白后缀
+    suffix1="${pad1#"$plain1"}"
+    line_info1="${CYAN}║${NC}${label1}${GREEN}${val1}${NC}${suffix1}${CYAN}║${NC}"
+
+    # 安装目录行
+    label2="  安装目录:"
+    val2=" ${INSTALL_DIR}"
+    plain2="${label2}${val2}"
+    pad2=$(pad_plain "$plain2")
+    suffix2="${pad2#"$plain2"}"
+    line_info2="${CYAN}║${NC}${label2}${GREEN}${val2}${NC}${suffix2}${CYAN}║${NC}"
+
+    # 配置文件行
+    label3="  配置文件:"
+    val3=" ${ENV_FILE}"
+    plain3="${label3}${val3}"
+    pad3=$(pad_plain "$plain3")
+    suffix3="${pad3#"$plain3"}"
+    line_info3="${CYAN}║${NC}${label3}${GREEN}${val3}${NC}${suffix3}${CYAN}║${NC}"
+
+    echo -e "$line_info1"
+    echo -e "$line_info2"
+    echo -e "$line_info3"
+
+    # 安装模式额外输出默认账号
     if [ "$MODE" = "install" ]; then
-        echo -e "${CYAN}║${NC}  默认账号: ${GREEN}admin${NC} / ${GREEN}admin123${NC}"
+        label4="  默认账号:"
+        val4=" admin / admin123"
+        plain4="${label4}${val4}"
+        pad4=$(pad_plain "$plain4")
+        suffix4="${pad4#"$plain4"}"
+        line_info4="${CYAN}║${NC}${label4}${GREEN}${val4}${NC}${suffix4}${CYAN}║${NC}"
+        echo -e "$line_info4"
     fi
-    echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  查看状态: systemctl status $SERVICE_NAME"
-    echo -e "${CYAN}║${NC}  查看日志: journalctl -u $SERVICE_NAME -f"
-    echo -e "${CYAN}║${NC}  重启服务: systemctl restart $SERVICE_NAME"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+
+    echo -e "$mid_border"
+
+    # ========== 命令区块：整行普通白色原色，不施加绿色 ==========
+    c_raw1="  查看状态: systemctl status $SERVICE_NAME"
+    c_fill1=$(pad_plain "$c_raw1")
+    cmd_line1="${CYAN}║${NC}${c_fill1}${CYAN}║${NC}"
+
+    c_raw2="  查看日志: journalctl -u $SERVICE_NAME -f"
+    c_fill2=$(pad_plain "$c_raw2")
+    cmd_line2="${CYAN}║${NC}${c_fill2}${CYAN}║${NC}"
+
+    c_raw3="  重启服务: systemctl restart $SERVICE_NAME"
+    c_fill3=$(pad_plain "$c_raw3")
+    cmd_line3="${CYAN}║${NC}${c_fill3}${CYAN}║${NC}"
+
+    echo -e "$cmd_line1"
+    echo -e "$cmd_line2"
+    echo -e "$cmd_line3"
+
+    echo -e "$bot_border"
     echo ""
 }
 

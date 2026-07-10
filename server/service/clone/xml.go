@@ -199,6 +199,39 @@ func defineAndStartNonWindowsClone(params *CloneParams, cloneDisk string, ramMB 
 		}
 	}
 
+	// 嵌套虚拟化开关（默认启用，host-passthrough 下需 policy='disable' 覆盖）
+	if params.NestedVirt == nil || *params.NestedVirt {
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		enabled := true
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &enabled, featureName)
+		if err != nil {
+			return err
+		}
+	} else {
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		disabled := false
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &disabled, featureName)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 隐藏 KVM 标志
+	if params.KVMHidden != nil {
+		vmXML, err = vm_xml.ApplyKVMHiddenToDomainXML(vmXML, params.KVMHidden)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Hyper-V vendor_id 伪装
+	if strings.TrimSpace(params.VendorID) != "" {
+		vmXML, err = vm_xml.ApplyVendorIDToHyperVBlock(vmXML, params.VendorID)
+		if err != nil {
+			return err
+		}
+	}
+
 	if _, err := libvirt_rpc.DefineDomainXMLRPC(vmXML); err != nil {
 		return fmt.Errorf("定义虚拟机失败: %w", err)
 	}

@@ -58,6 +58,7 @@ type LinkedCloneParams struct {
 	SystemDiskIOPS      *DiskIOPSTune           `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制
 	IsAdmin             bool                    `json:"is_admin,omitempty"`
 	PCIERootPorts       int                     `json:"pcie_root_ports,omitempty"` // q35 预留 pcie-root-port 数量
+	NestedVirt          *bool                   `json:"nested_virt,omitempty"`     // 嵌套虚拟化开关
 }
 
 // LinkedCloneResult 原生链式克隆结果
@@ -344,6 +345,25 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	if err := vm_xml.EnsureVMUEFINVRAMFile(params.Name, vmXML, normalizedBootType); err != nil {
 		cleanupLinkedCloneArtifacts("", cloneDisk)
 		return nil, err
+	}
+
+	// 嵌套虚拟化开关（默认启用，host-passthrough 下需 policy='disable' 覆盖）
+	if params.NestedVirt == nil || *params.NestedVirt {
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		enabled := true
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &enabled, featureName)
+		if err != nil {
+			cleanupLinkedCloneArtifacts("", cloneDisk)
+			return nil, err
+		}
+	} else {
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		disabled := false
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &disabled, featureName)
+		if err != nil {
+			cleanupLinkedCloneArtifacts("", cloneDisk)
+			return nil, err
+		}
 	}
 
 	// 定义虚拟机（直接通过 RPC，无需临时文件）

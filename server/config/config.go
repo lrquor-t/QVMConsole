@@ -176,6 +176,8 @@ type Config struct {
 	LXCTemplateImportDir string `json:"lxc_template_import_dir"` // 上传 rootfs tarball 临时落盘点
 	LXCDefaultBacking    string `json:"lxc_default_backing"`     // 默认 backing store: overlay/dir
 	LXCBasePrefix        string `json:"lxc_base_prefix"`         // 金基底容器名保留前缀（列表隐藏）
+	// 硬件直通开关（默认关闭，开启后启用 IOMMU 和 vfio-pci 支持）
+	HardwarePassthroughEnabled bool `json:"hardware_passthrough_enabled"`
 }
 
 // GlobalConfig 全局配置实例
@@ -304,6 +306,7 @@ func Init() {
 		ErrorDetailInResponse:                 getEnvBool("KVM_ERROR_DETAIL_IN_RESPONSE", false),
 		SessionFingerprintEnabled:             getEnvBool("KVM_SESSION_FINGERPRINT_ENABLED", true),
 		PasswordBreachCheckEnabled:            getEnvBool("KVM_PASSWORD_BREACH_CHECK_ENABLED", true),
+		HardwarePassthroughEnabled:            getEnvBool("KVM_HARDWARE_PASSTHROUGH_ENABLED", false),
 		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
 		LXCLxcPath:                            getEnv("LXC_PATH", "/var/lib/lxc"),
 		LXCTemplateImportDir:                  getEnv("LXC_TEMPLATE_IMPORT_DIR", filepath.Join("/var/lib/lxc", "_imports")),
@@ -540,6 +543,11 @@ var PersistableKeys = []string{
 	"lxc_lxc_path",
 	"lxc_template_import_dir",
 	"lxc_default_backing",
+	"session_fingerprint_enabled",
+	"request_filter_enabled",
+	"password_breach_check_enabled",
+	"igpu_passthrough_enabled",
+	"hardware_passthrough_enabled",
 }
 
 // keyToEnvVar 配置项到环境变量的映射
@@ -613,6 +621,11 @@ var keyToEnvVar = map[string]string{
 	"lxc_lxc_path":                              "LXC_PATH",
 	"lxc_template_import_dir":                   "LXC_TEMPLATE_IMPORT_DIR",
 	"lxc_default_backing":                       "LXC_DEFAULT_BACKING",
+	"session_fingerprint_enabled":               "KVM_SESSION_FINGERPRINT_ENABLED",
+	"request_filter_enabled":                    "KVM_REQUEST_FILTER_ENABLED",
+	"password_breach_check_enabled":             "KVM_PASSWORD_BREACH_CHECK_ENABLED",
+	"igpu_passthrough_enabled":                  "KVM_IGPU_PASSTHROUGH_ENABLED",
+	"hardware_passthrough_enabled":              "KVM_HARDWARE_PASSTHROUGH_ENABLED",
 }
 
 // LoadFromDB 从数据库加载持久化的设置覆盖当前配置
@@ -852,6 +865,8 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			c.RequestFilterEnabled = value != "false"
 		case "password_breach_check_enabled":
 			c.PasswordBreachCheckEnabled = value != "false"
+		case "hardware_passthrough_enabled":
+			c.HardwarePassthroughEnabled = value == "true"
 		case "api_max_body_size_mb":
 			if n, err := strconv.Atoi(value); err == nil && n > 0 {
 				c.APIMaxBodySizeMB = n
@@ -939,6 +954,7 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"session_fingerprint_enabled":               strconv.FormatBool(c.SessionFingerprintEnabled),
 		"request_filter_enabled":                    strconv.FormatBool(c.RequestFilterEnabled),
 		"password_breach_check_enabled":             strconv.FormatBool(c.PasswordBreachCheckEnabled),
+		"hardware_passthrough_enabled":              strconv.FormatBool(c.HardwarePassthroughEnabled),
 	}
 }
 

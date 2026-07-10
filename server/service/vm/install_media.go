@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"kvm_console/service/arch"
 )
 
 var (
@@ -101,13 +103,13 @@ func ApplyAdditionalCDROMsToDomainXML(xmlContent string, isoPaths []string) (str
 func detectPrimaryCDROMBus(xmlContent string) string {
 	block := vmCDROMBlockRegex.FindString(xmlContent)
 	if block == "" {
-		return "sata"
+		return arch.GetProfile(arch.DetectHostArch()).GetCDROMBus()
 	}
 	matches := vmDiskTargetRegex.FindStringSubmatch(block)
 	if len(matches) >= 3 && strings.TrimSpace(matches[2]) != "" {
 		return strings.TrimSpace(matches[2])
 	}
-	return "sata"
+	return arch.GetProfile(arch.DetectHostArch()).GetCDROMBus()
 }
 
 func nextAvailableInstallMediaDevice(xmlContent, bus string) (string, error) {

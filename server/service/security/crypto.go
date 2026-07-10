@@ -49,8 +49,8 @@ func DecryptSecurityTextAutoUpgrade(cipherText string) (string, string, error) {
 	}
 
 	// 优先使用新密钥解密
-	plain, err := decryptRawWithKey(raw, buildSecurityKey())
-	if err == nil {
+	plain, newKeyErr := decryptRawWithKey(raw, buildSecurityKey())
+	if newKeyErr == nil {
 		return plain, "", nil
 	}
 
@@ -66,7 +66,8 @@ func DecryptSecurityTextAutoUpgrade(cipherText string) (string, string, error) {
 		}
 	}
 
-	return "", "", err
+	// 两种密钥均失败，返回明确错误提示
+	return "", "", fmt.Errorf("解密失败：当前密钥与旧密钥均无法解密该数据，可能是加密密钥已变更，请重新设置相关凭据")
 }
 
 // decryptRawWithKey 使用指定密钥解密原始字节

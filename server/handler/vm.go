@@ -548,6 +548,61 @@ func EditVm(c *gin.Context) {
 		}
 	}
 
+	// 修改 UEFI 固件兼容模式（ARM 专用）
+	if req.FirmwareCompat != nil {
+		if err := service.SetVMFirmwareCompat(name, *req.FirmwareCompat); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "设置 UEFI 固件兼容模式失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	// 修改直接内核引导
+	if req.DirectBoot != nil {
+		if err := service.SetVMDirectBoot(name, req.DirectBoot); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "设置直接内核引导失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	// 修改 KVM 隐藏标志
+	if req.KVMHidden != nil {
+		if err := service.SetVMKVMHidden(name, *req.KVMHidden); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "设置 KVM 隐藏标志失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	// 修改 Hyper-V vendor_id 伪装
+	if req.VendorID != nil {
+		if err := service.SetVMVendorID(name, *req.VendorID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "设置 vendor_id 失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	// 修改嵌套虚拟化
+	if req.NestedVirt != nil {
+		if err := service.SetVMNestedVirt(name, *req.NestedVirt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "设置嵌套虚拟化失败: " + err.Error(),
+			})
+			return
+		}
+	}
+
 	// 修改自动启动
 	if req.Remark != nil {
 		if err := service.SetVMRemark(name, *req.Remark); err != nil {

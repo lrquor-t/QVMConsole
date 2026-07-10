@@ -102,7 +102,12 @@ type VmDetail struct {
 	SMBIOS1                *vm_xml.VMSMBIOS1Config       `json:"smbios1"`            // SMBIOS 类型 1 信息
 	MemoryObservationUntil int64                         `json:"memory_observation_until"`
 	MemoryManualPauseUntil int64                         `json:"memory_manual_pause_until"`
-	PCIERootPorts          int                           `json:"pcie_root_ports"` // pcie-root-port 数量（仅 q35/virt 机型）
+	PCIERootPorts          int                           `json:"pcie_root_ports"`       // pcie-root-port 数量（仅 q35/virt 机型）
+	FirmwareCompat         bool                          `json:"firmware_compat"`       // UEFI 固件兼容模式（ARM 专用）
+	DirectBoot             *vm_xml.DirectBootConfig      `json:"direct_boot,omitempty"` // 直接内核引导配置
+	KVMHidden              bool                          `json:"kvm_hidden"`            // 隐藏 KVM 标志
+	VendorID               string                        `json:"vendor_id"`             // Hyper-V vendor_id 伪装值
+	NestedVirt             bool                          `json:"nested_virt"`           // 嵌套虚拟化开关
 }
 
 // VmStats 虚拟机资源使用统计
@@ -114,6 +119,8 @@ type VmStats struct {
 	NetTxBytes     int64   `json:"net_tx_bytes"`
 	DiskRdBytes    int64   `json:"disk_rd_bytes"`
 	DiskWrBytes    int64   `json:"disk_wr_bytes"`
+	DiskRdOps      int64   `json:"disk_rd_ops"`      // 磁盘累计读操作次数
+	DiskWrOps      int64   `json:"disk_wr_ops"`      // 磁盘累计写操作次数
 	DiskUsedBytes  int64   `json:"disk_used_bytes"`  // 磁盘已用（字节）；LXC rootfs 用量，VM 留 0
 	DiskTotalBytes int64   `json:"disk_total_bytes"` // 磁盘总量（字节）；LXC rootfs 总量，VM 留 0
 }

@@ -351,7 +351,7 @@ func GetDevPrefix(bus string) string {
 	switch bus {
 	case "virtio":
 		return "vd"
-	case "scsi", "sata":
+	case "scsi", "sata", "usb":
 		return "sd"
 	case "ide":
 		return "hd"

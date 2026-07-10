@@ -15,6 +15,8 @@ type VmStatsRecord struct {
 	NetTxBytes     int64     `json:"net_tx_bytes"`                      // 网络发送字节数
 	DiskRdBytes    int64     `json:"disk_rd_bytes"`                     // 磁盘读取字节数
 	DiskWrBytes    int64     `json:"disk_wr_bytes"`                     // 磁盘写入字节数
+	DiskRdOps      int64     `json:"disk_rd_ops"`                       // 磁盘累计读操作次数
+	DiskWrOps      int64     `json:"disk_wr_ops"`                       // 磁盘累计写操作次数
 	DiskUsedBytes  int64     `json:"disk_used_bytes"`                   // LXC rootfs 已用（字节）
 	DiskTotalBytes int64     `json:"disk_total_bytes"`                  // LXC rootfs 总量（字节）
 	RecordedAt     time.Time `gorm:"index;not null" json:"recorded_at"` // 记录时间

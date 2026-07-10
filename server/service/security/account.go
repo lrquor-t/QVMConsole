@@ -450,7 +450,7 @@ func GetUserTOTPSecret(user *model.User) (string, error) {
 	}
 	plain, upgraded, err := DecryptSecurityTextAutoUpgrade(user.TOTPSecretEnc)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("2FA 密钥解密失败，加密密钥可能已变更，请重新绑定 2FA")
 	}
 	// 旧密钥解密成功后透明升级为新密钥
 	if upgraded != "" {

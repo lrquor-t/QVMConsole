@@ -246,26 +246,24 @@ func GetDomainMemoryStatsRPC(name string) (map[string]uint64, error) {
 }
 
 // GetDomainBlockStatsRPC 获取磁盘 I/O 统计（替代 virsh domblkstat）
-// 返回 读取字节数, 写入字节数
-func GetDomainBlockStatsRPC(name, dev string) (rdBytes, wrBytes int64, err error) {
+// 返回 读请求数, 读字节数, 写请求数, 写字节数
+func GetDomainBlockStatsRPC(name, dev string) (rdReq, rdBytes, wrReq, wrBytes int64, err error) {
 	dom, err := lookupDomainByName(name)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	l, err := GetLibvirt()
 	if err != nil {
-		return 0, 0, fmt.Errorf("获取域 %s 磁盘统计失败: %w", name, err)
+		return 0, 0, 0, 0, fmt.Errorf("获取域 %s 磁盘统计失败: %w", name, err)
 	}
 	rdReq, rdByt, wrReq, wrByt, errs, statErr := l.DomainBlockStats(dom, dev)
 	if statErr != nil {
-		return 0, 0, fmt.Errorf("获取域 %s 磁盘 %s 统计失败: %w", name, dev, statErr)
+		return 0, 0, 0, 0, fmt.Errorf("获取域 %s 磁盘 %s 统计失败: %w", name, dev, statErr)
 	}
-	_ = rdReq
-	_ = wrReq
 	_ = errs
 	logger.Libvirt.Debug("RPC: 获取磁盘 I/O 统计成功", "domain", name, "device", dev,
-		"rdBytes", rdByt, "wrBytes", wrByt)
-	return rdByt, wrByt, nil
+		"rdBytes", rdByt, "wrBytes", wrByt, "rdReq", rdReq, "wrReq", wrReq)
+	return rdReq, rdByt, wrReq, wrByt, nil
 }
 
 // GetDomainInterfaceStatsRPC 获取网络 I/O 统计（替代 virsh domifstat）

@@ -63,6 +63,11 @@ type CreateVMParams struct {
 	HostDevices     []HostDeviceParam              `json:"host_devices,omitempty"` // 硬件直通设备
 	IsAdmin         bool                           `json:"is_admin,omitempty"`
 	PCIERootPorts   int                            `json:"pcie_root_ports,omitempty"` // q35 机型预留 pcie-root-port 数量，0 表示使用默认 6
+	FirmwareCompat  *bool                          `json:"firmware_compat,omitempty"` // UEFI 固件兼容模式（ARM 专用，使用旧版 EDK2）
+	DirectBoot      *vm_xml.DirectBootConfig       `json:"direct_boot,omitempty"`     // 直接内核引导配置
+	KVMHidden       *bool                          `json:"kvm_hidden,omitempty"`      // 隐藏 KVM 标志（<kvm><hidden state='on'/></kvm>）
+	VendorID        string                         `json:"vendor_id,omitempty"`       // Hyper-V vendor_id 伪装（空表示不设置）
+	NestedVirt      *bool                          `json:"nested_virt,omitempty"`     // 嵌套虚拟化开关，nil/true 默认启用，false 关闭
 }
 
 // ExtraDiskParam is now defined in storage/disk package; alias in disk_compat.go.
@@ -147,6 +152,41 @@ func ListISOs() ([]map[string]string, error) {
 		})
 	}
 	return isos, nil
+}
+
+// fixARM64CDROMBus 对于 aarch64 架构，将 virt-install 生成的 SATA CDROM 修正为 USB 总线。
+// ARM64 的 AAVMF UEFI 固件不支持从 SATA CDROM 引导，必须使用 USB CDROM。
+func fixARM64CDROMBus(vmXML string) string {
+	if !arch.IsHostArch(arch.ArchAarch64) {
+		return vmXML
+	}
+	// 将 CDROM 设备块的 bus='sata' 替换为 bus='usb'
+	lines := strings.Split(vmXML, "\n")
+	inCdrom := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "device='cdrom'") {
+			inCdrom = true
+		}
+		if inCdrom && strings.Contains(trimmed, "bus='sata'") {
+			lines[i] = strings.Replace(line, "bus='sata'", "bus='usb'", 1)
+		}
+		if inCdrom && strings.Contains(trimmed, "<address type='drive'") {
+			// 移除 SATA 控制器地址，USB 设备不需要此属性
+			lines[i] = ""
+		}
+		if inCdrom && (strings.Contains(trimmed, "</disk>") || strings.HasSuffix(trimmed, "</disk>")) {
+			inCdrom = false
+		}
+	}
+	// 过滤掉空行
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	return strings.Join(filtered, "\n")
 }
 
 // CreateVM 普通方式创建虚拟机（不通过模板）
@@ -362,6 +402,10 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 		xmlOutput = xmlOutput[idx:]
 	}
 
+	// ARM64 架构：将 virt-install 生成的 SATA CDROM 修正为 USB 总线
+	// AAVMF UEFI 固件不支持从 SATA CDROM 引导
+	xmlOutput = fixARM64CDROMBus(xmlOutput)
+
 	// 注入 memballoon 配置（非 Windows 启用 freePageReporting）
 	enableFPR := params.OSType != "windows"
 	vmXML := D.InjectMemballoonConfig(xmlOutput, enableFPR)
@@ -447,6 +491,81 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if err := vm_xml.EnsureVMUEFINVRAMFile(params.Name, vmXML, normalizedBootType); err != nil {
 		_ = os.Remove(diskPath)
 		return "", err
+	}
+
+	// UEFI 固件兼容模式（ARM 专用，使用旧版 EDK2 解决 UOS 等系统的引导兼容性问题）
+	if params.FirmwareCompat != nil && *params.FirmwareCompat {
+		vmXML, err = vm_xml.ApplyFirmwareCompatToDomainXML(params.Name, vmXML, params.FirmwareCompat)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
+
+	// 隐藏 KVM 标志（在 <features> 中注入 <kvm><hidden state='on'/></kvm>）
+	if params.KVMHidden != nil {
+		vmXML, err = vm_xml.ApplyKVMHiddenToDomainXML(vmXML, params.KVMHidden)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
+
+	// Hyper-V vendor_id 伪装（在 <hyperv> 中注入 <vendor_id state='on' value='...'/>）
+	if params.VendorID != "" {
+		vmXML, err = vm_xml.ApplyVendorIDToHyperVBlock(vmXML, params.VendorID)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
+
+	// 嵌套虚拟化（在 <cpu> 中注入 vmx/svm feature，host-passthrough 下需 policy='disable' 覆盖）
+	if params.NestedVirt == nil || *params.NestedVirt {
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		enabled := true
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &enabled, featureName)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	} else {
+		// 显式关闭：注入 policy='disable' 覆盖 host-passthrough 的透传
+		featureName := vm_xml.DetectHostNestedVirtFeatureName()
+		disabled := false
+		vmXML, err = vm_xml.ApplyNestedVirtToDomainXML(vmXML, &disabled, featureName)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
+
+	// 直接内核引导（绕过 UEFI 引导器直接加载内核）
+	if params.DirectBoot != nil && params.DirectBoot.Enabled {
+		dbCfg := params.DirectBoot
+		// 如果未指定 kernel 路径，从 ISO 自动提取
+		if dbCfg.Kernel == "" {
+			isoPath := params.ISOPath
+			if isoPath == "" && len(params.ISOPaths) > 0 {
+				isoPath = params.ISOPaths[0]
+			}
+			kernel, initrd, extractErr := vm_xml.ExtractKernelFromISO(params.Name, isoPath)
+			if extractErr != nil {
+				_ = os.Remove(diskPath)
+				return "", fmt.Errorf("从 ISO 提取内核失败: %w", extractErr)
+			}
+			dbCfg = &vm_xml.DirectBootConfig{
+				Enabled: true,
+				Kernel:  kernel,
+				Initrd:  initrd,
+				Cmdline: params.DirectBoot.Cmdline,
+			}
+		}
+		vmXML, err = vm_xml.ApplyDirectBootToDomainXML(vmXML, dbCfg)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
 	}
 
 	// SPICE graphics（默认本地监听），与 VNC 共存；是否启用由 per-VM 开关决定，回退全局默认

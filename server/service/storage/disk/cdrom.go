@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/digitalocean/go-libvirt"
+	"kvm_console/service/arch"
 	"kvm_console/service/libvirt_rpc"
+
+	"github.com/digitalocean/go-libvirt"
 )
 
 // ChangeCDROM changes/inserts a CD/DVD disc.
@@ -30,13 +32,19 @@ func ChangeCDROM(vmName, isoPath, device string, forceNew bool) error {
 		}
 	}
 
+	// 获取当前 CDROM 设备的实际总线类型
+	cdromBus := getExistingCDROMBus(vmName, device)
+	if cdromBus == "" {
+		cdromBus = arch.GetProfile(arch.DetectHostArch()).GetCDROMBus()
+	}
+
 	// change CDROM media via libvirt_rpc.AttachDeviceFlagsRPC
 	cdromXML := fmt.Sprintf(
 		"<disk type='file' device='cdrom'>\n"+
 			"  <driver name='qemu' type='raw'/>\n"+
 			"  <source file='%s'/>\n"+
-			"  <target dev='%s' bus='sata'/>\n"+
-			"</disk>", isoPath, device)
+			"  <target dev='%s' bus='%s'/>\n"+
+			"</disk>", isoPath, device, cdromBus)
 
 	var attachFlags uint32 = 2 // VIR_DOMAIN_DEVICE_MODIFY_CONFIG
 	if vmState == "running" {
@@ -62,12 +70,18 @@ func EjectCDROM(vmName, device string) error {
 		}
 	}
 
+	// 获取当前 CDROM 设备的实际总线类型
+	ejectBus := getExistingCDROMBus(vmName, device)
+	if ejectBus == "" {
+		ejectBus = arch.GetProfile(arch.DetectHostArch()).GetCDROMBus()
+	}
+
 	// eject CDROM media (leave source empty)
 	cdromXML := fmt.Sprintf(
 		"<disk type='file' device='cdrom'>\n"+
 			"  <driver name='qemu' type='raw'/>\n"+
-			"  <target dev='%s' bus='sata'/>\n"+
-			"</disk>", device)
+			"  <target dev='%s' bus='%s'/>\n"+
+			"</disk>", device, ejectBus)
 
 	var attachFlags uint32 = 2 // VIR_DOMAIN_DEVICE_MODIFY_CONFIG
 	if vmState == "running" {
@@ -298,5 +312,33 @@ func selectNewCDROMBus(vmState string, existingDisks []DiskInfo) string {
 			return strings.TrimSpace(disk.Bus)
 		}
 	}
-	return "sata"
+	return arch.GetProfile(arch.DetectHostArch()).GetCDROMBus()
+}
+
+// getExistingCDROMBus 从域 XML 中获取指定 CDROM 设备的实际总线类型
+func getExistingCDROMBus(vmName, devName string) string {
+	xmlStr, err := libvirt_rpc.GetDomainXMLRPC(vmName, 0)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(xmlStr, "\n")
+	inCdrom := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "device='cdrom'") {
+			inCdrom = true
+		}
+		if inCdrom && strings.Contains(trimmed, "<target") && strings.Contains(trimmed, "dev='"+devName+"'") {
+			// extract bus attribute
+			parts := strings.Split(trimmed, "bus='")
+			if len(parts) > 1 {
+				bus := strings.Split(parts[1], "'")[0]
+				return bus
+			}
+		}
+		if inCdrom && strings.Contains(trimmed, "</disk>") {
+			inCdrom = false
+		}
+	}
+	return ""
 }

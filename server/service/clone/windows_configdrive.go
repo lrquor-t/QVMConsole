@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kvm_console/logger"
+	"kvm_console/service/arch"
 	"kvm_console/utils"
 )
 
@@ -36,9 +37,22 @@ func windowsConfigDriveISOPath(vmName string) string {
 	return filepath.Join(windowsConfigDriveInitDir, vmName+"-configdrive.iso")
 }
 
-// configDriveCDROMTarget 根据系统盘总线类型返回 Config Drive CD-ROM 的目标设备名和总线。
+// configDriveCDROMTarget 根据系统盘总线类型和宿主机架构返回 Config Drive CD-ROM 的目标设备名和总线。
 // 确保不与系统盘目标设备发生冲突。
+// ARM64 (aarch64) 架构必须使用 USB 总线，因为 AAVMF 固件不支持从 SATA CDROM 引导。
 func configDriveCDROMTarget(diskBus string) (dev, bus string) {
+	// ARM64 架构固定使用 USB 总线
+	if arch.IsHostArch(arch.ArchAarch64) {
+		switch strings.ToLower(strings.TrimSpace(diskBus)) {
+		case "sata", "scsi":
+			// sata/scsi 系统盘占用 sda，CD-ROM 使用 sdb（USB 总线）
+			return "sdb", "usb"
+		default:
+			// virtio 系统盘占用 vda，USB 的 sda 空闲
+			return "sda", "usb"
+		}
+	}
+
 	switch strings.ToLower(strings.TrimSpace(diskBus)) {
 	case "sata", "scsi":
 		// sata/scsi 系统盘占用 sda，CD-ROM 使用 sdb（同为 SATA 总线）

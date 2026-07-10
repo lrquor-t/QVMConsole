@@ -20,3 +20,5 @@
 20. 对于新增的功能，应当评估此功能后续利用价值，若会有频繁调用的场景务必提取出函数文件，保持代码模块化。
 21. 遇到代码和实际表现不同的问题以及模糊边界，不要盲目猜想，必须连接测试机核实现状重新评估问题原有
 22. 所有输入密码的地方必须要接入密码泄露检测的函数
+23. 涉及架构专属等特殊场景的功能，前端应当只有在对应架构上再显示此功能
+24. 新增功能字段时，如果前端高级设置表单同时存在于编辑模式的选项卡和创建模式的步骤引导中，需要**两个位置都添加**（编辑模式在 VmForm.vue 的 `<el-tab-pane name="advanced">` 内，创建模式在 `createStep === 'advanced'` 的 step-pane 内）。后端同理：ISO 创建路径（CreateVmRequest → CreateVMParams → CreateVM）和模板克隆路径（CloneVmRequest/BatchCloneRequest → CloneParams/BatchCloneParams → CloneVM/defineAndStartNonWindowsClone/cloneWindows）是独立链路，需要**同步补齐字段**和 XML 注入。

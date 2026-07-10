@@ -218,6 +218,9 @@ type SelfCloneVmRequest struct {
 	FnOSDeviceID         string                            `json:"fnos_device_id"`
 	DisableSystemInit    bool                              `json:"disable_system_init"`       // 禁用系统初始化
 	PCIERootPorts        int                               `json:"pcie_root_ports,omitempty"` // q35 预留 pcie-root-port 数量
+	NestedVirt           *bool                             `json:"nested_virt,omitempty"`     // 嵌套虚拟化开关
+	KVMHidden            *bool                             `json:"kvm_hidden,omitempty"`      // 隐藏 KVM 标志
+	VendorID             string                            `json:"vendor_id,omitempty"`       // Hyper-V vendor_id 伪装
 }
 
 // SelfCloneVm 用户自助从模板克隆VM
@@ -360,6 +363,9 @@ func SelfCloneVm(c *gin.Context) {
 		IsAdmin:              false,
 		DisableSystemInit:    req.DisableSystemInit,
 		PCIERootPorts:        req.PCIERootPorts,
+		NestedVirt:           req.NestedVirt,
+		KVMHidden:            req.KVMHidden,
+		VendorID:             req.VendorID,
 	}
 
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeClone, params, usernameStr)

@@ -360,6 +360,46 @@
                   主要用于 x86 老系统或 32 位来宾的大内存兼容场景；非 x86 架构会自动忽略该设置
                 </div>
               </el-form-item>
+              <el-form-item label="隐藏 KVM 标志">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.kvm_hidden" active-text="启用" inactive-text="关闭" />
+                  <el-tooltip content="启用后在 features 中注入 &lt;kvm&gt;&lt;hidden state='on'/&gt;&lt;/kvm&gt;，让虚拟机更难被检测为 KVM 虚拟化环境" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  用于规避部分软件/游戏的反虚拟化检测
+                </div>
+              </el-form-item>
+              <el-form-item label="Vendor ID 伪装">
+                <div class="advanced-field-row">
+                  <el-input v-model="form.vendor_id" placeholder="留空不伪装，如: AuthenticAMD" style="width: 280px;" clearable />
+                  <el-tooltip content="在 Hyper-V enlightenments 中注入 &lt;vendor_id state='on' value='...'/&gt;，伪装 CPU 厂商 ID" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  常用于绕过特定软件（如 N 卡驱动）的虚拟化检测；仅 x86_64 架构生效
+                </div>
+              </el-form-item>
+              <el-form-item label="嵌套虚拟化">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.nested_virt" active-text="启用" inactive-text="关闭" :disabled="editVmStatus === 'running' || editVmStatus === 'paused'" />
+                  <el-tooltip content="启用后在 CPU 配置中注入 vmx（Intel）或 svm（AMD）特性，允许虚拟机内再运行虚拟机" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div v-if="editVmStatus === 'running' || editVmStatus === 'paused'" class="form-tip">
+                  <el-icon><WarningFilled /></el-icon>
+                  修改嵌套虚拟化需要先关机
+                </div>
+                <div v-else class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  默认启用；若宿主机未开启 KVM 嵌套模块（kvm_intel nested=1 或 kvm_amd nested=1），该选项实际不生效
+                </div>
+              </el-form-item>
               <el-form-item label="CPU 拓扑">
                 <el-select v-model="form.cpu_topology_mode" style="width: 280px;" :disabled="editVmStatus === 'running' || editVmStatus === 'paused'">
                   <el-option v-for="item in cpuTopologyModeOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -461,6 +501,33 @@
                     <div class="advanced-config-entry-summary">{{ smbiosConfigSummary }}</div>
                   </div>
                   <el-icon class="advanced-config-entry-icon"><ArrowRight /></el-icon>
+                </div>
+              </el-form-item>
+              <el-form-item v-if="form.arch === 'aarch64'" label="UEFI 固件兼容">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.firmware_compat" active-text="启用" inactive-text="关闭" :disabled="editVmStatus === 'running' || editVmStatus === 'paused'" />
+                  <el-tooltip content="启用后使用旧版 EDK2 固件，解决统信 UOS 等系统在 ARM 平台的 UEFI 引导兼容性问题" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  仅 ARM 架构可用。当系统安装 ISO 出现 Synchronous Exception 报错时建议开启
+                </div>
+              </el-form-item>
+              <el-form-item label="直接内核引导">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.direct_boot_enabled" active-text="启用" inactive-text="关闭" :disabled="editVmStatus === 'running' || editVmStatus === 'paused'" />
+                  <el-tooltip content="绕过 UEFI 引导器直接加载内核，适用于 ISO 的 EFI 引导器与当前固件不兼容的场景" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div v-if="form.direct_boot_enabled" style="margin-top: 8px;">
+                  <el-input v-model="form.direct_boot_cmdline" placeholder="内核命令行参数（可选，留空使用默认）" style="width: 100%;" :disabled="editVmStatus === 'running' || editVmStatus === 'paused'" />
+                  <div class="form-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    会自动从 ISO 中提取 vmlinuz 和 initrd。安装完成后请关闭此选项并重启虚拟机
+                  </div>
                 </div>
               </el-form-item>
               <el-form-item v-if="isEdit && isAdmin" label="Domain XML">
@@ -1165,6 +1232,23 @@
                           </div>
                         </el-option>
                       </el-option-group>
+                      <template #empty>
+                        <div v-if="isoLoading" style="padding: 8px 0; text-align: center; color: var(--el-text-color-secondary);">
+                          加载中…
+                        </div>
+                        <div v-else-if="isAdmin" style="padding: 12px 16px;">
+                          <div style="color: var(--el-text-color-regular); line-height: 1.6;">
+                            未在 ISO 存放目录下找到 .iso 文件
+                            <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; word-break: break-all;">当前目录：{{ isoStorageDir }}</div>
+                          </div>
+                          <el-link type="primary" :underline="false" style="margin-top: 8px;" @click="goSettings">
+                            <el-icon style="margin-right: 4px;"><Setting /></el-icon>前往系统设置
+                          </el-link>
+                        </div>
+                        <div v-else style="padding: 8px 0; text-align: center; color: var(--el-text-color-secondary);">
+                          暂无可用 ISO 镜像
+                        </div>
+                      </template>
                     </el-select>
                     <div class="form-tip"><el-icon><InfoFilled /></el-icon>支持同时挂载多个 ISO，首个 ISO 会作为主安装盘并自动补全系统类型和版本，其余 ISO 会作为额外挂载光驱</div>
                     <div v-if="form.iso_paths.length > 0" class="form-tip" style="flex-wrap: wrap; gap: 6px;">
@@ -1700,6 +1784,42 @@
                   主要用于 x86 老系统或 32 位来宾的大内存兼容场景；非 x86 架构会自动忽略该设置
                 </div>
               </el-form-item>
+              <el-form-item label="隐藏 KVM 标志">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.kvm_hidden" active-text="启用" inactive-text="关闭" />
+                  <el-tooltip content="启用后在 features 中注入 &lt;kvm&gt;&lt;hidden state='on'/&gt;&lt;/kvm&gt;，让虚拟机更难被检测为 KVM 虚拟化环境" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  用于规避部分软件/游戏的反虚拟化检测
+                </div>
+              </el-form-item>
+              <el-form-item label="Vendor ID 伪装">
+                <div class="advanced-field-row">
+                  <el-input v-model="form.vendor_id" placeholder="留空不伪装，如: AuthenticAMD" style="width: 280px;" clearable />
+                  <el-tooltip content="在 Hyper-V enlightenments 中注入 &lt;vendor_id state='on' value='...'/&gt;，伪装 CPU 厂商 ID" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  常用于绕过特定软件（如 N 卡驱动）的虚拟化检测；仅 x86_64 架构生效
+                </div>
+              </el-form-item>
+              <el-form-item label="嵌套虚拟化">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.nested_virt" active-text="启用" inactive-text="关闭" />
+                  <el-tooltip content="启用后在 CPU 配置中注入 vmx（Intel）或 svm（AMD）特性，允许虚拟机内再运行虚拟机" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  默认启用；若宿主机未开启 KVM 嵌套模块（kvm_intel nested=1 或 kvm_amd nested=1），该选项实际不生效
+                </div>
+              </el-form-item>
               <el-form-item label="CPU 拓扑">
                 <el-select v-model="form.cpu_topology_mode" style="width: 280px;">
                   <el-option v-for="item in cpuTopologyModeOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -1793,6 +1913,33 @@
                     <div class="advanced-config-entry-summary">{{ smbiosConfigSummary }}</div>
                   </div>
                   <el-icon class="advanced-config-entry-icon"><ArrowRight /></el-icon>
+                </div>
+              </el-form-item>
+              <el-form-item v-if="form.arch === 'aarch64'" label="UEFI 固件兼容">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.firmware_compat" active-text="启用" inactive-text="关闭" />
+                  <el-tooltip content="启用后使用旧版 EDK2 固件，解决统信 UOS 等系统在 ARM 平台的 UEFI 引导兼容性问题" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div class="form-tip">
+                  <el-icon><InfoFilled /></el-icon>
+                  仅 ARM 架构可用。当系统安装 ISO 出现 Synchronous Exception 报错时建议开启
+                </div>
+              </el-form-item>
+              <el-form-item label="直接内核引导">
+                <div class="advanced-field-row">
+                  <el-switch v-model="form.direct_boot_enabled" active-text="启用" inactive-text="关闭" />
+                  <el-tooltip content="绕过 UEFI 引导器直接加载内核，适用于 ISO 的 EFI 引导器与当前固件不兼容的场景" placement="top" effect="dark">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <div v-if="form.direct_boot_enabled" style="margin-top: 8px;">
+                  <el-input v-model="form.direct_boot_cmdline" placeholder="内核命令行参数（可选，留空使用默认）" style="width: 100%;" />
+                  <div class="form-tip">
+                    <el-icon><InfoFilled /></el-icon>
+                    会自动从 ISO 中提取 vmlinuz 和 initrd。安装完成后请关闭此选项并重启虚拟机
+                  </div>
                 </div>
               </el-form-item>
             </div>
@@ -2412,6 +2559,7 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { updateVm, getVmXML, updateVmXML, createVm, cloneVm, batchCloneVm, getTemplateList, getOSVariants, getVmDetail, getDiskList, resizeDisk, removeDisk, changeDiskBus, attachDisk, changeCDROM, ejectCDROM, removeCDROM, changeFloppy, ejectFloppy, removeFloppy, adminImportDisk, adminImportDiskForVM, getPassthroughDevices, getVmPassthroughDevices, bindPCIDevice, getSpiceStatus, enableSpice, disableSpice } from '@/api/vm'
 import { getAllISOs, getVMStorageTargets } from '@/api/infra'
 import { getUserISOs, selfCreateVm, importVM } from '@/api/storage'
@@ -2430,6 +2578,9 @@ import { passwordValidator, checkPasswordBreachAsync, generatePassword as genera
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.role === 'admin')
+const router = useRouter()
+// 管理员 ISO 列表为空时，跳转到系统设置的"存储与网络"tab 修改 ISO 存放位置
+const goSettings = () => router.push({ path: '/settings', query: { tab: 'network' } })
 const emit = defineEmits(['success', 'draft'])
 
 const activeTabEdit = ref('basic')
@@ -3214,6 +3365,9 @@ const applySelectedTemplateSettings = (tpl, options = {}) => {
   const defaultVideoModel = resolveTemplateDefaultVideoModel(tpl)
   if (defaultVideoModel) {
     form.video_model = defaultVideoModel
+  } else if (form.arch === 'aarch64') {
+    // ARM 架构无模板显式设置时默认使用 ramfb
+    form.video_model = 'ramfb'
   }
   const defaultCPUTopologyMode = resolveTemplateDefaultCPUTopologyMode(tpl)
   if (defaultCPUTopologyMode) {
@@ -3348,6 +3502,7 @@ const prevStep = () => {
 // 数据列表
 const osVariants = ref([])
 const isoList = ref([])
+const isoLoading = ref(false)
 const isoStorageDir = ref('/var/lib/libvirt/images/ISO')
 const templates = ref([])
 const vpcSwitches = ref([])
@@ -3540,6 +3695,15 @@ const form = reactive({
   // 虚拟化方案
   virt_type: 'kvm',
   arch: 'x86_64',
+  // UEFI 固件兼容模式（ARM 专用）
+  firmware_compat: false,
+  // 直接内核引导（ARM 专用）
+  direct_boot_enabled: false,
+  direct_boot_cmdline: '',
+  // KVM 虚拟化特性
+  kvm_hidden: false,          // 隐藏 KVM 标志
+  vendor_id: '',               // Hyper-V vendor_id 伪装（自定义值）
+  nested_virt: true,           // 嵌套虚拟化开关，默认启用
   // 编辑模式 - 新增磁盘
   add_disks: [],
   // 创建模式 - 额外磁盘
@@ -3581,6 +3745,10 @@ const form = reactive({
 })
 
 const getRecommendedVideoModel = (osType) => {
+  // ARM (aarch64) 架构必须使用 ramfb，virtio/vga 在 ARM 下兼容性差
+  if (form.arch === 'aarch64') {
+    return 'ramfb'
+  }
   return osType === 'windows' ? 'vga' : 'virtio'
 }
 
@@ -3754,6 +3922,9 @@ const captureEditFormSnapshot = () => {
     video_model: form.video_model || '',
     cpu_limit_percent: buildCPULimitPercentPayload(),
     cpu_affinity: isAdmin.value ? (form.cpu_affinity || '').trim() : null,
+    kvm_hidden: form.kvm_hidden,
+    vendor_id: form.vendor_id || '',
+    nested_virt: !!form.nested_virt,
   }
 }
 
@@ -3924,6 +4095,7 @@ const loadOSVariants = async () => {
 
 // 加载 ISO 列表（管理员从存储池聚合，普通用户从自己的存储池）
 const loadISOs = async () => {
+  isoLoading.value = true
   try {
     if (isAdmin.value) {
       const res = await getAllISOs()
@@ -3934,6 +4106,8 @@ const loadISOs = async () => {
     }
   } catch (err) {
     console.error(err)
+  } finally {
+    isoLoading.value = false
   }
 }
 
@@ -4207,7 +4381,12 @@ const onOsTypeChange = () => {
     form.nic_model = 'virtio'
   }
   applyRTCOffsetRecommendation(form.os_type)
-  applyVideoModelRecommendation(form.os_type)
+  if (form.arch === 'aarch64') {
+    // ARM 架构始终使用 ramfb，不受系统类型切换影响
+    form.video_model = 'ramfb'
+  } else {
+    applyVideoModelRecommendation(form.os_type)
+  }
   normalizeMemoryBackendForGuest()
 }
 
@@ -4230,13 +4409,17 @@ const onVirtTypeChange = (val) => {
     if (hostArch.value === 'aarch64') {
       form.machine_type = 'virt'
       applyBootTypeRecommendation('uefi', { force: true })
+      // ARM 架构默认使用 ramfb 显示设备
+      form.video_model = 'ramfb'
     } else {
       form.machine_type = 'q35'
       applyBootTypeRecommendation('bios', { force: true })
+      applyVideoModelRecommendation(form.os_type)
     }
   } else {
     // QEMU 模式默认 x86_64
     form.arch = 'x86_64'
+    applyVideoModelRecommendation(form.os_type)
   }
 }
 
@@ -4246,13 +4429,17 @@ const onArchChange = (val) => {
     // ARM 强制 virt 机器类型 + UEFI
     form.machine_type = 'virt'
     applyBootTypeRecommendation('uefi', { force: true })
+    // ARM 架构默认使用 ramfb 显示设备
+    form.video_model = 'ramfb'
   } else if (val === 'riscv64') {
     // RISC-V 强制 virt 机器类型
     form.machine_type = 'virt'
     applyBootTypeRecommendation('bios', { force: true })
+    applyVideoModelRecommendation(form.os_type)
   } else {
     // x86_64 恢复默认
     form.machine_type = 'q35'
+    applyVideoModelRecommendation(form.os_type)
   }
 }
 
@@ -4301,6 +4488,12 @@ const applyEditVmDetail = (detail, row = {}) => {
   editOrigPCIERootPorts.value = form.pcie_root_ports
   form.boot_type = detail.boot_type || form.boot_type || 'bios'
   editOrigBootType.value = form.boot_type
+  form.firmware_compat = !!detail.firmware_compat
+  form.direct_boot_enabled = !!(detail.direct_boot && detail.direct_boot.enabled)
+  form.direct_boot_cmdline = (detail.direct_boot && detail.direct_boot.cmdline) || ''
+  form.kvm_hidden = !!detail.kvm_hidden
+  form.vendor_id = detail.vendor_id || ''
+  form.nested_virt = detail.nested_virt !== undefined ? !!detail.nested_virt : true
   form.video_model = detail.video_model || getRecommendedVideoModel(detail.os_type || 'linux')
   form.cpu_topology_mode = detail.cpu_topology_mode || 'auto'
   form.boot_order = detail.boot_order && detail.boot_order.length > 0 ? [...detail.boot_order] : ['hd']
@@ -4525,6 +4718,7 @@ const open = async (row, mode, options = {}) => {
       template: '', template_type: '', preserve_fnos_device_id: false, fnos_device_id_mode: 'regenerate', fnos_device_id: '',
       traffic_down_gb: 0, traffic_up_gb: 0, bandwidth_down_mbps: 0, bandwidth_up_mbps: 0, max_port_forwards: 10, max_runtime_hours: 0, batch_count: 1,
       import_os_category: '', system_init_enabled: true,
+      nested_virt: true,
     })
     Object.assign(form.guest_agent, createEmptyGuestAgentConfig())
     Object.assign(form.smbios1, createEmptySMBIOS1Config())
@@ -4983,6 +5177,17 @@ const submitForm = async () => {
           if (!!form.pae !== snap.pae) {
             editPayload.pae = !!form.pae
           }
+          // KVM 虚拟化特性：仅变化时发送
+          if (form.kvm_hidden !== snap.kvm_hidden) {
+            editPayload.kvm_hidden = form.kvm_hidden
+          }
+          const curVendorID = form.vendor_id || ''
+          if (curVendorID !== snap.vendor_id) {
+            editPayload.vendor_id = curVendorID
+          }
+          if (!!form.nested_virt !== snap.nested_virt) {
+            editPayload.nested_virt = !!form.nested_virt
+          }
           // RTC 配置：任一字段变化即一起发送
           const curRtcStartdate = normalizeRTCStartDate(form.rtc_startdate)
           if (form.rtc_offset !== snap.rtc_offset || curRtcStartdate !== snap.rtc_startdate) {
@@ -5009,6 +5214,14 @@ const submitForm = async () => {
           if (form.machine_type === 'q35' && form.pcie_root_ports !== editOrigPCIERootPorts.value) {
             editPayload.pcie_root_ports = form.pcie_root_ports
           }
+          // UEFI 固件兼容模式（ARM 专用）
+          if (form.arch === 'aarch64') {
+            editPayload.firmware_compat = !!form.firmware_compat
+          }
+          // 直接内核引导（全架构可用）
+          editPayload.direct_boot = form.direct_boot_enabled
+            ? { enabled: true, cmdline: form.direct_boot_cmdline || '' }
+            : { enabled: false }
           // 硬件直通设备：仅在管理员修改后发送
           if (isAdmin.value && form.host_devices_touched) {
             editPayload.host_devices = form.host_devices
@@ -5130,6 +5343,9 @@ const submitForm = async () => {
                 read_iops_sec: form.system_disk_iops_read,
                 write_iops_sec: form.system_disk_iops_write,
               } : undefined,
+              kvm_hidden: form.kvm_hidden || undefined,
+              vendor_id: form.vendor_id || undefined,
+              nested_virt: form.nested_virt !== undefined ? form.nested_virt : true,
             }
             const cpuLimitPercent = buildCPULimitPercentPayload()
             if (cpuLimitPercent !== undefined) { importPayload.cpu_limit_percent = cpuLimitPercent }
@@ -5172,6 +5388,9 @@ const submitForm = async () => {
             cpu_topology_mode: form.cpu_topology_mode,
             first_boot_reboot_mode: form.first_boot_reboot_mode,
             extra_nics: nicsWithoutFixedIp(nicsPayload.extraNics),
+            kvm_hidden: form.kvm_hidden || undefined,
+            vendor_id: form.vendor_id || undefined,
+            nested_virt: form.nested_virt !== undefined ? form.nested_virt : true,
           }
           const cpuLimitPercent = buildCPULimitPercentPayload()
           if (cpuLimitPercent !== undefined) {
@@ -5233,6 +5452,9 @@ const submitForm = async () => {
               static_ip: isOpenWrtTemplate.value ? form.static_ip : undefined,
               gateway: isOpenWrtTemplate.value ? form.gateway : undefined,
               dns: isOpenWrtTemplate.value ? form.dns : undefined,
+              kvm_hidden: form.kvm_hidden || undefined,
+              vendor_id: form.vendor_id || undefined,
+              nested_virt: form.nested_virt !== undefined ? form.nested_virt : true,
             }
             const cpuLimitPercent = buildCPULimitPercentPayload()
             if (cpuLimitPercent !== undefined) { batchPayload.cpu_limit_percent = cpuLimitPercent }
@@ -5301,6 +5523,9 @@ const submitForm = async () => {
             static_ip: isOpenWrtTemplate.value ? form.static_ip : undefined,
             gateway: isOpenWrtTemplate.value ? form.gateway : undefined,
             dns: isOpenWrtTemplate.value ? form.dns : undefined,
+            kvm_hidden: form.kvm_hidden || undefined,
+            vendor_id: form.vendor_id || undefined,
+            nested_virt: form.nested_virt !== undefined ? form.nested_virt : true,
           }
           const cpuLimitPercent = buildCPULimitPercentPayload()
           if (cpuLimitPercent !== undefined) {
@@ -5413,6 +5638,11 @@ const submitForm = async () => {
             })),
             host_devices: form.host_devices,
             extra_nics: nicsPayload.extraNics,
+            firmware_compat: form.arch === 'aarch64' && form.firmware_compat ? true : undefined,
+            direct_boot: form.direct_boot_enabled ? { enabled: true, cmdline: form.direct_boot_cmdline || '' } : undefined,
+            kvm_hidden: form.kvm_hidden || undefined,
+            vendor_id: form.vendor_id || undefined,
+            nested_virt: form.nested_virt !== undefined ? form.nested_virt : true,
           }
           const cpuLimitPercent = buildCPULimitPercentPayload()
           if (cpuLimitPercent !== undefined) {

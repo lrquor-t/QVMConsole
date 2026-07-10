@@ -81,6 +81,14 @@ func getCurrentVMDiskSourcePaths(vmName string) ([]string, error) {
 }
 
 func ensureSnapshotDiskAccessForPaths(diskPaths []string) error {
+	// 记录主路径（调用方原始传入的路径），用于区分 backing chain 扩展出的路径
+	primaryPaths := make(map[string]bool)
+	for _, p := range diskPaths {
+		if p != "" && p != "-" {
+			primaryPaths[p] = true
+		}
+	}
+
 	diskPaths = expandDiskPathsWithBackingChain(diskPaths)
 	if err := EnsureLibvirtStorageAppArmorAccessForPaths(diskPaths); err != nil {
 		return err
@@ -98,7 +106,12 @@ func ensureSnapshotDiskAccessForPaths(diskPaths []string) error {
 		}
 		// 修正文件权限为 libvirt-qemu:kvm，避免切回原始盘或 overlay 后 QEMU 无法访问。
 		if err := utils.ChownLibvirtQEMU(diskPath); err != nil {
-			return fmt.Errorf("chown %s 失败: %w", diskPath, err)
+			// 对 backing chain 中非主路径的文件（如模板），chown 失败不阻断操作：
+			// 这些文件在部署时已有正确权限，只是当前系统用户/组命名不匹配
+			if primaryPaths[diskPath] {
+				return fmt.Errorf("chown %s 失败: %w", diskPath, err)
+			}
+			logger.App.Warn("backing chain 文件 chown 失败（已跳过，文件应已有正确权限）", "path", diskPath, "error", err)
 		} else {
 			logger.App.Info("已修正磁盘权限", "path", diskPath)
 		}

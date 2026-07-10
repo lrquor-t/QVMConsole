@@ -118,30 +118,43 @@ async function verifyHighRiskChallenge(payload, authHeader) {
   return response.data
 }
 
+let highRiskLock = false
+
 async function handleHighRisk(error) {
+  if (highRiskLock) {
+    // 已有验证弹窗在进行中，取消本次请求避免双弹窗
+    throw createHighRiskCancelledError('concurrent')
+  }
+
   const originalConfig = error.config
   const responseData = error.response?.data?.data
   if (!originalConfig || originalConfig._highRiskRetried || originalConfig.skipHighRiskHandler) {
     throw error
   }
 
+  highRiskLock = true
   const authHeader = originalConfig.headers?.Authorization || (useUserStore().token ? `Bearer ${useUserStore().token}` : '')
   let verifyPayload
   try {
     verifyPayload = await promptHighRiskChallenge(responseData)
   } catch (promptAction) {
+    highRiskLock = false
     if (promptAction === 'cancel' || promptAction === 'close') {
       throw createHighRiskCancelledError(promptAction)
     }
     throw promptAction
   }
-  const verifyRes = await verifyHighRiskChallenge(verifyPayload, authHeader)
-  originalConfig._highRiskRetried = true
-  originalConfig.headers = originalConfig.headers || {}
-  if (verifyRes?.data?.verification_token) {
-    originalConfig.headers['X-High-Risk-Token'] = verifyRes.data.verification_token
+  try {
+    const verifyRes = await verifyHighRiskChallenge(verifyPayload, authHeader)
+    originalConfig._highRiskRetried = true
+    originalConfig.headers = originalConfig.headers || {}
+    if (verifyRes?.data?.verification_token) {
+      originalConfig.headers['X-High-Risk-Token'] = verifyRes.data.verification_token
+    }
+    return service(originalConfig)
+  } finally {
+    highRiskLock = false
   }
-  return service(originalConfig)
 }
 
 service.interceptors.response.use(

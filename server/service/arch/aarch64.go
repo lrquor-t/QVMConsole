@@ -15,6 +15,7 @@ func (p *aarch64Profile) DefaultBootType() string         { return "uefi" }
 func (p *aarch64Profile) SupportedBootTypes() []string    { return []string{"uefi"} }
 func (p *aarch64Profile) DefaultCPUMode() string          { return "host-passthrough" }
 func (p *aarch64Profile) SupportedDiskBus() []string      { return []string{"virtio", "scsi"} }
+func (p *aarch64Profile) GetCDROMBus() string             { return "usb" }
 func (p *aarch64Profile) SupportedNicModels() []string    { return []string{"virtio"} }
 func (p *aarch64Profile) SupportsBIOS() bool              { return false }
 func (p *aarch64Profile) SupportsSecureBoot() bool        { return false }
@@ -35,6 +36,27 @@ func (p *aarch64Profile) UEFIFirmwarePath(secureBoot bool) string {
 		"/usr/share/AAVMF/AAVMF_CODE.fd",
 		"/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd",
 		"/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
+	}
+	return pickFirstExistingPath(candidates, candidates[0])
+}
+
+// UEFILegacyFirmwarePath 返回兼容旧版固件路径（EDK2 2024.02）。
+// 用于解决某些 OS（如统信 UOS）的 EFI 引导器与新版 EDK2 不兼容的问题。
+func (p *aarch64Profile) UEFILegacyFirmwarePath() string {
+	candidates := []string{
+		"/opt/kvm-console/firmware/AAVMF_CODE_legacy.fd",
+		"/opt/project/QVMConsole/firmware/AAVMF_CODE_legacy.fd",
+		"/usr/share/AAVMF/AAVMF_CODE_2024.fd",
+	}
+	return pickFirstExistingPath(candidates, candidates[0])
+}
+
+// UEFILegacyVarsTemplatePath 返回兼容旧版 NVRAM 模板路径。
+func (p *aarch64Profile) UEFILegacyVarsTemplatePath() string {
+	candidates := []string{
+		"/opt/kvm-console/firmware/AAVMF_VARS_legacy.fd",
+		"/opt/project/QVMConsole/firmware/AAVMF_VARS_legacy.fd",
+		"/usr/share/AAVMF/AAVMF_VARS_2024.fd",
 	}
 	return pickFirstExistingPath(candidates, candidates[0])
 }

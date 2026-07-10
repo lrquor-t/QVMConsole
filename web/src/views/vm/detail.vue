@@ -175,9 +175,14 @@
             <el-icon><Coin /></el-icon>
           </div>
           <div class="live-stat-info">
-            <div class="live-stat-label">磁盘 IO</div>
-            <div class="live-stat-value">{{ diskRdStr }}</div>
-            <div class="live-stat-sub">写 {{ diskWrStr }}</div>
+            <div class="live-stat-label">
+              磁盘 IO
+              <span class="disk-io-unit-toggle" :title="diskIoMode === 'iops' ? '切换为吞吐量' : '切换为 IOPS'" @click.stop="toggleDiskIoMode">
+                {{ diskIoMode === 'iops' ? 'IOPS' : 'B/s' }}
+              </span>
+            </div>
+            <div class="live-stat-value">{{ diskIoMode === 'iops' ? diskRdIopsStr : diskRdStr }}</div>
+            <div class="live-stat-sub">写 {{ diskIoMode === 'iops' ? diskWrIopsStr : diskWrStr }}</div>
           </div>
         </div>
       </section>
@@ -311,7 +316,7 @@
           </h3>
         </div>
         <template v-if="showMonitor">
-          <ResourceCharts type="vm" :name="vmName" :status="vmInfo.status" :externalStats="vmInfo.stats" :disablePolling="true" />
+          <ResourceCharts type="vm" :name="vmName" :status="vmInfo.status" :externalStats="vmInfo.stats" :disablePolling="true" :diskIoMode="diskIoMode" />
         </template>
         <div v-else class="lazy-section-placeholder">
           <el-skeleton :rows="8" animated />
@@ -815,6 +820,7 @@ const vmStore = useVmStore()
 const userStore = useUserStore()
 const diskIopsList = ref([])
 const diskIopsLoading = ref(false)
+const diskIoMode = ref('throughput') // 'throughput' | 'iops'
 const isLightweight = computed(() => userStore.role !== 'admin' && userStore.cloudType === 'lightweight')
 
 // ==================== 区域懒加载 ====================
@@ -1005,10 +1011,21 @@ const formatMemory = (mem) => {
 }
 
 const formatTraffic = (bytesPerSec) => {
-  if (bytesPerSec == null || bytesPerSec < 0) return '0 KB/s'
-  if (bytesPerSec >= 1048576) return (bytesPerSec / 1048576).toFixed(1) + ' MB/s'
-  if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(1) + ' KB/s'
-  return bytesPerSec.toFixed(1) + ' B/s'
+  if (bytesPerSec == null || bytesPerSec < 0) return '0 B/s'
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s']
+  let val = Number(bytesPerSec)
+  let idx = 0
+  while (val >= 1024 && idx < units.length - 1) {
+    val /= 1024
+    idx += 1
+  }
+  return `${val.toFixed(1)} ${units[idx]}`
+}
+
+const formatIOPS = (opsPerSec) => {
+  if (opsPerSec == null || opsPerSec < 0) return '0 IOPS'
+  if (opsPerSec >= 1000) return (opsPerSec / 1000).toFixed(1) + 'K IOPS'
+  return opsPerSec.toFixed(0) + ' IOPS'
 }
 
 const formatContinuousRuntime = (seconds, status) => {
@@ -1062,20 +1079,32 @@ const memPercentStr = computed(() => {
 })
 const netRxStr = computed(() => {
   const v = vmInfo.stats?.net_rx_rate
-  return v != null ? formatTraffic(v) : '0 KB/s'
+  return v != null ? formatTraffic(v) : '0 B/s'
 })
 const netTxStr = computed(() => {
   const v = vmInfo.stats?.net_tx_rate
-  return v != null ? formatTraffic(v) : '0 KB/s'
+  return v != null ? formatTraffic(v) : '0 B/s'
 })
 const diskRdStr = computed(() => {
   const v = vmInfo.stats?.disk_rd_rate
-  return v != null ? formatTraffic(v) : '0 KB/s'
+  return v != null ? formatTraffic(v) : '0 B/s'
 })
 const diskWrStr = computed(() => {
   const v = vmInfo.stats?.disk_wr_rate
-  return v != null ? formatTraffic(v) : '0 KB/s'
+  return v != null ? formatTraffic(v) : '0 B/s'
 })
+const diskRdIopsStr = computed(() => {
+  const v = vmInfo.stats?.disk_rd_iops
+  return v != null ? formatIOPS(v) : '0 IOPS'
+})
+const diskWrIopsStr = computed(() => {
+  const v = vmInfo.stats?.disk_wr_iops
+  return v != null ? formatIOPS(v) : '0 IOPS'
+})
+
+const toggleDiskIoMode = () => {
+  diskIoMode.value = diskIoMode.value === 'iops' ? 'throughput' : 'iops'
+}
 
 const scrollToSection = (id) => {
   // 点击导航时主动触发对应区域加载
@@ -1271,12 +1300,19 @@ const initSSE = () => {
             data.stats.net_tx_rate = Math.max(0, (data.stats.net_tx_bytes - prevStats.net_tx_bytes) / dt)
             data.stats.disk_rd_rate = Math.max(0, (data.stats.disk_rd_bytes - prevStats.disk_rd_bytes) / dt)
             data.stats.disk_wr_rate = Math.max(0, (data.stats.disk_wr_bytes - prevStats.disk_wr_bytes) / dt)
+            // IOPS 速率计算（操作次数增量 / 时间间隔）
+            if (prevStats.disk_rd_ops != null) {
+              data.stats.disk_rd_iops = Math.max(0, (data.stats.disk_rd_ops - prevStats.disk_rd_ops) / dt)
+              data.stats.disk_wr_iops = Math.max(0, (data.stats.disk_wr_ops - prevStats.disk_wr_ops) / dt)
+            }
           }
           prevStats = {
             net_rx_bytes: data.stats.net_rx_bytes,
             net_tx_bytes: data.stats.net_tx_bytes,
             disk_rd_bytes: data.stats.disk_rd_bytes,
-            disk_wr_bytes: data.stats.disk_wr_bytes
+            disk_wr_bytes: data.stats.disk_wr_bytes,
+            disk_rd_ops: data.stats.disk_rd_ops,
+            disk_wr_ops: data.stats.disk_wr_ops
           }
           prevStatsTime = now
         }
@@ -1832,6 +1868,28 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--el-text-color-placeholder);
   margin-top: 3px;
+}
+.disk-io-unit-toggle {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  text-transform: none;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  line-height: 1.5;
+  vertical-align: middle;
+  transition: all 0.2s;
+}
+.disk-io-unit-toggle:hover {
+  color: #fff;
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
 }
 .mini-progress {
   height: 5px;

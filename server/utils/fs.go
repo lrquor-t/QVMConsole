@@ -89,23 +89,37 @@ func FileReadable(path string) bool {
 	return true
 }
 
-// ChownLibvirtQEMU 尝试将文件 chown 为 libvirt-qemu:kvm，失败则回退到 qemu:qemu
-// 返回错误仅当两次尝试都失败时
+// ChownLibvirtQEMU 尝试按优先级将文件 chown 为 QEMU/libvirt 进程用户/组
+// 兼容不同发行版的用户/组命名差异：
+//  1. libvirt-qemu:kvm       — RH/Fedora 系列
+//  2. libvirt-qemu:<主组>     — libvirt-qemu 用户的主组（Debian/Ubuntu 通常为 libvirt-qemu）
+//  3. libvirt-qemu:libvirt-qemu — 显式指定（兼容 ARM/Debian 系列）
+//  4. qemu:qemu              — 通用回退
+//
+// 返回错误仅当所有尝试都失败时
 func ChownLibvirtQEMU(path string) error {
-	if uid, gid, err := GetUserIDs("libvirt-qemu", "kvm"); err == nil {
-		if err := os.Chown(path, uid, gid); err == nil {
-			return nil
+	candidates := [][2]string{
+		{"libvirt-qemu", "kvm"},
+		{"libvirt-qemu", ""},             // 使用 libvirt-qemu 的主组
+		{"libvirt-qemu", "libvirt-qemu"}, // Debian/Ubuntu 系列显式指定
+		{"qemu", "qemu"},
+	}
+
+	var lastErr error
+	for _, c := range candidates {
+		uid, gid, err := GetUserIDs(c[0], c[1])
+		if err != nil {
+			lastErr = err
+			continue
 		}
+		if err := os.Chown(path, uid, gid); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
 	}
-	// 回退到 qemu:qemu
-	uid, gid, err := GetUserIDs("qemu", "qemu")
-	if err != nil {
-		return fmt.Errorf("chown %s 失败: 无法查找 libvirt-qemu/kvm 或 qemu/qemu: %w", path, err)
-	}
-	if err := os.Chown(path, uid, gid); err != nil {
-		return fmt.Errorf("chown %s 失败: %w", path, err)
-	}
-	return nil
+
+	return fmt.Errorf("chown %s 失败: 无法查找 libvirt-qemu/kvm、libvirt-qemu/libvirt-qemu 或 qemu/qemu: %w", path, lastErr)
 }
 
 // SetFileImmutable 对文件设置 Linux 不可变属性 (chattr +i)

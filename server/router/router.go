@@ -564,6 +564,10 @@ func Setup() *gin.Engine {
 				host.PUT("/ksm", middleware.AdminMiddleware(), handler.UpdateHostKSMProfile)
 				host.GET("/zram", middleware.AdminMiddleware(), handler.GetHostZRAMStatus)
 				host.PUT("/zram", middleware.AdminMiddleware(), handler.UpdateHostZRAMProfile)
+				// 硬件直通
+				host.GET("/hardware-passthrough/status", middleware.AdminMiddleware(), handler.GetHardwarePassthroughStatus)
+				host.POST("/hardware-passthrough/enable-iommu", middleware.AdminMiddleware(), handler.EnableIommu)
+				host.POST("/hardware-passthrough/load-vfio", middleware.AdminMiddleware(), handler.LoadVfioPci)
 				// 硬件直通设备管理
 				host.GET("/passthrough", handler.GetPassthroughDevices)
 				host.POST("/passthrough/bind", middleware.AdminMiddleware(), handler.BindPCIDevice)
