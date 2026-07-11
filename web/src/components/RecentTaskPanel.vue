@@ -234,6 +234,10 @@ const typeText = (type) => {
     storage_create_partition: '创建分区',
     storage_delete_partitions: '删除分区',
     ovs_repair: 'OVS 修复', network_capture: '网络抓包', vm_schedule_action: '虚拟机定时任务',
+    lxc_create: '创建 LXC 容器', lxc_destroy: '销毁 LXC 容器', lxc_snapshot: 'LXC 容器快照',
+    lxc_template_import: '导入 LXC 模板', lxc_relocate: 'LXC 存储迁移',
+    lxc_batch_create: '批量创建 LXC 容器', lxc_clone: '克隆 LXC 容器',
+    lxc_template_make: '制作 LXC 模板', lxc_schedule_action: '容器定时任务',
   }
   return map[type] || type
 }
