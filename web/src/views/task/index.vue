@@ -252,6 +252,10 @@ const typeText = (type) => {
     lxc_snapshot: 'LXC 容器快照',
     lxc_template_import: '导入 LXC 模板',
     lxc_relocate: 'LXC 存储迁移',
+    lxc_batch_create: '批量创建 LXC 容器',
+    lxc_clone: '克隆 LXC 容器',
+    lxc_template_make: '制作 LXC 模板',
+    lxc_schedule_action: '容器定时任务',
   }
   return map[type] || type
 }
