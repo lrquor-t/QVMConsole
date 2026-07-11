@@ -36,6 +36,11 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 	return clonepkg.BatchCloneVM(ctx, params, progressFn)
 }
 
+// BatchVMName delegates to clone.BatchVMName（批量克隆命名单一来源，handler 预检与创建共用，杜绝格式漂移）
+func BatchVMName(prefix string, n int) string {
+	return clonepkg.BatchVMName(prefix, n)
+}
+
 // ReinstallVM delegates to clone.ReinstallVM
 func ReinstallVM(ctx context.Context, params *ReinstallParams, progressFn func(int, string)) error {
 	return clonepkg.ReinstallVM(ctx, params, progressFn)

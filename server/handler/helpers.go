@@ -164,7 +164,7 @@ func getSwitchBridgeName(switchID uint) (string, error) {
 // prefix: 名称前缀, startNum: 起始编号, count: 批量数量
 func validateBatchVMNamesNotExists(c *gin.Context, prefix string, startNum, count int) bool {
 	for i := startNum; i < startNum + count; i++ {
-		name := fmt.Sprintf("%s%d", prefix, i)
+		name := service.BatchVMName(prefix, i) // 与创建（clone.BatchVMName）共用同一格式，避免预检/创建漂移
 		exists, err := service.DomainExistsRPC(name)
 		if err != nil {
 			continue // libvirt 连接失败时跳过，由异步任务处理

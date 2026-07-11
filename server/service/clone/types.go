@@ -154,6 +154,12 @@ func padNum(n int) string {
 	return fmt.Sprintf("%02d", n)
 }
 
+// BatchVMName 生成批量克隆虚拟机名：prefix-NN（2 位补零）。
+// 预检（handler validateBatchVMNamesNotExists）与创建（BatchCloneVM）共用此函数，杜绝命名格式漂移。
+func BatchVMName(prefix string, n int) string {
+	return fmt.Sprintf("%s-%s", prefix, padNum(n))
+}
+
 // CloneTaskHandler 克隆任务处理器（用于任务队列）
 func CloneTaskHandler(task interface{}, progressFn func(int, string)) (string, error) {
 	return "", nil

@@ -63,7 +63,7 @@ func BatchCloneVM(ctx context.Context, params *BatchCloneParams, progressFn func
 			default:
 			}
 
-			vmName := fmt.Sprintf("%s-%s", params.Prefix, padNum(params.StartNum+index))
+			vmName := BatchVMName(params.Prefix, params.StartNum+index)
 
 			vmPassword := params.Password
 			if vmPassword == "" {
