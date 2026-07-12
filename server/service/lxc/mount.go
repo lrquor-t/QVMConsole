@@ -2,11 +2,13 @@ package lxc
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"kvm_console/config"
+	"kvm_console/model"
 )
 
 // LXCMount 一个宿主机目录到容器的 bind 挂载。
@@ -169,4 +171,86 @@ func rewriteMountEntries(cfgPath, text string, mounts []LXCMount) error {
 		content += "\n"
 	}
 	return os.WriteFile(cfgPath, []byte(content), 0644)
+}
+
+// loadContainerConfig 读取容器 config 全文。容器须存在（先查 DB）。
+func loadContainerConfig(name string) (string, error) {
+	data, err := os.ReadFile(containerConfigPath(name))
+	if err != nil {
+		return "", fmt.Errorf("读取容器配置失败: %w", err)
+	}
+	return string(data), nil
+}
+
+// ListMounts 列出容器我们管理的目录挂载，并附容器状态/是否需重启。
+func ListMounts(name string) (LXCMountListResult, error) {
+	var row model.LXCCache
+	if err := model.DB.Where("name = ?", name).First(&row).Error; err != nil {
+		return LXCMountListResult{}, errors.New("容器不存在")
+	}
+	text, err := loadContainerConfig(name)
+	if err != nil {
+		return LXCMountListResult{}, err
+	}
+	return LXCMountListResult{
+		Status:          row.Status,
+		RestartRequired: row.Status == "RUNNING",
+		Mounts:          parseOurMounts(text),
+	}, nil
+}
+
+// AddMount 校验并追加一条目录挂载（全量重写 config）。
+func AddMount(name string, m LXCMount) error {
+	var row model.LXCCache
+	if err := model.DB.Where("name = ?", name).First(&row).Error; err != nil {
+		return errors.New("容器不存在")
+	}
+	text, err := loadContainerConfig(name)
+	if err != nil {
+		return err
+	}
+	if containerIsUnprivileged(text) {
+		return errors.New("目录挂载暂不支持非特权(idmap)容器")
+	}
+	if err := validateHostPath(m.HostPath); err != nil {
+		return err
+	}
+	if err := validateTarget(m.Target); err != nil {
+		return err
+	}
+	normTarget := filepath.Clean(m.Target)
+	for _, e := range parseOurMounts(text) {
+		if filepath.Clean(e.Target) == normTarget {
+			return errors.New("挂载点已存在: " + normTarget)
+		}
+	}
+	mounts := append(parseOurMounts(text), LXCMount{HostPath: m.HostPath, Target: normTarget, ReadOnly: m.ReadOnly})
+	return rewriteMountEntries(containerConfigPath(name), text, mounts)
+}
+
+// DeleteMount 按 target 删除一条目录挂载（全量重写 config）。
+func DeleteMount(name, target string) error {
+	var row model.LXCCache
+	if err := model.DB.Where("name = ?", name).First(&row).Error; err != nil {
+		return errors.New("容器不存在")
+	}
+	text, err := loadContainerConfig(name)
+	if err != nil {
+		return err
+	}
+	normTarget := filepath.Clean(target)
+	existing := parseOurMounts(text)
+	kept := make([]LXCMount, 0, len(existing))
+	found := false
+	for _, e := range existing {
+		if filepath.Clean(e.Target) == normTarget {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if !found {
+		return errors.New("挂载点不存在: " + normTarget)
+	}
+	return rewriteMountEntries(containerConfigPath(name), text, kept)
 }
