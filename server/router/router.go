@@ -269,9 +269,9 @@ func Setup() *gin.Engine {
 				lxcGroup.PUT("/:name/disk-limit", middleware.AdminMiddleware(), handler.SetLXCDiskLimit)
 				// LXC 目录挂载（仅管理员）
 				lxcGroup.GET("/:name/mounts", middleware.AdminMiddleware(), handler.ListLXCMounts)
-					lxcGroup.POST("/:name/mounts", middleware.AdminMiddleware(), handler.AddLXCMount)
-					lxcGroup.DELETE("/:name/mounts", middleware.AdminMiddleware(), handler.DeleteLXCMount)
-					lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
+				lxcGroup.POST("/:name/mounts", middleware.AdminMiddleware(), handler.AddLXCMount)
+				lxcGroup.DELETE("/:name/mounts", middleware.AdminMiddleware(), handler.DeleteLXCMount)
+				lxcGroup.GET("/:name/snapshots", handler.ListLXCSnapshots)
 				lxcGroup.POST("/:name/snapshot", handler.CreateLXCSnapshot)
 				lxcGroup.POST("/:name/snapshot/:snap/restore", handler.RestoreLXCSnapshot)
 				lxcGroup.DELETE("/:name/snapshot/:snap", handler.DeleteLXCSnapshot)
