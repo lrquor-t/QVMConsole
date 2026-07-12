@@ -139,6 +139,7 @@
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
                   <el-dropdown-item v-if="row.status === 'RUNNING'" command="freeze">暂停</el-dropdown-item>
                   <el-dropdown-item v-if="row.status === 'FROZEN'" command="unfreeze">恢复</el-dropdown-item>
+                  <el-dropdown-item command="exec" :disabled="row.status !== 'RUNNING'">执行命令</el-dropdown-item>
                   <el-dropdown-item command="clone">克隆</el-dropdown-item>
                   <el-dropdown-item v-if="isAdmin" command="template" :disabled="!isStopped(row)">制作模板</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
@@ -167,6 +168,9 @@
 
     <!-- 克隆对话框 -->
     <LxcCloneForm ref="lxcCloneRef" @success="fetchData" @goto-snapshot="onGotoSnapshot" />
+
+    <!-- 执行命令对话框 -->
+    <LxcExecDialog ref="lxcExecRef" />
   </div>
 </template>
 
@@ -183,6 +187,7 @@ import LxcManageDrawer from '@/components/LxcManageDrawer.vue'
 import LxcCreateForm from '@/components/LxcCreateForm.vue'
 import LxcMakeTemplateForm from '@/components/LxcMakeTemplateForm.vue'
 import LxcCloneForm from '@/components/LxcCloneForm.vue'
+import LxcExecDialog from '@/components/LxcExecDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -199,6 +204,7 @@ const manageDrawerRef = ref(null)
 const lxcCreateRef = ref(null)
 const lxcMakeTplRef = ref(null)
 const lxcCloneRef = ref(null)
+const lxcExecRef = ref(null)
 const openMakeTemplate = (row) => lxcMakeTplRef.value?.open(row)
 const openClone = (row) => lxcCloneRef.value?.open(row)
 const onGotoSnapshot = (row) => manageDrawerRef.value?.open(row, 'snapshot')
@@ -267,6 +273,7 @@ const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
   else if (cmd === 'freeze') operate(row, 'freeze')
   else if (cmd === 'unfreeze') operate(row, 'unfreeze')
+  else if (cmd === 'exec') lxcExecRef.value?.open(row)
   else if (cmd === 'delete') remove(row)
   else if (cmd === 'template') openMakeTemplate(row)
   else if (cmd === 'clone') openClone(row)

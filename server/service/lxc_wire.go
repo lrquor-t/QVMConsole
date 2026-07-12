@@ -69,6 +69,13 @@ func LXCSetDiskLimit(name string, gb int) error {
 	return lxc.LXCSetDiskLimit(name, gb)
 }
 
+// LXC 一次性命令执行（owner，与 console 同级）
+type LXCExecResult = lxc.ExecResult
+
+func LXCExecContainer(name, command string, timeoutSec int) (lxc.ExecResult, error) {
+	return lxc.ExecContainer(name, command, timeoutSec)
+}
+
 // LXCCheckQuota 校验用户 LXC 配额（admin 不限）。
 func LXCCheckQuota(username string, cpu, ramMB int) error {
 	return lxc.CheckLXCQuota(username, cpu, ramMB)

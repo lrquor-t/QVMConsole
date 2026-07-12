@@ -225,3 +225,8 @@ export function addLXCMount(name, data) {
 export function deleteLXCMount(name, target) {
   return request({ url: `/lxc/${name}/mounts`, method: 'delete', params: { target } })
 }
+
+// 执行单条命令（owner，同步返回 stdout/stderr/exit_code/truncated/timed_out）
+export function execLXC(name, data) {
+  return request({ url: `/lxc/${name}/exec`, method: 'post', data })
+}

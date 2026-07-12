@@ -340,7 +340,8 @@ export const endpointGroups = [
       ep('GET', '/lxc/:name/mounts', '列出容器目录挂载', { pathParams: ['name'], notes: [admin, apiCompatible, '解析容器 config 的 lxc.mount.entry(bind) 行；返回 {status, restart_required, mounts[]}。仅管理员。'] }),
       ep('POST', '/lxc/:name/mounts', '添加目录挂载', { pathParams: ['name'], body: 'JSON: host_path(宿主机绝对路径), target(容器内绝对路径), read_only', notes: [admin, apiCompatible, '写 lxc.mount.entry = host target none bind,create=dir[,ro]；host_path 须存在且为目录，禁 /、/proc、/sys、/dev；非特权(idmap)容器拒绝；路径禁含空格/控制字符；运行中容器需重启生效。'] }),
       ep('DELETE', '/lxc/:name/mounts', '删除目录挂载', { pathParams: ['name'], query: ['target'], notes: [admin, apiCompatible, '按容器内挂载点 target 删除一条；运行中容器需重启生效。'] }),
-      ep('POST', '/lxc/:name/operate', '容器生命周期操作', { pathParams: ['name'], body: 'JSON: action(start|stop|restart|freeze|unfreeze)', notes: [apiCompatible, 'freeze→lxc-freeze（状态 FROZEN）；unfreeze→lxc-unfreeze 恢复 RUNNING。属主可用。'] })
+      ep('POST', '/lxc/:name/operate', '容器生命周期操作', { pathParams: ['name'], body: 'JSON: action(start|stop|restart|freeze|unfreeze)', notes: [apiCompatible, 'freeze→lxc-freeze（状态 FROZEN）；unfreeze→lxc-unfreeze 恢复 RUNNING。属主可用。'] }),
+      ep('POST', '/lxc/:name/exec', '在容器内执行单条命令', { pathParams: ['name'], body: 'JSON: command(必填), timeout_sec(0=默认30,上限300)', notes: [apiCompatible, '同步返回 {stdout,stderr,exit_code,truncated,timed_out}；lxc-attach -- sh -c，root 执行；输出各截断 512KB；超时杀进程组。容器须 RUNNING，FROZEN/STOPPED 拒绝。属主可用（与 console 同级）。'] }),
     ]
   },
   {
