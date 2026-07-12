@@ -224,3 +224,26 @@ func LXCBatchCreateContainer(ctx context.Context, params *lxc.BatchCreateContain
 func LXCCheckQuotaForBatch(username string, cpu, ramMB, n int) error {
 	return lxc.CheckLXCQuotaForBatch(username, cpu, ramMB, n)
 }
+
+// ── LXC 目录挂载（管理员）——
+
+// LXCMount 透出 lxc.LXCMount，便于 handler 只依赖 service 包。
+type LXCMount = lxc.LXCMount
+
+// LXCMountListResult 透出 lxc.LXCMountListResult。
+type LXCMountListResult = lxc.LXCMountListResult
+
+// LXCListMounts 列出容器目录挂载（附状态/是否需重启）。
+func LXCListMounts(name string) (LXCMountListResult, error) {
+	return lxc.ListMounts(name)
+}
+
+// LXCAddMount 添加一条目录挂载（全量重写 config）。
+func LXCAddMount(name string, m lxc.LXCMount) error {
+	return lxc.AddMount(name, m)
+}
+
+// LXCDeleteMount 按 target 删除一条目录挂载。
+func LXCDeleteMount(name, target string) error {
+	return lxc.DeleteMount(name, target)
+}
