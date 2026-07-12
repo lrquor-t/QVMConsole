@@ -209,3 +209,19 @@ export function deleteLXCSchedule(name, id) {
     method: 'delete'
   })
 }
+
+// ==================== LXC 目录挂载（管理员）====================
+// 列出容器目录挂载（返回 {status, restart_required, mounts[]}）
+export function getLXCMounts(name) {
+  return request({ url: `/lxc/${name}/mounts`, method: 'get' })
+}
+
+// 添加目录挂载 data: { host_path, target, read_only }
+export function addLXCMount(name, data) {
+  return request({ url: `/lxc/${name}/mounts`, method: 'post', data })
+}
+
+// 删除目录挂载（按容器内挂载点 target）
+export function deleteLXCMount(name, target) {
+  return request({ url: `/lxc/${name}/mounts`, method: 'delete', params: { target } })
+}
