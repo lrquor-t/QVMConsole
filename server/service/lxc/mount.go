@@ -20,8 +20,8 @@ type LXCMount struct {
 
 // LXCMountListResult 列表接口返回：附容器状态，供前端判断是否提示重启。
 type LXCMountListResult struct {
-	Status          string   `json:"status"`           // 容器状态，如 RUNNING
-	RestartRequired bool     `json:"restart_required"` // status == RUNNING 时为 true
+	Status          string     `json:"status"`           // 容器状态，如 RUNNING
+	RestartRequired bool       `json:"restart_required"` // status == RUNNING 时为 true
 	Mounts          []LXCMount `json:"mounts"`
 }
 
