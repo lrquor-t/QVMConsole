@@ -8,14 +8,14 @@ import (
 
 // prepareLinuxCloneFirstBootIdentity 执行 Linux 克隆完整离线初始化
 // 使用 cloud-init NoCloud 文件方式，无需 SSH 连接
-func prepareLinuxCloneFirstBootIdentity(params *CloneParams, cloneDisk string) error {
-	return prepareLinuxNoCloudInit(params, cloneDisk)
+func prepareLinuxCloneFirstBootIdentity(params *CloneParams, cloneDisk string, progressFn func(int, string)) error {
+	return prepareLinuxNoCloudInit(params, cloneDisk, progressFn)
 }
 
 // PrepareLinuxCloneFirstBootIdentityExported 是 prepareLinuxCloneFirstBootIdentity 的导出版本
 // 供 clone_delegate.go 等外部包通过代理调用
-func PrepareLinuxCloneFirstBootIdentityExported(params *CloneParams, cloneDisk string) error {
-	return prepareLinuxCloneFirstBootIdentity(params, cloneDisk)
+func PrepareLinuxCloneFirstBootIdentityExported(params *CloneParams, cloneDisk string, progressFn func(int, string)) error {
+	return prepareLinuxCloneFirstBootIdentity(params, cloneDisk, progressFn)
 }
 
 // buildLinuxHostsCommand 生成 /etc/hosts hostname 条目更新命令

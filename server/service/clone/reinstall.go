@@ -220,7 +220,7 @@ func ReinstallVM(ctx context.Context, params *ReinstallParams, progressFn func(i
 		}
 	case "linux":
 		progressFn(25, "正在重置 Linux 首次启动身份...")
-		if err := prepareLinuxCloneFirstBootIdentity(cloneParams, systemDisk.Path); err != nil {
+		if err := prepareLinuxCloneFirstBootIdentity(cloneParams, systemDisk.Path, progressFn); err != nil {
 			return err
 		}
 		cloneParams.LinuxIdentityPrepared = true

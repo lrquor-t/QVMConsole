@@ -133,8 +133,8 @@ func WaitForIPWithContext(ctx context.Context, vmName string, maxWaitSeconds int
 
 // PrepareLinuxCloneFirstBootIdentity 通过 virt-customize 离线完成 Linux 克隆初始化
 // 包括 machine-id 清理、cloud-init NoCloud seed 写入、密码和用户名修改
-func PrepareLinuxCloneFirstBootIdentity(params *CloneParams, cloneDisk string) error {
-	return clonepkg.PrepareLinuxCloneFirstBootIdentityExported(params, cloneDisk)
+func PrepareLinuxCloneFirstBootIdentity(params *CloneParams, cloneDisk string, progressFn func(int, string)) error {
+	return clonepkg.PrepareLinuxCloneFirstBootIdentityExported(params, cloneDisk, progressFn)
 }
 
 // InjectMemballoonConfig delegates to clone.InjectMemballoonConfig

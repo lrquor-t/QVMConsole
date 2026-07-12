@@ -13,7 +13,7 @@ import (
 )
 
 // PrepareTemplate creates a template from a VM (async task logic).
-func PrepareTemplate(params *PrepareTemplateParams) error {
+func PrepareTemplate(params *PrepareTemplateParams, progressFn func(int, string)) error {
 	templateDir := config.GlobalConfig.TemplateDir
 	if err := os.MkdirAll(templateDir, 0o755); err != nil {
 		return fmt.Errorf("创建模板目录失败: %w", err)
@@ -96,6 +96,16 @@ func PrepareTemplate(params *PrepareTemplateParams) error {
 		meta.CloneVisible = true
 	}
 
+	// Linux 模板：预装 cloud-init 和 growpart 依赖（制作时一次性安装，克隆时直接使用）
+	if tplType == "linux" {
+		progressFn(50, "安装必要依赖...")
+		if err := PreinstallLinuxCloudInitDeps(destPath); err != nil {
+			// 预装失败不阻断模板制作，仅记录警告
+			_ = err
+		}
+	}
+
+	progressFn(70, "计算模板校验和...")
 	hash, err := CalculateFileHashes(destPath)
 	if err != nil {
 		_ = os.Remove(destPath)
