@@ -84,6 +84,15 @@
             :name="currentName"
           />
         </el-tab-pane>
+        <el-tab-pane v-if="isAdmin" name="mount" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><Files /></el-icon> 目录挂载</span>
+          </template>
+          <LxcMountPanel
+            v-if="visible && currentName && activeTab === 'mount'"
+            :name="currentName"
+          />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-drawer>
@@ -91,14 +100,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
 import LxcMonitorPanel from './LxcMonitorPanel.vue'
 import LxcSchedulePanel from './LxcSchedulePanel.vue'
+import LxcMountPanel from './LxcMountPanel.vue'
+import { useUserStore } from '@/store/user'
 
 const emit = defineEmits(['refresh'])
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.role === 'admin')
 
 const visible = ref(false)
 const activeTab = ref('snapshot')
