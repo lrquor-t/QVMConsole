@@ -1,6 +1,8 @@
 package lxc
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -73,4 +75,98 @@ func parseOurMounts(text string) []LXCMount {
 		}
 	}
 	return out
+}
+
+// 路径黑名单：bind 进去会内核异常或被需求禁止。
+var forbiddenHostPaths = map[string]bool{
+	"/":     true,
+	"/proc": true,
+	"/sys":  true,
+	"/dev":  true,
+}
+
+// containsUnsafeChar 拒绝空白与控制字符（会破坏 mount.entry 字段切分或注入配置行）。
+func containsUnsafeChar(p string) bool {
+	for _, r := range p {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r < 0x20 {
+			return true
+		}
+	}
+	return false
+}
+
+// validatePathShape 共享校验：绝对路径、标准化、无空白/控制字符。
+func validatePathShape(p string) (string, error) {
+	if !filepath.IsAbs(p) {
+		return "", errors.New("路径必须是绝对路径")
+	}
+	if containsUnsafeChar(p) {
+		return "", errors.New("路径不能包含空格或控制字符")
+	}
+	return filepath.Clean(p), nil
+}
+
+// validateHostPath 校验宿主机路径：绝对、无非法字符、不在黑名单、存在且为目录。
+func validateHostPath(p string) error {
+	clean, err := validatePathShape(p)
+	if err != nil {
+		return err
+	}
+	if forbiddenHostPaths[clean] {
+		return errors.New("不允许挂载该系统目录")
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		return errors.New("宿主机路径不存在")
+	}
+	if !info.IsDir() {
+		return errors.New("宿主机路径不是目录")
+	}
+	return nil
+}
+
+// validateTarget 校验容器内挂载点：绝对、无非法字符、非根。
+func validateTarget(p string) error {
+	clean, err := validatePathShape(p)
+	if err != nil {
+		return err
+	}
+	if clean == "/" {
+		return errors.New("容器挂载点不能是根目录")
+	}
+	return nil
+}
+
+// containerIsUnprivileged 检测 config 是否含 idmap（非特权容器）。
+func containerIsUnprivileged(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "#") {
+			continue
+		}
+		if strings.HasPrefix(t, "lxc.idmap") || strings.HasPrefix(t, "lxc.uidmap") || strings.HasPrefix(t, "lxc.gidmap") {
+			return true
+		}
+	}
+	return false
+}
+
+// rewriteMountEntries 在 config 文本上删除我们管理的 mount.entry 行，
+// 追加新的完整集合后单次写回。非我们的 mount.entry 行（如 overlay）原样保留。
+func rewriteMountEntries(cfgPath, text string, mounts []LXCMount) error {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if _, ok := parseMountEntry(line); ok {
+			continue // 我们管理的行：丢弃，下方重新生成
+		}
+		out = append(out, line)
+	}
+	for _, m := range mounts {
+		out = append(out, renderMountEntry(m))
+	}
+	content := strings.Join(out, "\n")
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return os.WriteFile(cfgPath, []byte(content), 0644)
 }
