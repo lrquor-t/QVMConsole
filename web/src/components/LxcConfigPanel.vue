@@ -43,7 +43,7 @@
         </el-form-item>
         <el-form-item label="CPU 绑核">
           <el-input v-model="cpuLimit.cpuset" placeholder="如 0-3,^2（留空=不绑）" />
-          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup cpuset.cpus，限定容器只能用指定物理核。</div>
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup cpuset.cpus，限定容器只能用指定物理核。运行中清除绑核需重启生效（核数上限可热生效）。</div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="cpuSaving" @click="saveCPULimit">保存</el-button>

@@ -55,7 +55,7 @@ func validateCPULimit(cores float64, cpuset string, nproc int) error {
 	if cores < 0 {
 		return errors.New("CPU 核数不能为负")
 	}
-	if math.Round(cores*1000) != cores*1000 {
+	if math.Abs(math.Round(cores*1000)-cores*1000) > 1e-6 {
 		return errors.New("CPU 核数最多支持 3 位小数")
 	}
 	if nproc > 0 && cores > float64(nproc) {

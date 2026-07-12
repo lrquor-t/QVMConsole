@@ -58,6 +58,16 @@ func TestValidateCPULimit(t *testing.T) {
 	if err := validateCPULimit(0, "", 8); err != nil {
 		t.Fatalf("zero cores rejected: %v", err)
 	}
+	// 3 位小数应被接受（修复浮点精度误拒）
+	if err := validateCPULimit(1.001, "", 8); err != nil {
+		t.Fatalf("1.001 (3 decimals) should be accepted: %v", err)
+	}
+	if err := validateCPULimit(1.015, "", 8); err != nil {
+		t.Fatalf("1.015 (3 decimals) should be accepted: %v", err)
+	}
+	if err := validateCPULimit(64.125, "", 128); err != nil {
+		t.Fatalf("64.125 (3 decimals) should be accepted: %v", err)
+	}
 }
 
 func TestRenderCPULimit(t *testing.T) {
