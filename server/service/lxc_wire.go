@@ -44,10 +44,12 @@ func LXCParseCreateContainerParams(s string) (*lxc.CreateContainerParams, error)
 }
 
 // LXC 生命周期封装
-func LXCStartContainer(name string) error   { return lxc.StartContainer(name) }
-func LXCStopContainer(name string) error    { return lxc.StopContainer(name) }
-func LXCRestartContainer(name string) error { return lxc.RestartContainer(name) }
-func LXCDestroyContainer(name string) error { return lxc.DestroyContainer(name) }
+func LXCStartContainer(name string) error    { return lxc.StartContainer(name) }
+func LXCStopContainer(name string) error     { return lxc.StopContainer(name) }
+func LXCRestartContainer(name string) error  { return lxc.RestartContainer(name) }
+func LXCFreezeContainer(name string) error   { return lxc.FreezeContainer(name) }
+func LXCUnfreezeContainer(name string) error { return lxc.UnfreezeContainer(name) }
+func LXCDestroyContainer(name string) error  { return lxc.DestroyContainer(name) }
 
 // LXCContainerConfigUpdate 透出 lxc.ContainerConfigUpdate，便于 handler 只依赖 service 包。
 type LXCContainerConfigUpdate = lxc.ContainerConfigUpdate

@@ -192,7 +192,7 @@ func BatchCreateLXC(c *gin.Context) {
 }
 
 type operateLXCReq struct {
-	Action string `json:"action" binding:"required"` // start|stop|restart
+	Action string `json:"action" binding:"required"` // start|stop|restart|freeze|unfreeze
 }
 
 // OperateLXC 单容器生命周期操作（start/stop/restart）。
@@ -211,6 +211,10 @@ func OperateLXC(c *gin.Context) {
 		err = service.LXCStopContainer(name)
 	case "restart":
 		err = service.LXCRestartContainer(name)
+	case "freeze":
+		err = service.LXCFreezeContainer(name)
+	case "unfreeze":
+		err = service.LXCUnfreezeContainer(name)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未知操作: " + req.Action})
 		return

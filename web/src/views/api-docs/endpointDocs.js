@@ -339,7 +339,8 @@ export const endpointGroups = [
       ep('DELETE', '/lxc/:name/interfaces/:order', '删除容器网卡', { pathParams: ['name', 'order'], body: 'JSON: force(bool,删除主网卡 order=0 时必传 true)', notes: [admin, '删除 order=0 主网卡需 force=true（会断网，前端二次确认）；删除后剩余网卡 order 紧凑重排。已绑静态 IP 的网卡需先解绑。'] }),
       ep('GET', '/lxc/:name/mounts', '列出容器目录挂载', { pathParams: ['name'], notes: [admin, apiCompatible, '解析容器 config 的 lxc.mount.entry(bind) 行；返回 {status, restart_required, mounts[]}。仅管理员。'] }),
       ep('POST', '/lxc/:name/mounts', '添加目录挂载', { pathParams: ['name'], body: 'JSON: host_path(宿主机绝对路径), target(容器内绝对路径), read_only', notes: [admin, apiCompatible, '写 lxc.mount.entry = host target none bind,create=dir[,ro]；host_path 须存在且为目录，禁 /、/proc、/sys、/dev；非特权(idmap)容器拒绝；路径禁含空格/控制字符；运行中容器需重启生效。'] }),
-      ep('DELETE', '/lxc/:name/mounts', '删除目录挂载', { pathParams: ['name'], query: ['target'], notes: [admin, apiCompatible, '按容器内挂载点 target 删除一条；运行中容器需重启生效。'] })
+      ep('DELETE', '/lxc/:name/mounts', '删除目录挂载', { pathParams: ['name'], query: ['target'], notes: [admin, apiCompatible, '按容器内挂载点 target 删除一条；运行中容器需重启生效。'] }),
+      ep('POST', '/lxc/:name/operate', '容器生命周期操作', { pathParams: ['name'], body: 'JSON: action(start|stop|restart|freeze|unfreeze)', notes: [apiCompatible, 'freeze→lxc-freeze（状态 FROZEN）；unfreeze→lxc-unfreeze 恢复 RUNNING。属主可用。'] })
     ]
   },
   {

@@ -36,6 +36,24 @@ func RestartContainer(name string) error {
 	return StartContainer(name)
 }
 
+// FreezeContainer 冻结运行中容器（lxc-freeze）。
+func FreezeContainer(name string) error {
+	res := utils.ExecCommandLongRunning("lxc-freeze", "-n", name)
+	if res.Error != nil {
+		return res.Error
+	}
+	return updateStatus(name, "FROZEN")
+}
+
+// UnfreezeContainer 恢复冻结容器（lxc-unfreeze），重刷运行态（IP/状态）。
+func UnfreezeContainer(name string) error {
+	res := utils.ExecCommandLongRunning("lxc-unfreeze", "-n", name)
+	if res.Error != nil {
+		return res.Error
+	}
+	return RefreshRuntimeFields(name)
+}
+
 // DestroyContainer 先停后删，并清理缓存行与 VPC 绑定。
 func DestroyContainer(name string) error {
 	// 先解除 VPC 接入（删 OVS 端口、清理绑定），再删除容器。

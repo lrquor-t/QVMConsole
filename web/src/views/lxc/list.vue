@@ -137,6 +137,8 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="restart">重启</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'RUNNING'" command="freeze">暂停</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'FROZEN'" command="unfreeze">恢复</el-dropdown-item>
                   <el-dropdown-item command="clone">克隆</el-dropdown-item>
                   <el-dropdown-item v-if="isAdmin" command="template" :disabled="!isStopped(row)">制作模板</el-dropdown-item>
                   <el-dropdown-item command="delete" divided class="lxc-dropdown-danger">删除</el-dropdown-item>
@@ -263,6 +265,8 @@ const handleBatchOperate = async (action) => {
 }
 const handleMore = async (cmd, row) => {
   if (cmd === 'restart') operate(row, 'restart')
+  else if (cmd === 'freeze') operate(row, 'freeze')
+  else if (cmd === 'unfreeze') operate(row, 'unfreeze')
   else if (cmd === 'delete') remove(row)
   else if (cmd === 'template') openMakeTemplate(row)
   else if (cmd === 'clone') openClone(row)
