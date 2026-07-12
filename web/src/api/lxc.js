@@ -230,3 +230,11 @@ export function deleteLXCMount(name, target) {
 export function execLXC(name, data) {
   return request({ url: `/lxc/${name}/exec`, method: 'post', data })
 }
+
+// CPU 硬限制 + 绑核（管理员；cores 核数支持小数，0=不限；cpuset 如 0-3,^2）
+export function getLXCCPULimit(name) {
+  return request({ url: `/lxc/${name}/cpu-limit`, method: 'get' })
+}
+export function setLXCCPULimit(name, data) {
+  return request({ url: `/lxc/${name}/cpu-limit`, method: 'put', data })
+}

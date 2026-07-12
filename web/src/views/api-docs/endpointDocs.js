@@ -342,6 +342,8 @@ export const endpointGroups = [
       ep('DELETE', '/lxc/:name/mounts', '删除目录挂载', { pathParams: ['name'], query: ['target'], notes: [admin, apiCompatible, '按容器内挂载点 target 删除一条；运行中容器需重启生效。'] }),
       ep('POST', '/lxc/:name/operate', '容器生命周期操作', { pathParams: ['name'], body: 'JSON: action(start|stop|restart|freeze|unfreeze)', notes: [apiCompatible, 'freeze→lxc-freeze（状态 FROZEN）；unfreeze→lxc-unfreeze 恢复 RUNNING。属主可用。'] }),
       ep('POST', '/lxc/:name/exec', '在容器内执行单条命令', { pathParams: ['name'], body: 'JSON: command(必填), timeout_sec(0=默认30,上限300)', notes: [apiCompatible, '同步返回 {stdout,stderr,exit_code,truncated,timed_out}；lxc-attach -- sh -c，root 执行；输出各截断 512KB；超时杀进程组。容器须 RUNNING，FROZEN/STOPPED 拒绝。属主可用（与 console 同级）。'] }),
+      ep('GET', '/lxc/:name/cpu-limit', '读取容器 CPU 硬限制', { pathParams: ['name'], notes: [admin, apiCompatible, '解析 config 的 lxc.cgroup2.cpu.max / lxc.cgroup2.cpuset.cpus；返回 {cores(0=不限),cpuset}。'] }),
+      ep('PUT', '/lxc/:name/cpu-limit', '设置容器 CPU 硬限制', { pathParams: ['name'], body: 'JSON: cores(核数,支持小数,0=不限), cpuset(如 0-3,^2,空=不绑)', notes: [admin, apiCompatible, 'cores→lxc.cgroup2.cpu.max（period 100000），cpuset→lxc.cgroup2.cpuset.cpus；运行中热应用 cgroup。校验：cores∈[0,nproc] 且 ≤3 位小数。'] }),
     ]
   },
   {

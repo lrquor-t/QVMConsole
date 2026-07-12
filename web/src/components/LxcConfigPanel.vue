@@ -33,14 +33,32 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card v-if="isAdmin" shadow="hover" class="cfg-card">
+      <div class="section-title">CPU 限制（管理员）</div>
+      <el-form label-width="110px" :disabled="cpuSaving">
+        <el-form-item label="核数上限">
+          <el-input-number v-model="cpuLimit.cores" :min="0" :step="0.5" :precision="3" />
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup cpu.max，限制容器最大可用核数（支持小数）；0 = 不限。与上面「CPU 权重」正交（权重=相对争用，核数=绝对上限）。</div>
+        </el-form-item>
+        <el-form-item label="CPU 绑核">
+          <el-input v-model="cpuLimit.cpuset" placeholder="如 0-3,^2（留空=不绑）" />
+          <div class="cfg-hint"><el-icon><InfoFilled /></el-icon> cgroup cpuset.cpus，限定容器只能用指定物理核。</div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="cpuSaving" @click="saveCPULimit">保存</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { updateLXCConfig, getLXCDiskLimit, setLXCDiskLimit } from '@/api/lxc'
+import { updateLXCConfig, getLXCDiskLimit, setLXCDiskLimit, getLXCCPULimit, setLXCCPULimit } from '@/api/lxc'
+import { useUserStore } from '@/store/user'
 
 const props = defineProps({
   name: { type: String, required: true },
@@ -48,6 +66,9 @@ const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits(['saved'])
+
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.role === 'admin')
 
 const saving = ref(false)
 const form = ref({ cpu_shares: 0, memory_mb: 0, autostart: false, group_name: '', remark: '' })
@@ -91,6 +112,31 @@ const saveDiskLimit = async () => {
   } catch (e) { ElMessage.error(e?.message || '更新失败') }
   finally { diskSaving.value = false }
 }
+// CPU 硬限制 + 绑核（管理员；不限 backing，cpu.max 与存储后端无关）
+const cpuLimit = ref({ cores: 0, cpuset: '' })
+const cpuSaving = ref(false)
+const loadCPULimit = async () => {
+  if (!isAdmin.value || !props.name) { cpuLimit.value = { cores: 0, cpuset: '' }; return }
+  try {
+    const r = await getLXCCPULimit(props.name)
+    cpuLimit.value = { cores: r.data?.cores ?? 0, cpuset: r.data?.cpuset ?? '' }
+  } catch {
+    cpuLimit.value = { cores: 0, cpuset: '' }
+  }
+}
+const saveCPULimit = async () => {
+  cpuSaving.value = true
+  try {
+    await setLXCCPULimit(props.name, { cores: cpuLimit.value.cores, cpuset: cpuLimit.value.cpuset })
+    ElMessage.success('CPU 限制已更新')
+  } catch (e) {
+    ElMessage.error(e?.message || '更新失败')
+  } finally {
+    cpuSaving.value = false
+  }
+}
+watch(() => [props.name, isAdmin.value], loadCPULimit, { immediate: true })
+
 // 切容器或 backing 变化时重载配额（config tab 为 lazy，挂载时 immediate 触发首次加载）
 watch(() => [props.name, props.backing], loadDiskLimit, { immediate: true })
 </script>

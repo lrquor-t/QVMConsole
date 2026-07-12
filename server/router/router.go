@@ -268,6 +268,8 @@ func Setup() *gin.Engine {
 				lxcGroup.PUT("/:name/config", handler.UpdateLXCConfig)
 				lxcGroup.GET("/:name/disk-limit", middleware.AdminMiddleware(), handler.GetLXCDiskLimit)
 				lxcGroup.PUT("/:name/disk-limit", middleware.AdminMiddleware(), handler.SetLXCDiskLimit)
+				lxcGroup.GET("/:name/cpu-limit", middleware.AdminMiddleware(), handler.GetLXCCPULimit)
+				lxcGroup.PUT("/:name/cpu-limit", middleware.AdminMiddleware(), handler.SetLXCCPULimit)
 				// LXC 目录挂载（仅管理员）
 				lxcGroup.GET("/:name/mounts", middleware.AdminMiddleware(), handler.ListLXCMounts)
 				lxcGroup.POST("/:name/mounts", middleware.AdminMiddleware(), handler.AddLXCMount)

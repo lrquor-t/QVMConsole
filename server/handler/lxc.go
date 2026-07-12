@@ -96,6 +96,35 @@ func SetLXCDiskLimit(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "磁盘配额已更新"})
 }
 
+type setLXCCPULimitReq struct {
+	Cores  float64 `json:"cores"`
+	CPUSet string  `json:"cpuset"`
+}
+
+// GetLXCCPULimit GET /api/lxc/:name/cpu-limit
+func GetLXCCPULimit(c *gin.Context) {
+	lim, err := service.LXCGetCPULimit(c.Param("name"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": lim})
+}
+
+// SetLXCCPULimit PUT /api/lxc/:name/cpu-limit
+func SetLXCCPULimit(c *gin.Context) {
+	var req setLXCCPULimitReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := service.LXCSetCPULimit(c.Param("name"), service.LXCCPULimit{Cores: req.Cores, CPUSet: req.CPUSet}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "CPU 限制已更新"})
+}
+
 // ListLXCSnapshots 列出容器快照。
 func ListLXCSnapshots(c *gin.Context) {
 	snaps, err := service.LXCListSnapshots(c.Param("name"))

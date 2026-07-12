@@ -4,9 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+
+	"kvm_console/model"
 )
 
 const cpuPeriod = 100000 // cgroup2 cpu.max period 固定
@@ -72,4 +76,66 @@ func renderCPULimit(lim CPULimit) string {
 		fmt.Fprintf(&b, "lxc.cgroup2.cpuset.cpus = %s\n", cs)
 	}
 	return b.String()
+}
+
+// readConfigKeyValues 读取 config 文本中指定 key 的值（每个 key 取最后一次出现）。纯函数。
+func readConfigKeyValues(text string, keys []string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		for _, k := range keys {
+			if v, ok := cutConfigKey(t, k); ok {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
+// cutConfigKey 若行 t 形如 "k = v" 或 "k=v" 返回 (v,true)。
+func cutConfigKey(t, k string) (string, bool) {
+	if v, ok := strings.CutPrefix(t, k+" = "); ok {
+		return strings.TrimSpace(v), true
+	}
+	if v, ok := strings.CutPrefix(t, k+"="); ok {
+		return strings.TrimSpace(v), true
+	}
+	return "", false
+}
+
+// GetCPULimit 读容器 config 解析当前 CPU 硬限制。
+func GetCPULimit(name string) (CPULimit, error) {
+	data, err := os.ReadFile(containerConfigPath(name))
+	if err != nil {
+		return CPULimit{}, fmt.Errorf("读取容器配置失败: %w", err)
+	}
+	kv := readConfigKeyValues(string(data), []string{"lxc.cgroup2.cpu.max", "lxc.cgroup2.cpuset.cpus"})
+	lim := CPULimit{}
+	if cores, ok := parseCPUMax(kv["lxc.cgroup2.cpu.max"]); ok {
+		lim.Cores = math.Round(cores*1000) / 1000 // 归整到 3 位小数
+	}
+	lim.CPUSet = kv["lxc.cgroup2.cpuset.cpus"]
+	return lim, nil
+}
+
+// SetCPULimit 校验并写入 CPU 硬限制；运行中热应用 cgroup。
+func SetCPULimit(name string, lim CPULimit) error {
+	var row model.LXCCache
+	if err := model.DB.Where("name = ?", name).First(&row).Error; err != nil {
+		return errors.New("容器不存在")
+	}
+	if err := validateCPULimit(lim.Cores, lim.CPUSet, runtime.NumCPU()); err != nil {
+		return err
+	}
+	cfg := containerConfigPath(name)
+	if err := rewriteConfigKeys(cfg, []string{"lxc.cgroup2.cpu.max", "lxc.cgroup2.cpuset.cpus"}, renderCPULimit(lim)); err != nil {
+		return fmt.Errorf("更新配置文件失败: %w", err)
+	}
+	if strings.ToUpper(strings.TrimSpace(row.Status)) == "RUNNING" {
+		applyCgroup(row.Name, "cpu.max", coresToCPUMax(lim.Cores))
+		if cs := strings.TrimSpace(lim.CPUSet); cs != "" {
+			applyCgroup(row.Name, "cpuset.cpus", cs)
+		}
+	}
+	return nil
 }

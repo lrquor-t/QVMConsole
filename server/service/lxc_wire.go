@@ -76,6 +76,14 @@ func LXCExecContainer(name, command string, timeoutSec int) (lxc.ExecResult, err
 	return lxc.ExecContainer(name, command, timeoutSec)
 }
 
+// LXC CPU 硬限制 + 绑核（管理员，config 即真相源、不入库）
+type LXCCPULimit = lxc.CPULimit
+
+func LXCGetCPULimit(name string) (lxc.CPULimit, error) { return lxc.GetCPULimit(name) }
+func LXCSetCPULimit(name string, lim lxc.CPULimit) error {
+	return lxc.SetCPULimit(name, lim)
+}
+
 // LXCCheckQuota 校验用户 LXC 配额（admin 不限）。
 func LXCCheckQuota(username string, cpu, ramMB int) error {
 	return lxc.CheckLXCQuota(username, cpu, ramMB)
