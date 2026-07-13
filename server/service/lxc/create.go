@@ -122,7 +122,11 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		MacAddress:    mac,
 		Present:       true,
 	}
-	if err := model.DB.Create(&row).Error; err != nil {
+	// upsert：容忍与 ListContainers→SyncContainerCache 的竞态——前端刷新列表时 mergeCacheRows
+	// 可能先插入 owner=admin 的桩行（见 list.go）。容器已在 host 创建且无同名旧容器 ⇒ DB 里任何
+	// 同名行必为同步桩行，用真实配置覆盖安全；attrs 单独拷贝，避免 FirstOrCreate 回填 dest 时丢失。
+	attrs := row
+	if err := model.DB.Where("name = ?", row.Name).Assign(attrs).FirstOrCreate(&row).Error; err != nil {
 		_ = DestroyContainer(params.Name)
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
@@ -350,7 +354,11 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 		MacAddress:    mac,
 		Present:       true,
 	}
-	if err := model.DB.Create(&row).Error; err != nil {
+	// upsert：容忍与 ListContainers→SyncContainerCache 的竞态——前端刷新列表时 mergeCacheRows
+	// 可能先插入 owner=admin 的桩行（见 list.go）。容器已在 host 创建且无同名旧容器 ⇒ DB 里任何
+	// 同名行必为同步桩行，用真实配置覆盖安全；attrs 单独拷贝，避免 FirstOrCreate 回填 dest 时丢失。
+	attrs := row
+	if err := model.DB.Where("name = ?", row.Name).Assign(attrs).FirstOrCreate(&row).Error; err != nil {
 		_ = DestroyContainer(params.Name)
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
