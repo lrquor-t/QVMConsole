@@ -34,7 +34,9 @@ func LxcInfo(name string) *utils.CmdResult {
 }
 
 // ParseLxcLsFancy 解析 `lxc-ls --fancy` 输出。
-// 表头行形如：NAME STATE IPV4 IPV6 AUTOSTART TYPE GROUP
+// lxc-ls 用空格对齐各列，但 IPV4/IPV6 单元格内多 IP 以 ", " 连接（含空格），strings.Fields 会把
+// 一个单元格切成多段——既丢后续 IP 又让后续列错位。这里改为按表头列起始偏移做定宽切片，单元格内
+// 空格得以完整保留（多 IP 形如 "1.2.3.4, 5.6.7.8"）。表头形如：NAME STATE IPV4 IPV6 ...
 func ParseLxcLsFancy(stdout string) ([]ContainerListItem, error) {
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {
@@ -44,42 +46,95 @@ func ParseLxcLsFancy(stdout string) ([]ContainerListItem, error) {
 	if len(lines) < 2 {
 		return nil, errors.New("lxc-ls 输出格式异常：缺少表头")
 	}
-	header := strings.Fields(lines[0])
+	cols := parseHeaderSpans(lines[0]) // 有序列名(大写)+起始偏移
 	idx := map[string]int{}
-	for i, h := range header {
-		idx[strings.ToUpper(h)] = i
+	for i, c := range cols {
+		idx[c.name] = i
 	}
-	// 至少要有 NAME 与 STATE 列
 	if _, ok := idx["NAME"]; !ok {
 		return nil, errors.New("lxc-ls 输出缺少 NAME 列")
 	}
 	out := make([]ContainerListItem, 0, len(lines)-1)
 	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if strings.TrimSpace(line) == "" { // 跳空行，但不 trim 行本身——保留列偏移
 			continue
 		}
-		fields := strings.Fields(line)
 		item := ContainerListItem{}
-		if i, ok := idx["NAME"]; ok && i < len(fields) {
-			item.Name = fields[i]
+		if i, ok := idx["NAME"]; ok {
+			item.Name = tableCell(line, cols, i)
 		}
-		if i, ok := idx["STATE"]; ok && i < len(fields) {
-			item.Status = fields[i]
+		if i, ok := idx["STATE"]; ok {
+			item.Status = tableCell(line, cols, i)
 			item.Running = strings.EqualFold(item.Status, "RUNNING")
 		}
-		if i, ok := idx["IPV4"]; ok && i < len(fields) {
-			v := fields[i]
-			if v != "-" {
+		if i, ok := idx["IPV4"]; ok {
+			if v := tableCell(line, cols, i); v != "" && v != "-" {
 				item.IPv4 = v
 			}
 		}
-		if i, ok := idx["AUTOSTART"]; ok && i < len(fields) {
-			item.Autostart = strings.ToUpper(fields[i])
+		if i, ok := idx["AUTOSTART"]; ok {
+			item.Autostart = strings.ToUpper(tableCell(line, cols, i))
 		}
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// headerCol 描述表头一个列名 token 的名字（大写）与起始字节偏移。
+type headerCol struct {
+	name  string
+	start int
+}
+
+// parseHeaderSpans 扫描表头行，返回各列名（大写）及其起始偏移（按出现顺序）。
+// 列名本身不含空格，按空白切分即可定位每列起点；数据行据此定宽切片。
+func parseHeaderSpans(header string) []headerCol {
+	var cols []headerCol
+	i := 0
+	for i < len(header) {
+		for i < len(header) && (header[i] == ' ' || header[i] == '\t') {
+			i++
+		}
+		if i >= len(header) {
+			break
+		}
+		start := i
+		for i < len(header) && header[i] != ' ' && header[i] != '\t' {
+			i++
+		}
+		cols = append(cols, headerCol{strings.ToUpper(header[start:i]), start})
+	}
+	return cols
+}
+
+// tableCell 按列 i 从数据行取出单元格：区间 [cols[i].start, cols[i+1].start)，末列到行尾。
+// lxc-ls 数据行与表头列左对齐，按列起点定宽切片能保留单元格内空格（多 IP）。结果 trim。
+func tableCell(line string, cols []headerCol, i int) string {
+	if i < 0 || i >= len(cols) {
+		return ""
+	}
+	start := cols[i].start
+	if start >= len(line) {
+		return ""
+	}
+	end := len(line)
+	if i+1 < len(cols) {
+		end = cols[i+1].start
+	}
+	if end > len(line) {
+		end = len(line)
+	}
+	return strings.TrimSpace(line[start:end])
+}
+
+// firstIP 取逗号分隔 IP 串的第一个非空项（lxc-ls/lxc-info 多 IP 以 ", " 连接）。
+func firstIP(joined string) string {
+	for _, p := range strings.Split(joined, ",") {
+		if v := strings.TrimSpace(p); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ParseLxcInfo 解析 `lxc-info -n <name>` 的 "Key: Value" 输出。
@@ -102,7 +157,16 @@ func ParseLxcInfo(stdout string) (ContainerDetail, error) {
 		case "state":
 			d.Status = val
 		case "ip":
-			d.IP = val
+			// lxc-info 对多 IP 容器每个地址输出一行 "IP: x.x.x.x"；累积并以 ", " 连接，
+			// 与 lxc-ls 单元格格式一致，便于展示。只要首 IP 用 firstIP() 取。
+			if val == "" {
+				continue
+			}
+			if d.IP == "" {
+				d.IP = val
+			} else {
+				d.IP += ", " + val
+			}
 		case "pid":
 			d.PID = val
 		case "arch", "architecture":

@@ -94,9 +94,9 @@
             <span class="lxc-spec">{{ row.cpu_shares || '-' }} / {{ row.memory_mb ? row.memory_mb + 'MB' : '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="IP 地址" width="140">
+        <el-table-column label="IP 地址" min-width="180">
           <template #default="{ row }">
-            <span class="lxc-ip">{{ row.cached_ip || '-' }}</span>
+            <span class="lxc-ip" :title="row.cached_ip">{{ row.cached_ip || '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="分组 / 备注" min-width="190">

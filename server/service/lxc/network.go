@@ -89,18 +89,14 @@ func DetachContainerFromVPC(name string) error {
 	return nil
 }
 
-// ResolveContainerVPCIP 取容器在 VPC 内的 IPv4（lxc-info -i）。
+// ResolveContainerVPCIP 取容器在 VPC 内的 IPv4（lxc-info -i，多 IP 取首个）。
 func ResolveContainerVPCIP(name string) string {
 	res := LxcInfo(name)
 	if res.ExitCode != 0 {
 		return ""
 	}
 	d, _ := ParseLxcInfo(res.Stdout)
-	fields := strings.Fields(d.IP)
-	if len(fields) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(fields[0])
+	return firstIP(d.IP)
 }
 
 // ---- helpers ----
