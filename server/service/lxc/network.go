@@ -1,6 +1,8 @@
 package lxc
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -519,8 +521,12 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	if pid == "" {
 		return fmt.Errorf("无法获取容器 PID，请重启容器使配置生效")
 	}
-	a := fmt.Sprintf("vxc%d_%s_a", order, name)
-	c := fmt.Sprintf("vxc%d_%s_b", order, name)
+	// veth 名须 ≤15 字符（Linux IFNAMSIZ 上限）。容器名写进 veth 名会让默认名 lxc-XXXXXX（10 字符）
+	// 撑爆长度；findContainerHostVeth 按 peer ifindex 回查，不依赖 veth 名编码容器信息，故改用
+	// name+order 的短哈希。a=host 侧（接 OVS），c=容器侧 peer（随即改名 eth{order+1}）。
+	h := shortVethHash(name, order)
+	a := fmt.Sprintf("vxa%d%s", order, h)
+	c := fmt.Sprintf("vxb%d%s", order, h)
 	if r := utils.ExecCommand("ip", "link", "add", a, "type", "veth", "peer", "name", c); r.Error != nil {
 		return fmt.Errorf("热插拔建 veth 失败，请重启容器: %s", r.Stderr)
 	}
@@ -541,6 +547,14 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	//     持久态依赖下次重启由 lxc-start 按 config 重建。引导用户重启以获一致状态。
 	return nil
 }
+
+// shortVethHash 取 name+order 的短哈希（8 hex）用于构造 veth 名，保证 ≤15 字符且按容器/order 唯一。
+// findContainerHostVeth 按 peer ifindex 回查 host veth，故 veth 名无需编码容器名。
+func shortVethHash(name string, order int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d", name, order)))
+	return hex.EncodeToString(sum[:4]) // 前 4 字节 = 8 hex
+}
+
 func hotunplugNic(name string, order int) {
 	veth := findContainerHostVeth(name, order)
 	if veth == "" {
