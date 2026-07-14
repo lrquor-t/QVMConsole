@@ -555,7 +555,8 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	}
 	// veth 名须 ≤15 字符（Linux IFNAMSIZ 上限）。容器名写进 veth 名会让默认名 lxc-XXXXXX（10 字符）
 	// 撑爆长度；findContainerHostVeth 按 peer ifindex 回查，不依赖 veth 名编码容器信息，故改用
-	// name+order 的短哈希。a=host 侧（接 OVS），c=容器侧 peer（随即改名 eth{order+1}）。
+	// name+order 的短哈希。a=host 侧（接 OVS），c=容器侧 peer（随即改名 eth{order}，与 config 的
+	// lxc.net.<order>.name 及 findContainerHostVeth(name,order) 对齐）。
 	h := shortVethHash(name, order)
 	a := fmt.Sprintf("vxa%d%s", order, h)
 	c := fmt.Sprintf("vxb%d%s", order, h)
@@ -564,8 +565,10 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 	}
 	utils.ExecCommandQuiet("ip", "link", "set", c, "netns", pid)
 	// a/c derive from validated container name → injection-safe by construction
+	// 容器内改名 eth{order}：order 即 config 网卡序号（net.1→eth1），须与 lxc.net.<order>.name、
+	// findContainerHostVeth(name,order) 一致。旧写 eth{order+1} 是 off-by-one（首张附加卡被命名成 eth2）。
 	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c 'ip link set %s name eth%d; ip link set eth%d up' 2>/dev/null",
-		utils.ShellSingleQuote(name), c, order+1, order+1))
+		utils.ShellSingleQuote(name), c, order, order))
 	bridge := sw.BridgeName
 	if strings.TrimSpace(bridge) == "" {
 		bridge = defaultBridge()
