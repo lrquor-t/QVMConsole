@@ -12,6 +12,64 @@
       </div>
     </div>
 
+    <!-- 系统环境与 OVS 依赖 -->
+    <el-row :gutter="16" class="dep-row">
+      <el-col :xs="24" :md="12" :lg="8">
+        <el-card shadow="never" class="section-card dep-card">
+          <template #header>
+            <div class="card-header">
+              <span>系统环境</span>
+              <el-tag v-if="sysInfo" type="info" size="small">{{ sysInfo.pkg_manager || '-' }}</el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="发行版">{{ sysInfo?.distro || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="系统 ID">{{ sysInfo?.os_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="架构">{{ sysInfo?.arch || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="内核">{{ sysInfo?.kernel || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :md="12" :lg="16">
+        <el-card shadow="never" class="section-card dep-card">
+          <template #header>
+            <div class="card-header">
+              <span>OVS 依赖</span>
+              <el-tag :type="sysInfo?.ovs_installed ? 'success' : 'danger'" size="small">
+                {{ sysInfo?.ovs_installed ? '已安装' : '未安装' }}
+              </el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="OVS 包名">{{ sysInfo?.ovs_package || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="OVS 服务">{{ sysInfo?.ovs_service || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="安装命令" :span="2">
+              <div class="install-command">
+                <code>{{ sysInfo?.ovs_install_command || '-' }}</code>
+                <el-button
+                  v-if="sysInfo?.ovs_install_command"
+                  type="primary"
+                  link
+                  size="small"
+                  @click="copyInstallCommand"
+                >
+                  <el-icon><DocumentCopy /></el-icon> 复制
+                </el-button>
+              </div>
+            </el-descriptions-item>
+          </el-descriptions>
+          <div v-if="!sysInfo?.ovs_installed" class="dep-tip">
+            <el-alert type="warning" :closable="false" show-icon>
+              <template #title>
+                OVS 未检测到，请在宿主机执行以下命令安装：
+                <code class="cmd">{{ sysInfo?.ovs_install_command || '请先刷新页面' }}</code>
+              </template>
+            </el-alert>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-alert
       class="status-alert"
       :type="status?.healthy ? 'success' : 'warning'"
@@ -37,7 +95,7 @@
         <el-card shadow="never" class="section-card">
           <template #header>服务与转发</template>
           <el-descriptions :column="1" border size="small">
-            <el-descriptions-item label="openvswitch-switch">
+            <el-descriptions-item :label="status?.openvswitch_service?.name || 'openvswitch-switch'">
               <el-tag :type="status?.openvswitch_service?.active ? 'success' : 'danger'" size="small">
                 {{ status?.openvswitch_service?.state || '-' }}
               </el-tag>
@@ -164,7 +222,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DocumentCopy } from '@element-plus/icons-vue'
 import { checkOVSNetwork, getOVSLeases, getOVSPorts, getOVSStatus, repairOVSNetwork } from '@/api/ovs'
+import { getPublicSystemInfo } from '@/api/settings'
 
 const loading = ref(false)
 const checking = ref(false)
@@ -174,6 +234,7 @@ const ports = ref(null)
 const leases = ref(null)
 const checkResult = ref(null)
 const lastRepairTask = ref(null)
+const sysInfo = ref(null)
 
 const ruleRows = computed(() => {
   if (!status.value) return []
@@ -197,16 +258,38 @@ const ipSourceText = (source) => {
 async function loadData() {
   loading.value = true
   try {
-    const [statusRes, portsRes, leasesRes] = await Promise.all([
+    const [statusRes, portsRes, leasesRes, sysRes] = await Promise.all([
       getOVSStatus(),
       getOVSPorts(),
-      getOVSLeases()
+      getOVSLeases(),
+      getPublicSystemInfo()
     ])
     status.value = statusRes.data
     ports.value = portsRes.data
     leases.value = leasesRes.data
+    sysInfo.value = sysRes.data
   } finally {
     loading.value = false
+  }
+}
+
+async function copyInstallCommand() {
+  const cmd = sysInfo.value?.ovs_install_command
+  if (!cmd) return
+  try {
+    await navigator.clipboard.writeText(cmd)
+    ElMessage.success('安装命令已复制到剪贴板')
+  } catch {
+    // 降级方案：使用 textarea 复制
+    const ta = document.createElement('textarea')
+    ta.value = cmd
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    ElMessage.success('安装命令已复制到剪贴板')
   }
 }
 
@@ -289,6 +372,43 @@ onMounted(loadData)
 
 .task-alert {
   margin-top: 12px;
+}
+
+.dep-row {
+  margin-bottom: 0;
+}
+
+.dep-card {
+  margin-bottom: 16px;
+}
+
+.install-command {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: monospace;
+}
+
+.install-command code {
+  background: var(--el-fill-color-light);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.dep-tip {
+  margin-top: 12px;
+}
+
+.dep-tip .cmd {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

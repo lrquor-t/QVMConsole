@@ -250,7 +250,7 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 	}
 	if tplType == "linux" && !isNoInit {
 		progressFn(25, "重置 Linux 首次启动身份...")
-		if err := prepareLinuxCloneFirstBootIdentity(params, cloneDisk); err != nil {
+		if err := prepareLinuxCloneFirstBootIdentity(params, cloneDisk, progressFn); err != nil {
 			_ = os.Remove(cloneDisk)
 			return nil, err
 		}

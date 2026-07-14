@@ -276,7 +276,7 @@ func registerTaskHandlers() {
 			return "", fmt.Errorf("解析参数失败: %w", err)
 		}
 		progress(10, "开始制作模板...")
-		err := service.PrepareTemplate(&params)
+		err := service.PrepareTemplate(&params, progress)
 		if err != nil {
 			return "", err
 		}

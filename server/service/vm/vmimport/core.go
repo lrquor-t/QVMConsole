@@ -109,10 +109,9 @@ func ImportVM(ctx context.Context, params *ImportVMParams, progressFn func(int, 
 	}
 
 	// 设置权限
-	chownResult := utils.ExecCommand("chown", "libvirt-qemu:kvm", destDiskPath)
-	if chownResult.Error != nil {
+	if err := utils.ChownLibvirtQEMU(destDiskPath); err != nil {
 		os.Remove(destDiskPath)
-		return nil, fmt.Errorf("设置磁盘权限失败: %s", chownResult.Stderr)
+		return nil, fmt.Errorf("设置磁盘权限失败: %w", err)
 	}
 
 	// 检查取消

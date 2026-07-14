@@ -157,10 +157,9 @@ func ImportDiskByPath(ctx context.Context, params *ImportDiskByPathParams, progr
 	}
 
 	// 设置权限
-	chownResult := utils.ExecCommand("chown", "libvirt-qemu:kvm", destDiskPath)
-	if chownResult.Error != nil {
+	if err := utils.ChownLibvirtQEMU(destDiskPath); err != nil {
 		os.Remove(destDiskPath)
-		return nil, fmt.Errorf("设置磁盘权限失败: %s", chownResult.Stderr)
+		return nil, fmt.Errorf("设置磁盘权限失败: %w", err)
 	}
 
 	// 检查取消
@@ -385,10 +384,9 @@ func importSingleDiskToVM(ctx context.Context, vmName string, entry *ExtraImport
 		}
 	}
 
-	chownResult := utils.ExecCommand("chown", "libvirt-qemu:kvm", destDiskPath)
-	if chownResult.Error != nil {
+	if err := utils.ChownLibvirtQEMU(destDiskPath); err != nil {
 		os.Remove(destDiskPath)
-		return "", fmt.Errorf("设置磁盘权限失败: %s", chownResult.Stderr)
+		return "", fmt.Errorf("设置磁盘权限失败: %w", err)
 	}
 
 	progressFn(80, "挂载磁盘到虚拟机...")

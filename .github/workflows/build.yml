@@ -42,11 +42,11 @@ jobs:
     steps:
       # ==================== 检出代码 ====================
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ==================== 设置 Node.js ====================
       - name: 设置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -54,7 +54,7 @@ jobs:
 
       # ==================== 设置 Go ====================
       - name: 设置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -74,7 +74,7 @@ jobs:
       # ==================== GitHub Artifacts 上传 ====================
       - name: 上传构建产物 (GitHub)
         if: inputs.artifact_storage == 'github'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-amd64
           path: release/kvm-console-linux-amd64.tar.gz
@@ -124,11 +124,11 @@ jobs:
     steps:
       # ==================== 检出代码 ====================
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ==================== 设置 Node.js ====================
       - name: 设置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -136,7 +136,7 @@ jobs:
 
       # ==================== 设置 Go ====================
       - name: 设置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -156,7 +156,7 @@ jobs:
       # ==================== GitHub Artifacts 上传 ====================
       - name: 上传构建产物 (GitHub)
         if: inputs.artifact_storage == 'github'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-arm64
           path: release/kvm-console-linux-arm64.tar.gz
@@ -209,7 +209,7 @@ jobs:
       # ==================== 下载 AMD64 产物 ====================
       - name: 下载 AMD64 产物
         if: needs.build.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: kvm-console-linux-amd64
           path: release-artifacts
@@ -217,7 +217,7 @@ jobs:
       # ==================== 下载 ARM64 产物 ====================
       - name: 下载 ARM64 产物
         if: needs.build-arm64.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: kvm-console-linux-arm64
           path: release-artifacts

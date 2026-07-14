@@ -163,7 +163,7 @@ func TransferDiskFile(diskPath, username string) error {
 	}
 
 	// set file permissions
-	utils.ExecCommand("chown", "libvirt-qemu:kvm", destPath)
+	_ = utils.ChownLibvirtQEMU(destPath)
 
 	return nil
 }

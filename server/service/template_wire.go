@@ -63,8 +63,8 @@ func GetTemplateInfoByNodeID(nodeID string) (*TemplateInfo, error) {
 }
 
 // PrepareTemplate delegates to templatepkg.PrepareTemplate
-func PrepareTemplate(params *PrepareTemplateParams) error {
-	return templatepkg.PrepareTemplate(params)
+func PrepareTemplate(params *PrepareTemplateParams, progressFn func(int, string)) error {
+	return templatepkg.PrepareTemplate(params, progressFn)
 }
 
 // DeleteTemplate delegates to templatepkg.DeleteTemplate

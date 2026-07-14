@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"kvm_console/config"
 	"kvm_console/logger"
@@ -21,6 +22,23 @@ const (
 	OVSBridgePrep    = "/etc/kvm-console/ovs/prepare-bridge.sh"
 	OVSLeasesFile    = "/var/lib/kvm-console/ovs/dnsmasq.leases"
 )
+
+// DetectOpenvswitchServiceName detects the correct systemd service name for Open vSwitch.
+// Different distributions use different names: "openvswitch-switch" (Ubuntu/Debian) or "openvswitch" (openEuler/CentOS).
+func DetectOpenvswitchServiceName() string {
+	// Try openvswitch-switch first (Ubuntu/Debian)
+	result := utils.ExecCommand("systemctl", "list-unit-files", "openvswitch-switch.service")
+	if result.Error == nil && strings.Contains(result.Stdout, "openvswitch-switch.service") {
+		return "openvswitch-switch"
+	}
+	// Try openvswitch (openEuler/CentOS)
+	result = utils.ExecCommand("systemctl", "list-unit-files", "openvswitch.service")
+	if result.Error == nil && strings.Contains(result.Stdout, "openvswitch.service") {
+		return "openvswitch"
+	}
+	// Default to openvswitch-switch
+	return "openvswitch-switch"
+}
 
 // NetworkBackend returns the configured network backend, defaulting to "ovs".
 func NetworkBackend() string {
@@ -115,7 +133,7 @@ func EnsureOVSNetworkReady() error {
 		return nil
 	}
 	if result := utils.ExecCommand("bash", "-c", "command -v ovs-vsctl"); result.Error != nil {
-		return fmt.Errorf("OVS 未安装，请先安装 openvswitch-switch")
+		return fmt.Errorf("OVS 未安装，请先安装 openvswitch-switch 或 openvswitch")
 	}
 	if result := utils.ExecCommand("bash", "-c", "command -v dnsmasq"); result.Error != nil {
 		return fmt.Errorf("dnsmasq 不可用，请确认已安装 dnsmasq-base")
@@ -138,9 +156,10 @@ func EnsureOVSNetworkReady() error {
 		}
 	}
 
-	EnsureSystemdUnitEnabled("openvswitch-switch")
-	if !IsSystemdUnitActive("openvswitch-switch") {
-		utils.ExecCommand("systemctl", "start", "openvswitch-switch")
+	ovsServiceName := DetectOpenvswitchServiceName()
+	EnsureSystemdUnitEnabled(ovsServiceName)
+	if !IsSystemdUnitActive(ovsServiceName) {
+		utils.ExecCommand("systemctl", "start", ovsServiceName)
 	}
 	DisableLibvirtDefaultNetworkIfNeeded()
 	if result := utils.ExecCommand("ovs-vsctl", "--may-exist", "add-br", bridge); result.Error != nil {
@@ -177,6 +196,17 @@ func EnsureOVSNetworkReady() error {
 	}
 	EnsureSystemdUnitEnabled(OVSDNSMasqUnit)
 	if IsSystemdUnitFailed(OVSDNSMasqUnit) || !IsSystemdUnitActive(OVSDNSMasqUnit) {
+		// 启动前释放端口：仅杀占用 gatewayIP:53 的特定 PID，避免误杀 OVS dnsmasq
+		gatewayIP := OvsGatewayIP()
+		for i := 0; i < 3; i++ {
+			pidResult := utils.ExecShellQuiet(fmt.Sprintf("ss -tlnp | grep '%s:53' | grep -oP 'pid=\\K[0-9]+' | head -1", gatewayIP))
+			pid := strings.TrimSpace(pidResult.Stdout)
+			if pid == "" {
+				break
+			}
+			utils.ExecShellQuiet(fmt.Sprintf("kill %s 2>/dev/null || true", pid))
+			time.Sleep(500 * time.Millisecond)
+		}
 		if result := utils.ExecCommand("systemctl", "start", OVSDNSMasqUnit); result.Error != nil {
 			return fmt.Errorf("启动 OVS DHCP 服务失败: %s", result.Stderr)
 		}
@@ -237,6 +267,18 @@ func DisableLibvirtDefaultNetworkIfNeeded() {
 	}
 	if result := utils.ExecShell("virsh net-info default 2>/dev/null | awk '/^Autostart:/ {print $2}'"); strings.TrimSpace(result.Stdout) == "yes" {
 		utils.ExecCommand("virsh", "net-autostart", "default", "--disable")
+	}
+	// 等待端口释放，确保 libvirt dnsmasq 完全停止
+	// 使用精确 PID 匹配而非 pkill -f，避免误杀 OVS dnsmasq
+	gatewayIP := OvsGatewayIP()
+	for i := 0; i < 5; i++ {
+		result := utils.ExecShellQuiet(fmt.Sprintf("ss -tlnp | grep '%s:53' | grep -oP 'pid=\\K[0-9]+' | head -1", gatewayIP))
+		pid := strings.TrimSpace(result.Stdout)
+		if pid == "" {
+			break
+		}
+		utils.ExecShellQuiet(fmt.Sprintf("kill %s 2>/dev/null || true", pid))
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
@@ -469,6 +511,12 @@ if ! ip -4 addr show dev "$BRIDGE" | grep -q "$GATEWAY"; then
   ip addr flush dev "$BRIDGE"
   ip addr add "$GATEWAY" dev "$BRIDGE"
 fi
+# 释放端口：只杀 libvirt default 网络的 dnsmasq（监听 192.168.122.1:53），不杀 OVS dnsmasq
+LIBVIRT_DNSMASQ_PID=$(ss -tlnp | grep '192.168.122.1:53' | grep -oP 'pid=\K[0-9]+' | head -1)
+if [ -n "$LIBVIRT_DNSMASQ_PID" ]; then
+  kill "$LIBVIRT_DNSMASQ_PID" 2>/dev/null || true
+  sleep 0.5
+fi
 for rule in "udp 67" "udp 53" "tcp 53"; do
   proto="${rule%% *}"
   port="${rule##* }"
@@ -484,22 +532,25 @@ done
 }
 
 func writeOVSDNSMasqUnit() (bool, error) {
-	content := `[Unit]
+	ovsServiceName := DetectOpenvswitchServiceName()
+	content := fmt.Sprintf(`[Unit]
 Description=KVM Console OVS DHCP/DNS service
-After=network-online.target openvswitch-switch.service
-Wants=network-online.target openvswitch-switch.service
+After=network-online.target %s.service
+Wants=network-online.target %s.service
 
 [Service]
 Type=forking
 PIDFile=/run/kvm-console-ovs-dnsmasq.pid
-ExecStartPre=/bin/bash /etc/kvm-console/ovs/prepare-bridge.sh
 ExecStart=/usr/sbin/dnsmasq --conf-file=/etc/kvm-console/ovs/dnsmasq.conf
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
+RestartSec=5
+# 网桥和端口释放由主服务 EnsureOVSNetworkReady() 统一处理，此处不再重复
+# 避免 ExecStartPre 与主服务并发操作 ovs-vsctl / pkill 导致竞争
 
 [Install]
 WantedBy=multi-user.target
-`
+`, ovsServiceName, ovsServiceName)
 	path := "/etc/systemd/system/" + OVSDNSMasqUnit
 	changed, err := WriteFileIfChanged(path, []byte(content), 0644)
 	if err != nil {

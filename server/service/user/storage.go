@@ -49,7 +49,7 @@ func InitUserStorage(username string) error {
 
 	// 设置目录权限（project quota 不依赖文件 owner，保持 libvirt-qemu:kvm 确保 VM 可访问）
 	for _, dir := range []string{isoDir, shareDir, diskDir} {
-		utils.ExecCommand("chown", "libvirt-qemu:kvm", dir)
+		_ = utils.ChownLibvirtQEMU(dir)
 		utils.ExecCommand("chmod", "775", dir)
 	}
 
@@ -92,7 +92,7 @@ func IsStorageInitialized(username string) bool {
 	// 如果 disk 目录不存在，自动补建
 	if !diskOK {
 		utils.ExecCommand("mkdir", "-p", diskDir)
-		utils.ExecCommand("chown", "libvirt-qemu:kvm", diskDir)
+		_ = utils.ChownLibvirtQEMU(diskDir)
 		utils.ExecCommand("chmod", "775", diskDir)
 		diskOK = true
 	}

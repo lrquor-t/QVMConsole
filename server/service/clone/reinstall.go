@@ -45,7 +45,7 @@ func createReinstallSystemDisk(templatePath, targetPath string, diskSize int) er
 	if result.Error != nil {
 		return fmt.Errorf("创建新系统盘失败: %s", D.FirstNonEmpty(result.Stderr, result.Error.Error()))
 	}
-	_ = utils.ExecCommand("chown", "libvirt-qemu:kvm", targetPath)
+	_ = utils.ChownLibvirtQEMU(targetPath)
 	return nil
 }
 
@@ -59,7 +59,7 @@ func bestEffortRestoreReinstallDisk(originalDiskPath, backupDiskPath string) err
 	if err := os.Rename(backupDiskPath, originalDiskPath); err != nil {
 		return fmt.Errorf("恢复原系统盘失败: %w", err)
 	}
-	_ = utils.ExecCommand("chown", "libvirt-qemu:kvm", originalDiskPath)
+	_ = utils.ChownLibvirtQEMU(originalDiskPath)
 	return nil
 }
 
@@ -220,7 +220,7 @@ func ReinstallVM(ctx context.Context, params *ReinstallParams, progressFn func(i
 		}
 	case "linux":
 		progressFn(25, "正在重置 Linux 首次启动身份...")
-		if err := prepareLinuxCloneFirstBootIdentity(cloneParams, systemDisk.Path); err != nil {
+		if err := prepareLinuxCloneFirstBootIdentity(cloneParams, systemDisk.Path, progressFn); err != nil {
 			return err
 		}
 		cloneParams.LinuxIdentityPrepared = true

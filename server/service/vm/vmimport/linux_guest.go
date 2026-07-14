@@ -144,7 +144,9 @@ func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ra
 			Password:     params.Password,
 			TemplateUser: params.TemplateUser,
 		}
-		if err := service.PrepareLinuxCloneFirstBootIdentity(linuxParams, destDiskPath); err != nil {
+		// 导入虚拟机时使用空进度函数（导入操作不显示进度）
+		noopProgress := func(int, string) {}
+		if err := service.PrepareLinuxCloneFirstBootIdentity(linuxParams, destDiskPath, noopProgress); err != nil {
 			_ = utils.ExecCommand("virsh", "undefine", params.Name, "--nvram")
 			_ = os.Remove(destDiskPath)
 			return fmt.Errorf("Linux 离线初始化失败: %w", err)
@@ -302,7 +304,9 @@ func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, f
 			Password:     params.Password,
 			TemplateUser: params.TemplateUser,
 		}
-		if err := service.PrepareLinuxCloneFirstBootIdentity(linuxParams, destDiskPath); err != nil {
+		// 导入虚拟机时使用空进度函数（导入操作不显示进度）
+		noopProgress := func(int, string) {}
+		if err := service.PrepareLinuxCloneFirstBootIdentity(linuxParams, destDiskPath, noopProgress); err != nil {
 			_ = utils.ExecCommand("virsh", "undefine", params.Name, "--nvram")
 			_ = os.Remove(destDiskPath)
 			return fmt.Errorf("Linux 离线初始化失败: %w", err)

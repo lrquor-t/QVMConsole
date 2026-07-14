@@ -826,6 +826,44 @@ ensure_core_services() {
     success "核心服务检查完成"
 }
 
+# print_ovs_dep_info 输出当前系统检测到的 OVS 依赖信息
+print_ovs_dep_info() {
+    local os_id="${ID:-unknown}"
+    local os_pretty="${PRETTY_NAME:-$os_id}"
+    local ovs_pkg="openvswitch-switch"
+    local ovs_svc="openvswitch-switch"
+    local install_cmd=""
+
+    case "$PKG_MGR" in
+        apt)
+            ovs_pkg="openvswitch-switch"
+            ovs_svc="openvswitch-switch"
+            install_cmd="sudo apt install -y openvswitch-switch"
+            ;;
+        dnf)
+            ovs_pkg="openvswitch"
+            ovs_svc="openvswitch"
+            install_cmd="sudo dnf install -y openvswitch"
+            ;;
+        yum)
+            ovs_pkg="openvswitch"
+            ovs_svc="openvswitch"
+            install_cmd="sudo yum install -y openvswitch"
+            ;;
+    esac
+
+    info "──────────────────────────────────────────"
+    info "系统检测: ${os_pretty} (${PKG_MGR})"
+    info "OVS 包名: ${ovs_pkg}"
+    info "OVS 服务: ${ovs_svc}"
+    if command -v ovs-vsctl &>/dev/null; then
+        success "OVS 已安装 ($(ovs-vsctl --version 2>/dev/null | head -1))"
+    else
+        warn "OVS 未安装，安装命令: ${install_cmd}"
+    fi
+    info "──────────────────────────────────────────"
+}
+
 # configure_qemu_for_rpm 修复 openEuler/麒麟 上 QEMU 权限问题
 # openEuler 默认 QEMU 以 qemu 用户运行，需确保 qemu.conf 配置允许访问虚拟机文件
 configure_qemu_for_rpm() {
@@ -1289,7 +1327,7 @@ ensure_local_dnsmasq_input_rules() {
         proto="${rule%% *}"
         port="${rule##* }"
         iptables -C INPUT -i "$iface" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
-            iptables -I INPUT 1 -i "$iface" -p "$proto" --dport "$port" -j ACCEPT
+            iptables -I INPUT 1 -i "$iface" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || true
     done
 }
 
@@ -1335,6 +1373,14 @@ restart_ovs_dnsmasq_service() {
 
 setup_ovs_foundation() {
     info "准备 OVS 网络地基..."
+    print_ovs_dep_info
+
+    # 内部子函数，任何失败只警告不中断安装
+    _setup_ovs_inner || warn "OVS 网络地基配置部分失败，可在面板 OVS 诊断中执行修复"
+    success "OVS 网络地基已准备"
+}
+
+_setup_ovs_inner() {
     load_env_file
     local bridge="${KVM_OVS_BRIDGE:-br-ovs}"
     local subnet="${KVM_SUBNET_PREFIX:-192.168.122}"
@@ -1350,15 +1396,27 @@ setup_ovs_foundation() {
         warn "未检测到默认出口网卡，OVS NAT 将在面板网络修复时再次尝试。也可在 $ENV_FILE 配置 KVM_OVS_UPLINK"
     fi
 
-    systemctl enable --now openvswitch-switch 2>/dev/null || true
-    ovs-vsctl --may-exist add-br "$bridge"
-    ip link set "$bridge" up
+    systemctl enable --now openvswitch-switch 2>/dev/null || \
+        systemctl enable --now openvswitch 2>/dev/null || true
+    # 等待 OVS 数据库就绪，避免 ovs-vsctl 挂起
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        ovs-vsctl --no-wait show 2>/dev/null && break
+        sleep 1
+    done
+    if ! ovs-vsctl --timeout=5 --may-exist add-br "$bridge" 2>/dev/null; then
+        warn "创建 OVS 网桥失败，跳过 OVS 网络配置"
+        return 0
+    fi
+    if ! ip link set "$bridge" up 2>/dev/null; then
+        warn "启动 OVS 网桥失败，跳过 OVS 网络配置"
+        return 0
+    fi
     if ! ip -4 addr show dev "$bridge" | grep -q "${gateway}/24"; then
         ip addr flush dev "$bridge" 2>/dev/null || true
-        ip addr add "${gateway}/24" dev "$bridge"
+        ip addr add "${gateway}/24" dev "$bridge" 2>/dev/null || true
     fi
-    ensure_local_dnsmasq_input_rules "$bridge"
-    ensure_existing_vpc_dnsmasq_input_rules
+    ensure_local_dnsmasq_input_rules "$bridge" || true
+    ensure_existing_vpc_dnsmasq_input_rules || true
 
     cat >"${OVS_CONFIG_DIR}/dnsmasq.conf" <<EOF
 interface=${bridge}
@@ -1379,17 +1437,27 @@ EOF
 set -e
 BRIDGE="${bridge}"
 GATEWAY="${gateway}/24"
-ovs-vsctl --may-exist add-br "\$BRIDGE"
-ip link set "\$BRIDGE" up
+ovs-vsctl --may-exist add-br "\$BRIDGE" 2>/dev/null || true
+ip link set "\$BRIDGE" up 2>/dev/null || true
 if ! ip -4 addr show dev "\$BRIDGE" | grep -q "\$GATEWAY"; then
   ip addr flush dev "\$BRIDGE" 2>/dev/null || true
-  ip addr add "\$GATEWAY" dev "\$BRIDGE"
+  ip addr add "\$GATEWAY" dev "\$BRIDGE" 2>/dev/null || true
 fi
+# 释放端口，确保 libvirt dnsmasq 完全停止
+for i in 1 2 3 4 5; do
+  if ss -tlnp | grep -q "${gateway}:53"; then
+    sleep 1
+  else
+    break
+  fi
+done
+pkill -f "dnsmasq.*${subnet}" 2>/dev/null || true
+sleep 0.5
 for rule in "udp 67" "udp 53" "tcp 53"; do
   proto="\${rule%% *}"
   port="\${rule##* }"
   iptables -C INPUT -i "\$BRIDGE" -p "\$proto" --dport "\$port" -j ACCEPT 2>/dev/null || \\
-    iptables -I INPUT 1 -i "\$BRIDGE" -p "\$proto" --dport "\$port" -j ACCEPT
+    iptables -I INPUT 1 -i "\$BRIDGE" -p "\$proto" --dport "\$port" -j ACCEPT 2>/dev/null || true
 done
 EOF
     chmod +x "${OVS_CONFIG_DIR}/prepare-bridge.sh"
@@ -1403,10 +1471,11 @@ Wants=network-online.target openvswitch-switch.service
 [Service]
 Type=forking
 PIDFile=/run/kvm-console-ovs-dnsmasq.pid
-ExecStartPre=/bin/bash ${OVS_CONFIG_DIR}/prepare-bridge.sh
 ExecStart=/usr/sbin/dnsmasq --conf-file=${OVS_CONFIG_DIR}/dnsmasq.conf
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
+RestartSec=5
+# 网桥和端口释放由主服务 EnsureOVSNetworkReady() 统一处理
 
 [Install]
 WantedBy=multi-user.target
@@ -1418,18 +1487,17 @@ EOF
 
     if [ -n "$uplink" ]; then
         iptables -t nat -C POSTROUTING -s "${subnet}.0/24" -o "$uplink" -j MASQUERADE 2>/dev/null || \
-            iptables -t nat -A POSTROUTING -s "${subnet}.0/24" -o "$uplink" -j MASQUERADE
+            iptables -t nat -A POSTROUTING -s "${subnet}.0/24" -o "$uplink" -j MASQUERADE 2>/dev/null || true
         iptables -C FORWARD -i "$bridge" -o "$uplink" -j ACCEPT 2>/dev/null || \
-            iptables -A FORWARD -i "$bridge" -o "$uplink" -j ACCEPT
+            iptables -A FORWARD -i "$bridge" -o "$uplink" -j ACCEPT 2>/dev/null || true
         iptables -C FORWARD -i "$uplink" -o "$bridge" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-            iptables -A FORWARD -i "$uplink" -o "$bridge" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+            iptables -A FORWARD -i "$uplink" -o "$bridge" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
     fi
 
     if virsh net-info default >/dev/null 2>&1; then
         virsh net-destroy default >/dev/null 2>&1 || true
         virsh net-autostart default --disable >/dev/null 2>&1 || true
     fi
-    success "OVS 网络地基已准备"
 }
 
 setup_sshd_foundation() {
