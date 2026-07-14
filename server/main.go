@@ -363,15 +363,8 @@ func registerTaskHandlers() {
 		if err := service.LXCCreateContainer(params, progress); err != nil {
 			return "", err
 		}
-		// 附加网卡（order 从 1 起；主卡 order0 由 CreateContainer→AttachContainerToVPC 处理）
-		for i, nic := range params.ExtraNics {
-			if nic.SwitchID == 0 {
-				continue
-			}
-			if err := service.LXCAddContainerInterface(params.Name, nic); err != nil {
-				logger.App.Warn("创建时添加附加网口失败", "container", params.Name, "order", i+1, "switchID", nic.SwitchID, "error", err)
-			}
-		}
+		// 全部网卡（主卡+附加）已由 CreateContainer→PrepareContainerNICs 在启动前写入 config，
+		// lxc-start 按 config 一次性建出，无需再启动后热插拔。
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
@@ -385,20 +378,8 @@ func registerTaskHandlers() {
 		if err != nil {
 			return "", err // 取消/致命错误：照 VM 直接返回（任务标记 canceled/failed）
 		}
-		// 逐成功项附加网卡（order≥1；主卡 order0 由 CreateContainer→AttachContainerToVPC 处理）
-		for _, r := range results {
-			if r.Name == "" || r.Error != "" {
-				continue
-			}
-			for i, nic := range params.ExtraNics {
-				if nic.SwitchID == 0 {
-					continue
-				}
-				if err := service.LXCAddContainerInterface(r.Name, nic); err != nil {
-					logger.App.Warn("批量创建时添加附加网口失败", "container", r.Name, "order", i+1, "error", err)
-				}
-			}
-		}
+		// 全部网卡（主卡+附加）已由 CreateContainer→PrepareContainerNICs 在启动前写入 config，
+		// lxc-start 按 config 一次性建出，无需再启动后热插拔。
 		out, _ := json.Marshal(results)
 		return string(out), nil // task.Result = 逐项 [{name, error?}]
 	})

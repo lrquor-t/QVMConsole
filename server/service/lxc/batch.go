@@ -138,6 +138,7 @@ func BatchCreateContainer(ctx context.Context, params *BatchCreateContainerParam
 				Autostart:       params.Autostart,
 				SwitchID:        params.SwitchID,
 				SecurityGroupID: params.SecurityGroupID,
+				ExtraNics:       params.ExtraNics,
 			}
 			// 子项内部进度不外报，整体进度按完成数计。
 			err := CreateContainer(cp, func(int, string) {})

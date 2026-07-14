@@ -278,22 +278,23 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 	return out, nil
 }
 
-// AddContainerInterface 给容器追加一块网卡（已停：仅写 config+绑定；运行中：热插拔）。
-func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
+// addInterfaceConfig 写一块附加网卡的 config 块 + VPCVMBinding（停机/运行通用前置），不做热插拔。
+// 返回新网卡 order 与其交换机（运行中热插拔需 sw）。写 config 失败时回滚刚写的绑定，避免悬挂。
+func addInterfaceConfig(name string, req AddLXCInterfaceRequest) (int, model.VPCSwitch, error) {
 	if req.SwitchID == 0 {
-		return fmt.Errorf("必须选择 VPC 交换机")
+		return 0, model.VPCSwitch{}, fmt.Errorf("必须选择 VPC 交换机")
 	}
 	sw, err := lookupSwitch(req.SwitchID)
 	if err != nil {
-		return err
+		return 0, model.VPCSwitch{}, err
 	}
 	data, err := os.ReadFile(configPath(name))
 	if err != nil {
-		return fmt.Errorf("读取容器 config 失败: %w", err)
+		return 0, sw, fmt.Errorf("读取容器 config 失败: %w", err)
 	}
 	other, blocks := SplitNICBlocks(string(data))
 	if len(blocks) >= maxLXCInterfaces {
-		return fmt.Errorf("网卡数量已达上限 %d", maxLXCInterfaces)
+		return 0, sw, fmt.Errorf("网卡数量已达上限 %d", maxLXCInterfaces)
 	}
 	next := nextOrder(blocks)
 	bridge := sw.BridgeName
@@ -313,17 +314,51 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 	}
 	if err := model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, next, "lxc").
 		Assign(binding).FirstOrCreate(&binding).Error; err != nil {
-		return fmt.Errorf("写入 VPC 绑定失败: %w", err)
+		return next, sw, fmt.Errorf("写入 VPC 绑定失败: %w", err)
 	}
 	if err := writeConfig(name, other, blocks); err != nil {
 		// 回滚刚写入的绑定，避免悬挂的 config 缺失
 		model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, next, "lxc").
 			Delete(&model.VPCVMBinding{})
+		return next, sw, err
+	}
+	return next, sw, nil
+}
+
+// AddContainerInterface 给容器追加一块网卡（已停：仅写 config+绑定；运行中：热插拔）。
+func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
+	order, sw, err := addInterfaceConfig(name, req)
+	if err != nil {
 		return err
 	}
-	// 运行中：热插拔；已停：下次启动由 ReconcileContainerNICs 施加
-	if containerRunning(name) {
-		return hotplugNic(name, next, sw)
+	if !containerRunning(name) {
+		return nil // 已停：下次启动由 ReconcileContainerNICs 施加
+	}
+	return hotplugNic(name, order, sw) // 运行中：热插拔
+}
+
+// PrepareContainerNICs 在容器启动前把全部网卡就绪（停机态，不热插拔）：
+//   - 主网卡（order 0）：switchID != 0 时建绑定（switchID=0 表示用默认桥、不打 VLAN，跳过）；
+//   - 附加网卡：逐张写 config 块 + 绑定。
+//
+// 之后 StartContainer → lxc-start 按 config 一次性建出全部网卡，ReconcileContainerNICs（在
+// StartContainer 内）按绑定统一接 OVS/VLAN/限速（含主卡，替代旧的启动后 AttachContainerToVPC）。
+// MAC 由 NICMAC(name,order) 确定性派生，不依赖运行态。任一附加网卡准备失败即返回错误（中止创建）。
+func PrepareContainerNICs(name string, switchID, sgID uint, extraNics []AddLXCInterfaceRequest) error {
+	if switchID != 0 {
+		binding := model.VPCVMBinding{
+			VMName: name, Username: ownerOf(name), SwitchID: switchID,
+			SecurityGroupID: sgID, InterfaceOrder: 0, Kind: "lxc",
+		}
+		if err := model.DB.Where("vm_name = ? AND interface_order = ? AND kind = ?", name, 0, "lxc").
+			Assign(binding).FirstOrCreate(&binding).Error; err != nil {
+			return fmt.Errorf("写入主网卡绑定失败: %w", err)
+		}
+	}
+	for _, nic := range extraNics {
+		if _, _, err := addInterfaceConfig(name, nic); err != nil {
+			return fmt.Errorf("附加网卡准备失败: %w", err)
+		}
 	}
 	return nil
 }

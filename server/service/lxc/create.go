@@ -131,18 +131,20 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
 
+	// 启动前把全部网卡就绪：主卡绑定（switchID≠0）+ 附加网卡 config 块&绑定（停机态，不热插拔）。
+	// 之后 StartContainer → lxc-start 按 config 建全部网卡，ReconcileContainerNICs 统一接 OVS/VLAN/限速。
+	if err := PrepareContainerNICs(params.Name, params.SwitchID, params.SecurityGroupID, params.ExtraNics); err != nil {
+		_ = DestroyContainer(params.Name)
+		return fmt.Errorf("准备网卡失败: %w", err)
+	}
+
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
 	progress(80, "启动容器")
-	// 创建后默认启动，便于分配 IP。
+	// 创建后默认启动，便于分配 IP。ReconcileContainerNICs（在 StartContainer 内）按绑定统一接 OVS/VLAN/限速。
 	if err := StartContainer(params.Name); err != nil {
 		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)
 	}
-	progress(90, "接入 VPC 网络")
-	if err := AttachContainerToVPC(params.Name, params.SwitchID, params.SecurityGroupID); err != nil {
-		logger.App.Warn("容器 VPC 接入失败", "name", params.Name, "error", err)
-	}
-	// VPC 接入后回填运行态 veth/ip 到缓存。
 	_ = RefreshRuntimeFields(params.Name)
 
 	// 可选 PostCreateCommand
@@ -364,15 +366,18 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
 
+	// 启动前把全部网卡就绪：主卡绑定（switchID≠0）+ 附加网卡 config 块&绑定（停机态，不热插拔）。
+	// 之后 StartContainer → lxc-start 按 config 建全部网卡，ReconcileContainerNICs 统一接 OVS/VLAN/限速。
+	if err := PrepareContainerNICs(params.Name, params.SwitchID, params.SecurityGroupID, params.ExtraNics); err != nil {
+		_ = DestroyContainer(params.Name)
+		return fmt.Errorf("准备网卡失败: %w", err)
+	}
+
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
 	progress(80, "启动容器")
 	if err := StartContainer(params.Name); err != nil {
 		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)
-	}
-	progress(90, "接入 VPC 网络")
-	if err := AttachContainerToVPC(params.Name, params.SwitchID, params.SecurityGroupID); err != nil {
-		logger.App.Warn("容器 VPC 接入失败", "name", params.Name, "error", err)
 	}
 	_ = RefreshRuntimeFields(params.Name)
 	progress(100, "完成")
