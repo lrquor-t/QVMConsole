@@ -500,6 +500,7 @@ func nextOrder(blocks map[int]map[string]string) int {
 	return max + 1
 }
 func writeConfig(name, other string, blocks map[int]map[string]string) error {
+	ensureNicNames(blocks) // 每张网卡 name=eth<order>，与 order 对齐（删卡重排后亦一致）
 	return os.WriteFile(configPath(name), []byte(other+RenderNICBlocks(blocks)), 0644)
 }
 func containerRunning(name string) bool {

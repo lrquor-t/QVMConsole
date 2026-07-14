@@ -128,6 +128,7 @@ func applyCloneOverrides(dst, mac string) error {
 	return SetConfigKeys(cfgPath, []ConfigKV{
 		{"lxc.uts.name", dst},
 		{"lxc.net.0.hwaddr", mac},
+		{"lxc.net.0.name", "eth0"}, // 显式命名容器内 eth0，防命名漂移致回查失败
 	})
 }
 

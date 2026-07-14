@@ -84,3 +84,17 @@ func CompactNICBlocks(blocks map[int]map[string]string) map[int]map[string]strin
 	}
 	return out
 }
+
+// ensureNicNames 给每个 NIC 块写 name=eth<order>，与 order 对齐。
+// findContainerHostVeth 假设容器内网卡名为 eth<order>，显式写入 lxc.net.<order>.name 固定该名，
+// 避免命名漂移（如容器内 systemd 改名）。放在 writeConfig 每次写入前调用，确保删卡
+// CompactNICBlocks 重排 order 后 name 仍与新 order 一致。
+func ensureNicNames(blocks map[int]map[string]string) {
+	for o, blk := range blocks {
+		if blk == nil {
+			blk = map[string]string{}
+			blocks[o] = blk
+		}
+		blk["name"] = "eth" + strconv.Itoa(o)
+	}
+}

@@ -204,6 +204,7 @@ func applyCloneConfig(p *CreateContainerParams, mac string) error {
 		{"lxc.cgroup2.memory.max", memMax(p.MemoryMB)},
 		{"lxc.start.auto", autoVal(p.Autostart)},
 		{"lxc.net.0.hwaddr", mac},
+		{"lxc.net.0.name", "eth0"}, // 显式命名容器内 eth0，防命名漂移致回查失败
 	}
 	// 选定交换机时显式写 link（覆盖基底模板继承值）；未选则继承基底（保持现状）
 	if link := resolveNIC0Link(p.SwitchID, ""); link != "" {
@@ -385,6 +386,7 @@ func applyDownloadConfig(p *CreateContainerParams, mac string) error {
 	pairs := []ConfigKV{
 		{"lxc.net.0.link", resolveNIC0Link(p.SwitchID, "br-ovs")},
 		{"lxc.net.0.hwaddr", mac},
+		{"lxc.net.0.name", "eth0"}, // 显式命名容器内 eth0，防命名漂移致回查失败
 		{"lxc.cgroup2.cpu.weight", itoaDefault(p.CPUShares, 256)},
 		{"lxc.cgroup2.memory.max", memMax(p.MemoryMB)},
 		{"lxc.start.auto", autoVal(p.Autostart)},
