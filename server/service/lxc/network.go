@@ -331,6 +331,9 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 	if err != nil {
 		return err
 	}
+	// 写容器内 eth<order> 的 DHCP profile（best-effort，不触发 NM：运行中靠 NM 自动 reload 或
+	// 下次启动生效；已停容器下次启动生效）。
+	provisionOneRootfsNIC(name, order)
 	if !containerRunning(name) {
 		return nil // 已停：下次启动由 ReconcileContainerNICs 施加
 	}

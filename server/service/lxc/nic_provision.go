@@ -46,6 +46,22 @@ func provisionRootfsNICs(name string) {
 	}
 }
 
+// provisionOneRootfsNIC 给单张网卡写 DHCP profile（运行中加卡用）。best-effort，不触发 NM：
+// 运行中容器靠 NM 自动 reload（RHEL）或下次启动生效（netplan/ifupdown）；已停容器下次启动生效。
+func provisionOneRootfsNIC(name string, order int) {
+	data, err := os.ReadFile(filepath.Join(config.GlobalConfig.LXCLxcPath, name, "config"))
+	if err != nil {
+		return
+	}
+	rootfs := rootfsDirFromConfig(string(data))
+	if rootfs == "" {
+		return // overlay 等只读 backing：跳过
+	}
+	if err := writeDHCPProfiles(rootfs, []int{order}, detectDistroFamily(rootfs)); err != nil {
+		logger.App.Warn("运行中加卡：写容器内 DHCP 配置失败", "name", name, "order", order, "error", err)
+	}
+}
+
 // detectDistroFamily 按 rootfs 的 /etc/os-release（回退目录特征）判定网络配置族：
 // "rhel"（ifcfg）/ "netplan"（Debian/Ubuntu 现代版）/ "ifupdown"（Debian 老版）。
 func detectDistroFamily(rootfs string) string {
