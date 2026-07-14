@@ -63,7 +63,8 @@ func provisionOneRootfsNIC(name string, order int) {
 }
 
 // detectDistroFamily 按 rootfs 的 /etc/os-release（回退目录特征）判定网络配置族：
-// "rhel"（ifcfg）/ "netplan"（Debian/Ubuntu 现代版）/ "ifupdown"（Debian 老版）。
+// "rhel"（ifcfg/NM）/ "netplan"（Ubuntu 等带 netplan）/ "networkd"（systemd-networkd，Debian 云/容器版常见）
+// / "ifupdown"（Debian 老版 /etc/network/interfaces）。
 func detectDistroFamily(rootfs string) string {
 	id, like := "", ""
 	if b, err := os.ReadFile(filepath.Join(rootfs, "etc", "os-release")); err == nil {
@@ -75,25 +76,47 @@ func detectDistroFamily(rootfs string) string {
 			}
 		}
 	}
+	debLike := hasAny(id, "debian", "ubuntu", "kali", "linuxmint") || hasAny(like, "debian")
 	if hasAny(id, "rhel", "centos", "rocky", "almalinux", "fedora", "ol", "virtuozzo") ||
 		hasAny(like, "rhel", "centos", "fedora") {
 		return "rhel"
 	}
-	if hasAny(id, "debian", "ubuntu", "kali", "linuxmint") || hasAny(like, "debian") {
-		if dirExists(filepath.Join(rootfs, "etc", "netplan")) {
-			return "netplan"
-		}
-		return "ifupdown"
+	if debLike {
+		return pickDebianStack(rootfs)
 	}
 	// 回退：按目录特征
-	switch {
-	case dirExists(filepath.Join(rootfs, "etc", "sysconfig", "network-scripts")):
+	if dirExists(filepath.Join(rootfs, "etc", "sysconfig", "network-scripts")) {
 		return "rhel"
-	case dirExists(filepath.Join(rootfs, "etc", "netplan")):
+	}
+	return pickDebianStack(rootfs)
+}
+
+// pickDebianStack 在 netplan / systemd-networkd / ifupdown 间按实际配置文件判定：
+// netplan—/etc/netplan 有 .yaml；networkd—/etc/systemd/network 有 .network；否则 ifupdown。
+// 不能只看目录是否存在：Debian 镜像常同时残留 /etc/network/interfaces 但实际跑 networkd。
+func pickDebianStack(rootfs string) string {
+	switch {
+	case hasFileWithExt(filepath.Join(rootfs, "etc", "netplan"), ".yaml"):
 		return "netplan"
+	case hasFileWithExt(filepath.Join(rootfs, "etc", "systemd", "network"), ".network"):
+		return "networkd"
 	default:
 		return "ifupdown"
 	}
+}
+
+// hasFileWithExt 目录存在且含指定后缀文件。
+func hasFileWithExt(dir, ext string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // writeDHCPProfiles 给 rootfs 的 eth<orders> 写 DHCP 配置（按 family 选格式）。
@@ -123,6 +146,22 @@ func writeDHCPProfiles(rootfs string, orders []int, family string) error {
 		// 90- 前缀确保覆盖镜像自带（如 50-cloud-init.yaml）的同名配置
 		if err := os.WriteFile(filepath.Join(dir, "90-lxc-nics.yaml"), []byte(sb.String()), 0600); err != nil {
 			return err
+		}
+	case "networkd": // systemd-networkd：写 /etc/systemd/network/eth<N>.network（镜像自带的不覆盖）
+		dir := filepath.Join(rootfs, "etc", "systemd", "network")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		for _, o := range orders {
+			p := filepath.Join(dir, fmt.Sprintf("eth%d.network", o))
+			if _, err := os.Stat(p); err == nil {
+				continue // 镜像已配置该网卡，保留其配置
+			}
+			// 与镜像 eth0.network 同格式：DHCP + 按 MAC 标识（平台静态 IP 按 MAC 绑定，须一致）
+			content := fmt.Sprintf("[Match]\nName=eth%d\n\n[Network]\nDHCP=true\n\n[DHCPv4]\nUseDomains=true\nUseMTU=true\n\n[DHCP]\nClientIdentifier=mac\n", o)
+			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+				return err
+			}
 		}
 	default: // ifupdown（Debian 老版 /etc/network/interfaces）
 		f := filepath.Join(rootfs, "etc", "network", "interfaces")
