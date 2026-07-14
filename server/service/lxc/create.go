@@ -137,6 +137,9 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 		_ = DestroyContainer(params.Name)
 		return fmt.Errorf("准备网卡失败: %w", err)
 	}
+	// 给 rootfs 写每张网卡的 DHCP 配置（eth0..eth<N>），使容器内 NM/networkd 自动 DHCP
+	// （LXC 不跑 cloud-init，guest 默认只有 eth0 配置；附加网卡无 profile 则不发 DHCP）。
+	provisionRootfsNICs(params.Name)
 
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
@@ -372,6 +375,9 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 		_ = DestroyContainer(params.Name)
 		return fmt.Errorf("准备网卡失败: %w", err)
 	}
+	// 给 rootfs 写每张网卡的 DHCP 配置（eth0..eth<N>），使容器内 NM/networkd 自动 DHCP
+	// （LXC 不跑 cloud-init，guest 默认只有 eth0 配置；附加网卡无 profile 则不发 DHCP）。
+	provisionRootfsNICs(params.Name)
 
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
