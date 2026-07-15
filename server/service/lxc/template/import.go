@@ -248,7 +248,6 @@ func composeBaseConfig(existing, arch, utsName string) string {
 		"lxc.start.auto = 0",
 		"lxc.net.0.type = veth",
 		"lxc.net.0.flags = up",
-		"lxc.net.0.link = br-ovs",
 	} {
 		b.WriteString(l)
 		b.WriteByte('\n')

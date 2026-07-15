@@ -254,7 +254,7 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 		}
 		b := bindingByOrder[o]
 		info := LXCInterfaceInfo{
-			Order: o, IsPrimary: o == 0, MAC: mac, Link: blk["link"],
+			Order: o, IsPrimary: o == 0, MAC: mac, Link: defaultBridge(),
 			SwitchID: b.SwitchID, SecurityGroupID: b.SecurityGroupID,
 			BandwidthInboundAvg: b.BandwidthInboundAvg, BandwidthOutboundAvg: b.BandwidthOutboundAvg,
 		}
@@ -263,6 +263,7 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 			info.BridgeMode = varSw.BridgeMode
 			info.CIDR = varSw.CIDR
 			info.VLANID = varSw.VLANID
+			info.Link = varSw.BridgeName
 		}
 		info.SecurityGroupName = lookupSGName(b.SecurityGroupID)
 		if veth := findContainerHostVeth(name, o); veth != "" {
@@ -297,13 +298,8 @@ func addInterfaceConfig(name string, req AddLXCInterfaceRequest) (int, model.VPC
 		return 0, sw, fmt.Errorf("网卡数量已达上限 %d", maxLXCInterfaces)
 	}
 	next := nextOrder(blocks)
-	bridge := sw.BridgeName
-	if strings.TrimSpace(bridge) == "" {
-		bridge = defaultBridge()
-	}
 	blocks[next] = map[string]string{
 		"type":   "veth",
-		"link":   bridge,
 		"hwaddr": NICMAC(name, next),
 		"flags":  "up",
 	}
@@ -538,7 +534,7 @@ func nextOrder(blocks map[int]map[string]string) int {
 	return max + 1
 }
 func writeConfig(name, other string, blocks map[int]map[string]string) error {
-	ensureNicNames(blocks) // 每张网卡 name=eth<order>，与 order 对齐（删卡重排后亦一致）
+	ensureNicConfig(name, blocks) // 去 link + name=eth<order> + veth.pair（统一，单/多网卡一致）
 	return os.WriteFile(configPath(name), []byte(other+RenderNICBlocks(blocks)), 0644)
 }
 func containerRunning(name string) bool {
@@ -591,6 +587,13 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 func shortVethHash(name string, order int) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d", name, order)))
 	return hex.EncodeToString(sum[:4]) // 前 4 字节 = 8 hex
+}
+
+// vethPairName 返回容器 <name> 第 <order> 网卡的稳定 host veth 名（lxc.net.<order>.veth.pair 用）。
+// app 在 lxc-start 前按此名预建 OVS 端口；去 link 后 LXC 不原生 attach，veth 出生即绑预建端口。
+// 复用 shortVethHash 保证 ≤15 字符(IFNAMSIZ)、跨容器/order 唯一。例：vp0a1b2c3d4。
+func vethPairName(name string, order int) string {
+	return fmt.Sprintf("vp%d%s", order, shortVethHash(name, order))
 }
 
 func hotunplugNic(name string, order int) {
