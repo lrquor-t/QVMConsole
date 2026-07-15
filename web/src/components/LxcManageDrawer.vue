@@ -56,6 +56,16 @@
             @saved="onConfigSaved"
           />
         </el-tab-pane>
+        <el-tab-pane v-if="isAdmin" name="configfile" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><Document /></el-icon> 配置文件</span>
+          </template>
+          <LxcConfigFilePanel
+            v-if="visible && currentName && activeTab === 'configfile'"
+            :name="currentName"
+            :status="currentStatus"
+          />
+        </el-tab-pane>
         <el-tab-pane name="network" lazy>
           <template #label>
             <span class="lxc-tab-label"><el-icon><Connection /></el-icon> 网络</span>
@@ -100,9 +110,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files, Document } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
+import LxcConfigFilePanel from './LxcConfigFilePanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
 import LxcMonitorPanel from './LxcMonitorPanel.vue'
 import LxcSchedulePanel from './LxcSchedulePanel.vue'

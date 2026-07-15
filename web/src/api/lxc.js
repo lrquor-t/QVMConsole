@@ -238,3 +238,20 @@ export function getLXCCPULimit(name) {
 export function setLXCCPULimit(name, data) {
   return request({ url: `/lxc/${name}/cpu-limit`, method: 'put', data })
 }
+
+// config 配置文件（管理员）
+export function getLXCConfigFile(name) {
+  return request({ url: `/lxc/${name}/config-file`, method: 'get' })
+}
+export function setLXCConfigFile(name, content) {
+  return request({ url: `/lxc/${name}/config-file`, method: 'put', data: { content } })
+}
+export function getLXCConfigFileBackups(name) {
+  return request({ url: `/lxc/${name}/config-file/backups`, method: 'get' })
+}
+export function restoreLXCConfigFileBackup(name, bak) {
+  return request({ url: `/lxc/${name}/config-file/backups/${bak}/restore`, method: 'post' })
+}
+export function deleteLXCConfigFileBackup(name, bak) {
+  return request({ url: `/lxc/${name}/config-file/backups/${bak}`, method: 'delete' })
+}
