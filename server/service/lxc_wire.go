@@ -59,6 +59,37 @@ func LXCUpdateContainerConfig(name string, u lxc.ContainerConfigUpdate) error {
 	return lxc.UpdateContainerConfig(name, u)
 }
 
+// LXCConfigFileContent 透出 lxc.ConfigFileContent。
+type LXCConfigFileContent = lxc.ConfigFileContent
+
+// LXCConfigBackup 透出 lxc.ConfigBackup。
+type LXCConfigBackup = lxc.ConfigBackup
+
+// LXCReadContainerConfigFile 读取容器原始 config 文件内容 + 元信息。
+func LXCReadContainerConfigFile(name string) (LXCConfigFileContent, error) {
+	return lxc.ReadContainerConfigFile(name)
+}
+
+// LXCWriteContainerConfigFile 备份+原子写入容器 config（仅 STOPPED）。
+func LXCWriteContainerConfigFile(name, content string) error {
+	return lxc.WriteContainerConfigFile(name, content)
+}
+
+// LXCListContainerConfigBackups 列出容器 config 的历史备份（新→旧）。
+func LXCListContainerConfigBackups(name string) ([]LXCConfigBackup, error) {
+	return lxc.ListContainerConfigBackups(name)
+}
+
+// LXCRestoreContainerConfigFile 用备份覆盖当前 config（STOPPED-only，复用写入主路径）。
+func LXCRestoreContainerConfigFile(name, bakName string) error {
+	return lxc.RestoreContainerConfigFile(name, bakName)
+}
+
+// LXCDeleteContainerConfigFileBackup 删除一份备份（不要求 STOPPED）。
+func LXCDeleteContainerConfigFileBackup(name, bakName string) error {
+	return lxc.DeleteContainerConfigFileBackup(name, bakName)
+}
+
 // LXCGetDiskLimit 读取容器磁盘配额（refquota，GB；0=不限）。非 zfs 容器返回错误。
 func LXCGetDiskLimit(name string) (int, error) {
 	return lxc.LXCGetDiskLimit(name)
