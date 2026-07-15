@@ -287,8 +287,8 @@ func Relocate(p RelocateParams, progress func(int, string)) error {
 
 	progress(95, "重启运行中容器")
 	for _, name := range wasRunning {
-		if res := utils.ExecCommandLongRunning("lxc-start", "-n", name); res.Error != nil {
-			logger.App.Warn("lxc-start 失败，请手动处理", "name", name, "error", res.Error)
+		if err := StartContainer(name); err != nil {
+			logger.App.Warn("启动容器失败，请手动处理", "name", name, "error", err)
 		}
 	}
 	progress(100, "迁移完成")
