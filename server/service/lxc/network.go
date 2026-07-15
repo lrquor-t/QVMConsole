@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"kvm_console/config"
+	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service/bandwidth"
 	"kvm_console/utils"
@@ -214,6 +215,78 @@ func ReconcileContainerNICs(name string) error {
 		}
 	}
 	return lastErr
+}
+
+// lxcBindingsByOrder 取容器 <name> 的全部 kind=lxc VPC 绑定，按 interface_order 索引。
+func lxcBindingsByOrder(name string) map[int]model.VPCVMBinding {
+	out := map[int]model.VPCVMBinding{}
+	if model.DB == nil {
+		return out
+	}
+	var bs []model.VPCVMBinding
+	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Find(&bs)
+	for _, b := range bs {
+		out[b.InterfaceOrder] = b
+	}
+	return out
+}
+
+// stablePortBridge 取某网卡稳定端口所在的 OVS 桥：bound→switch.BridgeName；unbound→默认 br-ovs。
+func stablePortBridge(order int, bindings map[int]model.VPCVMBinding) string {
+	if b, ok := bindings[order]; ok {
+		var sw model.VPCSwitch
+		if err := model.DB.First(&sw, b.SwitchID).Error; err == nil {
+			if strings.TrimSpace(sw.BridgeName) != "" {
+				return sw.BridgeName
+			}
+		}
+	}
+	return defaultBridge()
+}
+
+// ensureContainerNetConfig 在 lxc-start 前就绪容器网络（每次启动幂等调，单/多网卡统一）：
+//  1. 规范 config（去 link、补 veth.pair——存量容器懒迁移）
+//  2. rootfs profile 补 MAC（Plan C）
+//  3. OVS 预建端口（稳定名 + VLAN），veth 一出生即入桥、零 DHCP 竞态
+func ensureContainerNetConfig(name string) {
+	cfgPath := configPath(name)
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return
+	}
+	other, blocks := SplitNICBlocks(string(data))
+	if len(blocks) == 0 {
+		return
+	}
+	// 1. 规范 config（ensureNicConfig 去 link + 写 name/veth.pair）；有变化才回写
+	before := RenderNICBlocks(blocks)
+	ensureNicConfig(name, blocks)
+	if RenderNICBlocks(blocks) != before {
+		if err := os.WriteFile(cfgPath, []byte(other+RenderNICBlocks(blocks)), 0644); err != nil {
+			logger.App.Warn("规范容器网络 config 写回失败", "name", name, "error", err)
+		}
+	}
+	// 2. rootfs profile MAC
+	provisionRootfsNICs(name)
+	// 3. 预建 OVS 端口
+	preCreateContainerOVSPorts(name, blocks)
+}
+
+// preCreateContainerOVSPorts 按稳定名在每网卡所属桥预建端口（带绑定 VLAN）。netdev 此刻不存在，
+// ovs-vsctl 报 "could not open network device"——非致命（端口已入 OVSDB，veth 出现即自动接管，已验证），用 Quiet 吞错。
+func preCreateContainerOVSPorts(name string, blocks map[int]map[string]string) {
+	bindings := lxcBindingsByOrder(name)
+	for o := range blocks {
+		pair := vethPairName(name, o)
+		br := stablePortBridge(o, bindings)
+		utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", br, pair)
+		if b, ok := bindings[o]; ok {
+			var sw model.VPCSwitch
+			if err := model.DB.First(&sw, b.SwitchID).Error; err == nil && sw.VLANID > 0 {
+				utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", pair, fmt.Sprintf("tag=%d", sw.VLANID))
+			}
+		}
+	}
 }
 
 const maxLXCInterfaces = 8

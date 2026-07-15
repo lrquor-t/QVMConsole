@@ -12,6 +12,7 @@ import (
 
 // StartContainer 启动容器并回填运行态字段。
 func StartContainer(name string) error {
+	ensureContainerNetConfig(name) // 去 link 规范 + 补 MAC + 预建 OVS 端口（lxc-start 前，单/多网卡统一）
 	res := utils.ExecCommandLongRunning("lxc-start", "-n", name)
 	if res.Error != nil {
 		return res.Error
