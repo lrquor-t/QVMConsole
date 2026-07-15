@@ -212,6 +212,35 @@ func ListContainerConfigBackups(name string) ([]ConfigBackup, error) {
 	return out, nil
 }
 
+// ReadContainerConfigBackup 读取一份历史备份的内容 + 元信息（任意状态可读）。
+// 复用 isBackupName 正则校验，防路径穿越变体。
+func ReadContainerConfigBackup(name, bakName string) (ConfigFileContent, error) {
+	if _, err := requireContainerRow(name); err != nil {
+		return ConfigFileContent{}, err
+	}
+	if !isBackupName(bakName) {
+		return ConfigFileContent{}, errors.New("无效的备份文件名")
+	}
+	p := filepath.Join(containerConfigDir(name), bakName)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ConfigFileContent{}, errors.New("备份不存在")
+		}
+		return ConfigFileContent{}, err
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return ConfigFileContent{}, err
+	}
+	return ConfigFileContent{
+		Content: string(data),
+		Path:    p,
+		Size:    info.Size(),
+		ModTime: info.ModTime().Unix(),
+	}, nil
+}
+
 // RestoreContainerConfigFile 用指定备份覆盖当前 config。复用 WriteContainerConfigFile，
 // 故恢复前自动备份当前 config（可撤销），且同样要求 STOPPED。
 func RestoreContainerConfigFile(name, bakName string) error {

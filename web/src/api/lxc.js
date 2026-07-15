@@ -255,3 +255,7 @@ export function restoreLXCConfigFileBackup(name, bak) {
 export function deleteLXCConfigFileBackup(name, bak) {
   return request({ url: `/lxc/${name}/config-file/backups/${bak}`, method: 'delete' })
 }
+// 读取某份历史备份的内容（管理员，只读查看）
+export function getLXCConfigFileBackup(name, bak) {
+  return request({ url: `/lxc/${name}/config-file/backups/${bak}`, method: 'get' })
+}

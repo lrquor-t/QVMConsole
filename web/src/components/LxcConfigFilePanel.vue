@@ -70,8 +70,9 @@
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.mtime) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140" align="right">
+        <el-table-column label="操作" width="210" align="right">
           <template #default="{ row }">
+            <el-button size="small" link :icon="View" @click="onView(row)">查看</el-button>
             <el-button size="small" link :disabled="!editable" @click="onRestore(row.name)">恢复</el-button>
             <el-button size="small" link type="danger" @click="onDelete(row.name)">删除</el-button>
           </template>
@@ -81,16 +82,46 @@
         </template>
       </el-table>
     </el-card>
+
+    <!-- 查看历史备份内容（只读） -->
+    <el-dialog
+      v-model="viewVisible"
+      :title="`备份内容 · ${viewMeta.name}`"
+      width="720px"
+      append-to-body
+      destroy-on-close
+    >
+      <div class="cfgfile-view-meta">
+        <span>{{ formatBytes(viewMeta.size) }}</span>
+        <i class="cfgfile-dot" />
+        <span>备份于 {{ formatTime(viewMeta.mtime) }}</span>
+      </div>
+      <div v-loading="viewLoading" class="cfgfile-view-body">
+        <el-input
+          v-model="viewContent"
+          type="textarea"
+          :autosize="{ minRows: 22, maxRows: 30 }"
+          readonly
+          class="cfgfile-editor"
+          placeholder="正在加载备份内容…"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="viewVisible = false">关闭</el-button>
+        <el-button :icon="CopyDocument" @click="onCopy">复制</el-button>
+        <el-button type="warning" :disabled="!editable" @click="onRestoreFromView">恢复此备份</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Refresh, Check } from '@element-plus/icons-vue'
+import { Document, Refresh, Check, View, CopyDocument } from '@element-plus/icons-vue'
 import {
   getLXCConfigFile, setLXCConfigFile,
-  getLXCConfigFileBackups, restoreLXCConfigFileBackup, deleteLXCConfigFileBackup
+  getLXCConfigFileBackups, getLXCConfigFileBackup, restoreLXCConfigFileBackup, deleteLXCConfigFileBackup
 } from '@/api/lxc'
 
 const props = defineProps({
@@ -106,6 +137,12 @@ const saving = ref(false)
 
 const backups = ref([])
 const backupsLoading = ref(false)
+
+// 查看历史备份内容
+const viewVisible = ref(false)
+const viewLoading = ref(false)
+const viewContent = ref('')
+const viewMeta = ref({ name: '', size: 0, mtime: 0 })
 
 const editable = computed(() => props.status === 'STOPPED')
 const statusText = computed(() => {
@@ -209,6 +246,37 @@ const onDelete = async (bak) => {
     ElMessage.success('已删除')
     await loadBackups()
   } catch (e) {}
+}
+
+const onView = async (row) => {
+  viewMeta.value = { name: row.name, size: row.size, mtime: row.mtime }
+  viewContent.value = ''
+  viewVisible.value = true
+  viewLoading.value = true
+  try {
+    const r = await getLXCConfigFileBackup(props.name, row.name)
+    viewContent.value = (r.data && r.data.content) || ''
+  } catch (e) {
+    viewContent.value = ''
+  } finally {
+    viewLoading.value = false
+  }
+}
+
+const onCopy = async () => {
+  try {
+    await navigator.clipboard.writeText(viewContent.value)
+    ElMessage.success('已复制到剪贴板')
+  } catch (e) {
+    ElMessage.error('复制失败，请手动选择文本复制')
+  }
+}
+
+// 对话框内「恢复此备份」：先关对话框，再走主恢复流程（含二次确认 + 自动备份当前版本）
+const onRestoreFromView = () => {
+  const bak = viewMeta.value.name
+  viewVisible.value = false
+  onRestore(bak)
 }
 
 // name 变化（切容器）重载；immediate 触发首次加载
@@ -337,5 +405,18 @@ watch(() => props.name, reloadAll, { immediate: true })
   background: var(--el-fill-color-light, #f5f7fa);
   padding: 1px 8px;
   border-radius: 10px;
+}
+
+/* 查看备份对话框 */
+.cfgfile-view-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 10px;
+}
+.cfgfile-view-body {
+  min-height: 120px;
 }
 </style>

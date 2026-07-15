@@ -80,6 +80,11 @@ func LXCListContainerConfigBackups(name string) ([]LXCConfigBackup, error) {
 	return lxc.ListContainerConfigBackups(name)
 }
 
+// LXCReadContainerConfigBackup 读取一份历史备份的内容 + 元信息（任意状态可读）。
+func LXCReadContainerConfigBackup(name, bakName string) (LXCConfigFileContent, error) {
+	return lxc.ReadContainerConfigBackup(name, bakName)
+}
+
 // LXCRestoreContainerConfigFile 用备份覆盖当前 config（STOPPED-only，复用写入主路径）。
 func LXCRestoreContainerConfigFile(name, bakName string) error {
 	return lxc.RestoreContainerConfigFile(name, bakName)

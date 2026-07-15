@@ -271,6 +271,7 @@ func Setup() *gin.Engine {
 				lxcGroup.GET("/:name/config-file/backups", middleware.AdminMiddleware(), handler.ListLXCConfigBackups)
 				lxcGroup.POST("/:name/config-file/backups/:bak/restore", middleware.AdminMiddleware(), handler.RestoreLXCConfigFile)
 				lxcGroup.DELETE("/:name/config-file/backups/:bak", middleware.AdminMiddleware(), handler.DeleteLXCConfigFileBackup)
+				lxcGroup.GET("/:name/config-file/backups/:bak", middleware.AdminMiddleware(), handler.GetLXCConfigBackup)
 				lxcGroup.GET("/:name/disk-limit", middleware.AdminMiddleware(), handler.GetLXCDiskLimit)
 				lxcGroup.PUT("/:name/disk-limit", middleware.AdminMiddleware(), handler.SetLXCDiskLimit)
 				lxcGroup.GET("/:name/cpu-limit", middleware.AdminMiddleware(), handler.GetLXCCPULimit)
