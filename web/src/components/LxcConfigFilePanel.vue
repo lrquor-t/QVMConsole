@@ -1,37 +1,67 @@
 <template>
   <div class="lxc-configfile-panel">
-    <el-alert :type="editable ? 'warning' : 'info'" :closable="false" show-icon>
+    <el-alert :type="editable ? 'warning' : 'info'" :closable="false" show-icon class="cfgfile-alert">
       <template #title>
         直接改写容器 config 文件，<b>重启后生效</b>。误改可能导致容器无法启动，保存前已自动备份。
       </template>
-      <div v-if="!editable" style="margin-top: 4px">
-        容器当前{{ statusText }}，<b>修改/恢复已禁用</b>，请先停止容器（查看不受影响）。
+      <div v-if="!editable" class="cfgfile-alert-sub">
+        容器当前{{ statusText }}，<b>修改/恢复已禁用</b>（查看不受影响），请先停止容器。
       </div>
     </el-alert>
 
-    <div class="cfgfile-meta">
-      <span>路径：<code>{{ meta.path || '—' }}</code></span>
-      <span>大小：{{ formatBytes(meta.size) }}</span>
-      <span>修改：{{ formatTime(meta.mtime) }}</span>
-    </div>
+    <!-- 编辑器卡片：header 工具条 + meta 副行 + 文本编辑区 -->
+    <el-card shadow="hover" class="cfgfile-card">
+      <template #header>
+        <div class="cfgfile-header">
+          <div class="cfgfile-fileinfo">
+            <el-icon class="cfgfile-fileicon"><Document /></el-icon>
+            <el-tooltip :content="meta.path" placement="top" :disabled="!meta.path">
+              <span class="cfgfile-path">{{ meta.path || '—' }}</span>
+            </el-tooltip>
+            <el-tag :type="editable ? 'success' : 'info'" size="small" effect="light" class="cfgfile-status">
+              {{ editable ? '可编辑' : '只读' }}
+            </el-tag>
+          </div>
+          <div class="cfgfile-header-actions">
+            <span v-if="dirty" class="cfgfile-dirty"><i class="cfgfile-dirty-dot" />有未保存改动</span>
+            <el-button :icon="Refresh" :disabled="loading" @click="loadContent">重新加载</el-button>
+            <el-button
+              type="primary"
+              :icon="Check"
+              :disabled="!editable || !dirty || saving"
+              :loading="saving"
+              @click="onSave"
+            >保存</el-button>
+          </div>
+        </div>
+      </template>
 
-    <el-input
-      v-model="content"
-      type="textarea"
-      :autosize="{ minRows: 18, maxRows: 30 }"
-      :disabled="!editable"
-      class="cfgfile-editor"
-      placeholder="正在加载配置文件…"
-    />
+      <div class="cfgfile-meta">
+        <span>{{ formatBytes(meta.size) }}</span>
+        <i class="cfgfile-dot" />
+        <span>修改于 {{ formatTime(meta.mtime) }}</span>
+        <i class="cfgfile-dot" />
+        <span>{{ lineCount }} 行</span>
+      </div>
 
-    <div class="cfgfile-actions">
-      <el-button type="primary" :disabled="!editable || !dirty || saving" :loading="saving" @click="onSave">保存</el-button>
-      <el-button :disabled="loading" @click="loadContent">重新加载</el-button>
-      <span v-if="dirty" class="cfgfile-dirty">有未保存改动</span>
-    </div>
+      <div v-loading="loading" class="cfgfile-editor-wrap">
+        <el-input
+          v-model="content"
+          type="textarea"
+          :autosize="{ minRows: 18, maxRows: 30 }"
+          :disabled="!editable"
+          class="cfgfile-editor"
+          placeholder="正在加载配置文件…"
+        />
+      </div>
+    </el-card>
 
-    <div class="cfgfile-backups">
-      <div class="section-title">历史备份</div>
+    <!-- 历史备份卡片 -->
+    <el-card shadow="hover" class="cfgfile-card">
+      <div class="section-title">
+        历史备份
+        <span v-if="backups.length" class="cfgfile-count">{{ backups.length }}</span>
+      </div>
       <el-table v-loading="backupsLoading" :data="backups" size="small" empty-text="暂无备份">
         <el-table-column prop="name" label="文件名" min-width="220" />
         <el-table-column label="大小" width="100">
@@ -46,14 +76,18 @@
             <el-button size="small" link type="danger" @click="onDelete(row.name)">删除</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无备份" :image-size="60" />
+        </template>
       </el-table>
-    </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Document, Refresh, Check } from '@element-plus/icons-vue'
 import {
   getLXCConfigFile, setLXCConfigFile,
   getLXCConfigFileBackups, restoreLXCConfigFileBackup, deleteLXCConfigFileBackup
@@ -79,6 +113,7 @@ const statusText = computed(() => {
   return m[props.status] || '非停止'
 })
 const dirty = computed(() => content.value !== serverContent.value)
+const lineCount = computed(() => (content.value ? content.value.split('\n').length : 0))
 
 const formatBytes = (b) => {
   if (!b) return '0 B'
@@ -185,38 +220,122 @@ watch(() => props.name, reloadAll, { immediate: true })
   padding: 4px 2px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
-.cfgfile-meta {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
+
+/* 告警条：去掉默认外边距，让其融入面板节奏 */
+.cfgfile-alert {
+  margin: 0;
+}
+.cfgfile-alert-sub {
+  margin-top: 4px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
-.cfgfile-meta code {
-  font-family: ui-monospace, monospace;
-  background: var(--app-bg-card);
-  padding: 1px 5px;
-  border-radius: 4px;
+
+/* 卡片：与快照/配置面板同节奏 */
+.cfgfile-card {
+  border-radius: 12px;
+  border: none;
 }
-.cfgfile-editor :deep(textarea) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.cfgfile-card :deep(.el-card__header) {
+  padding: 0 18px;
 }
-.cfgfile-actions {
+.cfgfile-card :deep(.el-card__body) {
+  padding: 14px 18px 18px;
+}
+
+/* 编辑器 header 工具条 */
+.cfgfile-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  height: 52px;
+}
+.cfgfile-fileinfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cfgfile-fileicon {
+  color: var(--el-color-primary);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.cfgfile-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfgfile-status {
+  flex-shrink: 0;
+}
+.cfgfile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 .cfgfile-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   color: var(--el-color-warning);
 }
+.cfgfile-dirty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--el-color-warning);
+}
+
+/* meta 副行 */
+.cfgfile-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 10px;
+}
+.cfgfile-dot {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--el-text-color-placeholder);
+}
+
+/* 文本编辑区 */
+.cfgfile-editor :deep(textarea) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  border-radius: 8px;
+}
+
+/* 分区标题（沿用全局约定） */
 .section-title {
   font-size: 16px;
   font-weight: 700;
   padding-left: 10px;
   border-left: 4px solid var(--el-color-primary);
+  margin-bottom: 14px;
   color: var(--el-text-color-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cfgfile-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light, #f5f7fa);
+  padding: 1px 8px;
+  border-radius: 10px;
 }
 </style>
