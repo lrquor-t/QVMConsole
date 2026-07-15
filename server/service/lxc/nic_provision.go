@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -41,7 +42,7 @@ func provisionRootfsNICs(name string) {
 		orders = append(orders, o)
 	}
 	sort.Ints(orders)
-	if err := writeDHCPProfiles(rootfs, orders, detectDistroFamily(rootfs)); err != nil {
+	if err := writeDHCPProfiles(rootfs, name, orders, detectDistroFamily(rootfs)); err != nil {
 		logger.App.Warn("写容器内网卡 DHCP 配置失败", "name", name, "error", err)
 	}
 }
@@ -57,7 +58,7 @@ func provisionOneRootfsNIC(name string, order int) {
 	if rootfs == "" {
 		return // overlay 等只读 backing：跳过
 	}
-	if err := writeDHCPProfiles(rootfs, []int{order}, detectDistroFamily(rootfs)); err != nil {
+	if err := writeDHCPProfiles(rootfs, name, []int{order}, detectDistroFamily(rootfs)); err != nil {
 		logger.App.Warn("运行中加卡：写容器内 DHCP 配置失败", "name", name, "order", order, "error", err)
 	}
 }
@@ -119,8 +120,9 @@ func hasFileWithExt(dir, ext string) bool {
 	return false
 }
 
-// writeDHCPProfiles 给 rootfs 的 eth<orders> 写 DHCP 配置（按 family 选格式）。
-func writeDHCPProfiles(rootfs string, orders []int, family string) error {
+// writeDHCPProfiles 给 rootfs 的 eth<orders> 写 DHCP 配置 + 固定 MAC（按 family 选格式）。
+// MAC 固定写在 profile：多网卡下 LXC 不刷 hwaddr，由容器内网络管理器在 DHCP 前固定（Plan C）。
+func writeDHCPProfiles(rootfs, name string, orders []int, family string) error {
 	switch family {
 	case "rhel":
 		dir := filepath.Join(rootfs, "etc", "sysconfig", "network-scripts")
@@ -128,7 +130,8 @@ func writeDHCPProfiles(rootfs string, orders []int, family string) error {
 			return err
 		}
 		for _, o := range orders {
-			content := fmt.Sprintf("DEVICE=eth%d\nBOOTPROTO=dhcp\nONBOOT=yes\nTYPE=Ethernet\nNAME=eth%d\n", o, o)
+			mac := NICMAC(name, o)
+			content := fmt.Sprintf("DEVICE=eth%d\nBOOTPROTO=dhcp\nONBOOT=yes\nTYPE=Ethernet\nNAME=eth%d\nMACADDR=%s\n", o, o, mac)
 			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("ifcfg-eth%d", o)), []byte(content), 0644); err != nil {
 				return err
 			}
@@ -141,29 +144,32 @@ func writeDHCPProfiles(rootfs string, orders []int, family string) error {
 		var sb strings.Builder
 		sb.WriteString("network:\n  version: 2\n  renderer: networkd\n  ethernets:\n")
 		for _, o := range orders {
-			sb.WriteString(fmt.Sprintf("    eth%d:\n      dhcp4: true\n", o))
+			mac := NICMAC(name, o)
+			sb.WriteString(fmt.Sprintf("    eth%d:\n      dhcp4: true\n      macaddress: %s\n", o, mac))
 		}
-		// 90- 前缀确保覆盖镜像自带（如 50-cloud-init.yaml）的同名配置
 		if err := os.WriteFile(filepath.Join(dir, "90-lxc-nics.yaml"), []byte(sb.String()), 0600); err != nil {
 			return err
 		}
-	case "networkd": // systemd-networkd：写 /etc/systemd/network/eth<N>.network（镜像自带的不覆盖）
+	case "networkd":
 		dir := filepath.Join(rootfs, "etc", "systemd", "network")
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
 		for _, o := range orders {
 			p := filepath.Join(dir, fmt.Sprintf("eth%d.network", o))
+			mac := NICMAC(name, o)
 			if _, err := os.Stat(p); err == nil {
-				continue // 镜像已配置该网卡，保留其配置
+				if err := ensureNetworkdLinkMAC(p, mac); err != nil {
+					return err
+				}
+				continue
 			}
-			// 与镜像 eth0.network 同格式：DHCP + 按 MAC 标识（平台静态 IP 按 MAC 绑定，须一致）
-			content := fmt.Sprintf("[Match]\nName=eth%d\n\n[Network]\nDHCP=true\n\n[DHCPv4]\nUseDomains=true\nUseMTU=true\n\n[DHCP]\nClientIdentifier=mac\n", o)
+			content := fmt.Sprintf("[Match]\nName=eth%d\n\n[Link]\nMACAddress=%s\n\n[Network]\nDHCP=true\n\n[DHCPv4]\nUseDomains=true\nUseMTU=true\n\n[DHCP]\nClientIdentifier=mac\n", o, mac)
 			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 				return err
 			}
 		}
-	default: // ifupdown（Debian 老版 /etc/network/interfaces）
+	default: // ifupdown
 		f := filepath.Join(rootfs, "etc", "network", "interfaces")
 		if err := os.MkdirAll(filepath.Dir(f), 0755); err != nil {
 			return err
@@ -175,16 +181,39 @@ func writeDHCPProfiles(rootfs string, orders []int, family string) error {
 			sb.WriteString("\n")
 		}
 		for _, o := range orders {
+			mac := NICMAC(name, o)
 			if strings.Contains(string(existing), fmt.Sprintf("iface eth%d inet", o)) {
-				continue // 已有该网卡配置，幂等
+				continue
 			}
-			sb.WriteString(fmt.Sprintf("auto eth%d\niface eth%d inet dhcp\n", o, o))
+			sb.WriteString(fmt.Sprintf("auto eth%d\niface eth%d inet dhcp\n\tpre-up ip link set dev eth%d address %s\n", o, o, o, mac))
 		}
 		if err := os.WriteFile(f, []byte(sb.String()), 0644); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ensureNetworkdLinkMAC 确保 .network 文件含 [Link] MACAddress=<mac>，保留其余内容。
+func ensureNetworkdLinkMAC(path, mac string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	s := string(b)
+	macRe := regexp.MustCompile(`(?m)^[ \t]*MACAddress[ \t]*=.*$`)
+	switch {
+	case macRe.MatchString(s):
+		s = macRe.ReplaceAllString(s, "MACAddress="+mac)
+	case strings.Contains(s, "[Link]"):
+		s = strings.Replace(s, "[Link]", "[Link]\nMACAddress="+mac, 1)
+	default:
+		if s != "" && !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		s += "[Link]\nMACAddress=" + mac + "\n"
+	}
+	return os.WriteFile(path, []byte(s), 0644)
 }
 
 func trimQuote(s string) string {
