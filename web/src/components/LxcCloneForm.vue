@@ -51,8 +51,7 @@
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled, WarningFilled, Plus } from '@element-plus/icons-vue'
-import { listLXCSnapshots, cloneLXCFromSnapshot, listLXCInterfaces } from '@/api/lxc'
-import { getVPCSwitches } from '@/api/vpc'
+import { listLXCSnapshots, cloneLXCFromSnapshot } from '@/api/lxc'
 import { generateRandomLXCName } from '@/utils/lxc'
 
 const emit = defineEmits(['success', 'goto-snapshot'])
@@ -70,18 +69,6 @@ const form = reactive({
   remark: '',
 })
 const isZfs = computed(() => (form.backing || '').toLowerCase() === 'zfs')
-const vpcSwitches = ref([])
-const srcPrimarySwitch = computed(() => vpcSwitches.value.find(s => s.id === srcPrimarySwitchId.value) || null)
-const loadSrcPrimary = async (srcName) => {
-  srcPrimarySwitchId.value = 0
-  vpcSwitches.value = []
-  try {
-    const [ifaces, sw] = await Promise.all([listLXCInterfaces(srcName), getVPCSwitches()])
-    vpcSwitches.value = sw.data || []
-    const primary = (ifaces.data || []).find(i => i.is_primary)
-    if (primary) srcPrimarySwitchId.value = primary.switch_id || 0
-  } catch (e) {}
-}
 
 const rules = {
   snap: [{ required: true, message: '请选择一个快照', trigger: 'change' }],
@@ -102,8 +89,6 @@ const open = async (row) => {
   })
   formRef.value?.clearValidate()
   snapshots.value = []
-  srcPrimarySwitchId.value = 0
-  vpcSwitches.value = []
   visible.value = true
   if (!isZfs.value) return
   loadingSnaps.value = true
