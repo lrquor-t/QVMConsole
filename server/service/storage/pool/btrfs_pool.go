@@ -85,9 +85,9 @@ func normalizeBtrfsCompression(c string) string {
 // btrfsProfileMinDisks 返回各 profile 所需的最少磁盘数。
 func btrfsProfileMinDisks(profile string) int {
 	switch profile {
-	case "single", "raid0":
+	case "single":
 		return 1
-	case "raid1":
+	case "raid0", "raid1":
 		return 2
 	case "raid10":
 		return 4

@@ -1015,7 +1015,7 @@ const btrfsForm = reactive({
   add_fstab: true,
 })
 const btrfsProfileMinDisks = (p) => {
-  const map = { single: 1, raid0: 1, raid1: 2, raid10: 4 }
+  const map = { single: 1, raid0: 2, raid1: 2, raid10: 4 }
   return map[p] || 1
 }
 const btrfsProfileLabel = (p) => {
