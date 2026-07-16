@@ -3,8 +3,13 @@ package pool
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+
+	"kvm_console/model"
+	"kvm_console/utils"
 )
 
 // ── Btrfs 存储池类型定义 ──
@@ -118,4 +123,160 @@ func BtrfsAvailable() bool {
 	_, e2 := exec.LookPath("btrfs")
 	_, e3 := exec.LookPath("chattr")
 	return e1 == nil && e2 == nil && e3 == nil
+}
+
+// ── Btrfs 池扫描与层级注入 ──
+
+// scanBtrfsDevices 解析 `btrfs filesystem show <mountPath>`，返回成员盘设备路径列表。
+// 挂载点失效/未挂载时返回 nil。
+func scanBtrfsDevices(mountPath string) []string {
+	if strings.TrimSpace(mountPath) == "" {
+		return nil
+	}
+	r := utils.ExecCommandQuiet("btrfs", "filesystem", "show", mountPath)
+	if r.Error != nil {
+		return nil
+	}
+	var devs []string
+	for _, line := range strings.Split(r.Stdout, "\n") {
+		t := strings.TrimSpace(line)
+		// 匹配 "devid N size ... used ... path /dev/sdX"
+		if idx := strings.Index(t, "path "); idx >= 0 {
+			dev := strings.TrimSpace(t[idx+len("path "):])
+			if dev != "" {
+				devs = append(devs, dev)
+			}
+		}
+	}
+	return devs
+}
+
+// ListBtrfsPools 采用 DB 驱动：只返回 DB 中 deviceID 以 "btrfs-" 开头的受管 btrfs 池。
+// 对每个池用其挂载点取成员盘（btrfs filesystem show），容量在 injectBtrfsTree 中用 df 补全。
+func ListBtrfsPools(configs map[string]model.HostStoragePool) []BtrfsPoolInfo {
+	if !BtrfsAvailable() {
+		return nil
+	}
+	var pools []BtrfsPoolInfo
+	for deviceID, cfg := range configs {
+		if !strings.HasPrefix(deviceID, "btrfs-") {
+			continue
+		}
+		label := strings.TrimPrefix(deviceID, "btrfs-")
+		pools = append(pools, BtrfsPoolInfo{
+			Label:     label,
+			MountPath: cfg.MountPath,
+			Devices:   scanBtrfsDevices(cfg.MountPath),
+		})
+	}
+	sort.Slice(pools, func(i, j int) bool { return pools[i].Label < pools[j].Label })
+	return pools
+}
+
+// injectBtrfsTree 将受管 Btrfs 池注入存储池树，并把成员盘容量清零避免重复计入。
+func injectBtrfsTree(pools []HostStoragePoolInfo, bPools []BtrfsPoolInfo,
+	dfUsage map[string]mountUsage, configs map[string]model.HostStoragePool) []HostStoragePoolInfo {
+
+	// 成员盘路径 → label
+	memberToLabel := make(map[string]string)
+	for _, bp := range bPools {
+		for _, m := range bp.Devices {
+			memberToLabel[m] = bp.Label
+		}
+	}
+	markBtrfsMemberNodes(pools, memberToLabel)
+
+	for _, bp := range bPools {
+		deviceID := normalizeStorageDeviceID("btrfs-" + bp.Label)
+		cfg, configured := configs[deviceID]
+
+		node := HostStoragePoolInfo{
+			ID:           deviceID,
+			Name:         bp.Label,
+			DisplayName:  "Btrfs: " + bp.Label,
+			Type:         "btrfs",
+			FSType:       "btrfs",
+			IsBTRFSPool:  true,
+			BTRFSLabel:   bp.Label,
+			BTRFSDevices: len(bp.Devices),
+			Readonly:     true,
+			CanFormat:    false,
+			CanUseForVM:  false,
+			StatusReason: fmt.Sprintf("Btrfs 存储池（%d 块成员盘）", len(bp.Devices)),
+		}
+		if configured {
+			node.DisplayName = cfg.DisplayName
+			node.Enabled = cfg.Enabled
+			node.IsDefault = cfg.IsDefault
+			node.MountPath = cfg.MountPath
+		}
+		// 池容量（df）
+		if cfg.MountPath != "" {
+			if u, ok := dfUsage[cfg.MountPath]; ok {
+				node.Size = u.Size
+				node.Used = u.Used
+				node.Available = u.Available
+				if u.Size > 0 {
+					node.UsePercent = int(float64(u.Used) / float64(u.Size) * 100)
+				}
+			}
+			// vm-disks 子节点（可落盘，容量随池）
+			vmDir := filepath.Join(cfg.MountPath, "vm-disks")
+			node.Children = append(node.Children, HostStoragePoolInfo{
+				ID:          normalizeStorageDeviceID("btrfs-" + bp.Label + "-vm-disks"),
+				Name:        "vm-disks",
+				DisplayName: "vm-disks",
+				Type:        "dir",
+				FSType:      "btrfs",
+				MountPath:   vmDir,
+				VMDir:       vmDir,
+				Mountpoints: []string{cfg.MountPath},
+				Size:        node.Size,
+				Used:        node.Used,
+				Available:   node.Available,
+				UsePercent:  node.UsePercent,
+				CanUseForVM: true,
+				Configured:  configured,
+				IsBTRFSPool: true,
+			})
+		}
+		// 成员盘引用子节点
+		for _, m := range bp.Devices {
+			node.Children = append(node.Children, *buildBtrfsMemberRefNode(bp.Label, m))
+		}
+		pools = append(pools, node)
+	}
+	return pools
+}
+
+// markBtrfsMemberNodes 标记属于受管 btrfs 池的成员盘节点：只读、容量清零。
+func markBtrfsMemberNodes(pools []HostStoragePoolInfo, memberToLabel map[string]string) {
+	for i := range pools {
+		if label, ok := memberToLabel[pools[i].DevicePath]; ok {
+			pools[i].Readonly = true
+			pools[i].CanFormat = false
+			pools[i].CanUseForVM = false
+			pools[i].StatusReason = "已加入 Btrfs 存储池 " + label
+			pools[i].Size = 0
+			pools[i].Used = 0
+			pools[i].Available = 0
+			pools[i].UsePercent = 0
+		}
+		markBtrfsMemberNodes(pools[i].Children, memberToLabel)
+	}
+}
+
+// buildBtrfsMemberRefNode 构建 Btrfs 成员盘引用节点（仅展示层级，不可操作）。
+func buildBtrfsMemberRefNode(label, devPath string) *HostStoragePoolInfo {
+	base := filepath.Base(devPath)
+	return &HostStoragePoolInfo{
+		ID:           normalizeStorageDeviceID("btrfsmember-" + label + "-" + base),
+		Name:         base,
+		DisplayName:  devPath,
+		DevicePath:   devPath,
+		Type:         "pv",
+		Size:         0,
+		Readonly:     true,
+		StatusReason: "Btrfs 存储池 " + label + " 成员盘",
+	}
 }

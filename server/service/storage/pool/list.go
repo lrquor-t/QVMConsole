@@ -39,6 +39,13 @@ func ListStoragePools() ([]HostStoragePoolInfo, error) {
 		}
 	}
 
+	// 注入 Btrfs 存储池层级
+	if BtrfsAvailable() {
+		if bPools := ListBtrfsPools(configs); len(bPools) > 0 {
+			pools = injectBtrfsTree(pools, bPools, dfUsage, configs)
+		}
+	}
+
 	return pools, nil
 }
 
