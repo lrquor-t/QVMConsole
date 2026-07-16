@@ -52,11 +52,11 @@ type HostStoragePoolInfo struct {
 	ZFSVdevType       string `json:"zfs_vdev_type,omitempty"`    // ZFS 拓扑：stripe/mirror/raidz1/2/3
 	ZFSExpandVdevType string `json:"expand_vdev_type,omitempty"` // 扩容锁定类型（纯池=该类型、混合="mixed"）
 	// Btrfs 扩展字段
-	IsBTRFSPool   bool   `json:"is_btrfs_pool,omitempty"`    // 标记为 Btrfs 存储池合成节点
-	BTRFSLabel    string `json:"btrfs_label,omitempty"`      // Btrfs 卷标
-	BTRFSProfile  string `json:"btrfs_profile,omitempty"`    // 数据 profile：single/raid0/raid1/raid10
-	BTRFSCompress string `json:"btrfs_compress,omitempty"`   // 压缩：zstd/off
-	BTRFSDevices  int    `json:"btrfs_devices,omitempty"`    // 成员盘数
+	IsBTRFSPool   bool   `json:"is_btrfs_pool,omitempty"`  // 标记为 Btrfs 存储池合成节点
+	BTRFSLabel    string `json:"btrfs_label,omitempty"`    // Btrfs 卷标
+	BTRFSProfile  string `json:"btrfs_profile,omitempty"`  // 数据 profile：single/raid0/raid1/raid10
+	BTRFSCompress string `json:"btrfs_compress,omitempty"` // 压缩：zstd/off
+	BTRFSDevices  int    `json:"btrfs_devices,omitempty"`  // 成员盘数
 }
 
 // VMStorageTarget 是创建虚拟机时可选择的落盘位置。
