@@ -618,6 +618,38 @@ func registerTaskHandlers() {
 		return fmt.Sprintf(`{"pool_name":"%s"}`, params.PoolName), nil
 	})
 
+	// 创建 Btrfs 存储池任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageCreateBtrfsPool, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			Params string `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		var req service.BtrfsPoolRequest
+		if err := json.Unmarshal([]byte(params.Params), &req); err != nil {
+			return "", fmt.Errorf("解析 Btrfs 存储池参数失败: %w", err)
+		}
+		if err := service.CreateBtrfsPool(ctx, req, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"label":"%s"}`, req.Label), nil
+	})
+
+	// 销毁 Btrfs 存储池任务
+	taskqueue.RegisterHandler(model.TaskTypeStorageDeleteBtrfsPool, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			Label string `json:"label"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		if err := service.DeleteBtrfsPool(ctx, params.Label, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"label":"%s"}`, params.Label), nil
+	})
+
 	// 删除虚拟机任务
 	taskqueue.RegisterHandler(model.TaskTypeDelete, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params struct {

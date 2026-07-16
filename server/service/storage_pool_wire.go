@@ -18,6 +18,7 @@ type LVInfo = pool.LVInfo
 type PVInfo = pool.PVInfo
 type ZFSPoolRequest = pool.ZFSPoolRequest
 type ZPoolInfo = pool.ZPoolInfo
+type BtrfsPoolRequest = pool.BtrfsPoolRequest
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -164,6 +165,26 @@ func ZFSAvailable() bool {
 // ListZPools delegates to pool.ListZPools
 func ListZPools() ([]ZPoolInfo, error) {
 	return pool.ListZPools()
+}
+
+// CreateBtrfsPool delegates to pool.CreateBtrfsPool
+func CreateBtrfsPool(ctx context.Context, req BtrfsPoolRequest, progress func(int, string)) error {
+	return pool.CreateBtrfsPool(ctx, req, progress)
+}
+
+// DeleteBtrfsPool delegates to pool.DeleteBtrfsPool
+func DeleteBtrfsPool(ctx context.Context, label string, progress func(int, string)) error {
+	return pool.DeleteBtrfsPool(ctx, label, progress)
+}
+
+// ExpandBtrfsPool delegates to pool.ExpandBtrfsPool
+func ExpandBtrfsPool(label string, deviceIDs []string) error {
+	return pool.ExpandBtrfsPool(label, deviceIDs)
+}
+
+// BtrfsAvailable delegates to pool.BtrfsAvailable
+func BtrfsAvailable() bool {
+	return pool.BtrfsAvailable()
 }
 
 // ── Unexported delegates (used internally by service root package) ──
