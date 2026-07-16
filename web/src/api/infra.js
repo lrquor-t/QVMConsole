@@ -186,3 +186,23 @@ export function getZFSProperty(dataset) {
 export function setZFSProperty(dataset, property, value) {
   return request({ url: '/storage-pool/zfs-property', method: 'put', data: { dataset, property, value } })
 }
+
+// 检测宿主机 Btrfs 可用性
+export function getBtrfsStatus() {
+  return request({ url: '/storage-pool/btrfs-status', method: 'get' })
+}
+
+// 创建 Btrfs 存储池
+export function createBtrfsPool(data) {
+  return request({ url: '/storage-pool/create-btrfs-pool', method: 'post', data })
+}
+
+// 销毁 Btrfs 存储池
+export function deleteBtrfsPool(label) {
+  return request({ url: '/storage-pool/delete-btrfs-pool', method: 'post', data: { label } })
+}
+
+// 扩容 Btrfs 存储池（加盘）
+export function expandBtrfsPool(data) {
+  return request({ url: '/storage-pool/expand-btrfs-pool', method: 'post', data })
+}
