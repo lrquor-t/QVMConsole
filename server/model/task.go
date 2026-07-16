@@ -52,7 +52,9 @@ const (
 	TaskTypeStorageDeleteLVMVolume          = "storage_delete_lvm_volume"          // 删除 LVM 存储卷
 	TaskTypeStorageCreateZFSPool            = "storage_create_zfs_pool"            // 创建 ZFS 存储池
 	TaskTypeStorageDeleteZFSPool            = "storage_delete_zfs_pool"            // 销毁 ZFS 存储池
-	TaskTypeNetworkCapture                  = "network_capture"                    // VM 网络抓包诊断
+	TaskTypeStorageCreateBtrfsPool         = "storage_create_btrfs_pool"          // 创建 Btrfs 存储池
+	TaskTypeStorageDeleteBtrfsPool         = "storage_delete_btrfs_pool"          // 销毁 Btrfs 存储池
+	TaskTypeNetworkCapture                 = "network_capture"                    // VM 网络抓包诊断
 	TaskTypePortForwardHTTPProbe            = "port_forward_http_probe_manual"     // 手动执行端口转发 HTTP 探测
 	TaskTypeVMScheduleAction                = "vm_schedule_action"                 // 虚拟机定时任务动作执行
 	TaskTypeLightweightVMProvision          = "lightweight_vm_provision"           // 轻量云注册 VM 开通
