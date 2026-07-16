@@ -55,10 +55,8 @@ func AttachContainerToVPC(name string, switchID, sgID uint) error {
 	}
 	// 接入 OVS 网关桥（端口可能已存在，--may-exist 保证幂等）。
 	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, veth)
-	if sw.VLANID > 0 {
-		if r := utils.ExecCommand("ovs-vsctl", "set", "Port", veth, fmt.Sprintf("tag=%d", sw.VLANID)); r.Error != nil {
-			return fmt.Errorf("设置 VLAN tag 失败: %s", r.Stderr)
-		}
+	if err := setPortVLANTag(veth, sw); err != nil {
+		return err
 	}
 	// 回填 host veth 到缓存行。
 	model.DB.Model(&model.LXCCache{}).Where("name = ?", name).Update("veth_name", veth)
@@ -168,10 +166,8 @@ func applyNicRuntime(name string, order int, sw model.VPCSwitch, binding model.V
 		}
 	}
 	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, veth)
-	if sw.VLANID > 0 {
-		if r := utils.ExecCommand("ovs-vsctl", "set", "Port", veth, fmt.Sprintf("tag=%d", sw.VLANID)); r.Error != nil {
-			return fmt.Errorf("设置 VLAN tag 失败: %s", r.Stderr)
-		}
+	if err := setPortVLANTag(veth, sw); err != nil {
+		return err
 	}
 	// 下行限速（按端口名，libvirt 无关）；0 = 不限
 	if binding.BandwidthInboundAvg > 0 {
@@ -186,6 +182,49 @@ func applyNicRateLimit(veth string, downMbps int) {
 		return
 	}
 	bandwidth.ApplyTCVPCSwitchDownlinkLimit(veth, downMbps)
+}
+
+// switchPortTag 取容器 host veth 应承载的 OVS VLAN tag，对齐 VM 路径（service/network/vpc/binding.go）：
+//   - 桥接直通交换机（bridge_mode=bridge）：用 BridgeVLANID——用户在物理桥上指定的 VLAN，0 表示不打标签
+//   - NAT / 系统基础网络交换机：用 VLANID——自动分配的内部 VPC VLAN（仅 br-ovs 上有意义）
+//
+// 返回 0 表示该端口应为 untagged（access 口无 tag）。
+func switchPortTag(sw model.VPCSwitch) int {
+	if isDirectBridgeSwitch(sw) {
+		return sw.BridgeVLANID
+	}
+	return sw.VLANID
+}
+
+// isDirectBridgeSwitch 判断交换机是否桥接直通模式，等价于 bridge.SwitchUsesDirectBridge
+// （bridge_mode 归一化后 == "bridge"）。此处内联，避免 lxc 包反向依赖 bridge 包。
+func isDirectBridgeSwitch(sw model.VPCSwitch) bool {
+	return strings.EqualFold(strings.TrimSpace(sw.BridgeMode), "bridge")
+}
+
+// setPortVLANTag 幂等设置 host veth 的 OVS VLAN tag：tag>0 时 set；tag==0 时 clear 掉残留 tag
+// 确保 untagged（修复直通桥 BridgeVLANID=0 却被旧逻辑误打成 VLANID 的残留）。set 失败返回 error。
+func setPortVLANTag(veth string, sw model.VPCSwitch) error {
+	tag := switchPortTag(sw)
+	if tag > 0 {
+		if r := utils.ExecCommand("ovs-vsctl", "set", "Port", veth, fmt.Sprintf("tag=%d", tag)); r.Error != nil {
+			return fmt.Errorf("设置 VLAN tag 失败: %s", r.Stderr)
+		}
+		return nil
+	}
+	utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "clear", "Port", veth, "tag")
+	return nil
+}
+
+// setPortVLANTagQuiet 与 setPortVLANTag 同，但全程 Quiet：用于预建端口 / 热插拔等 netdev 可能
+// 不存在的场景，set 失败仅记 DEBUG 不报错（veth 真正出现后由 setPortVLANTag 路径修正）。
+func setPortVLANTagQuiet(veth string, sw model.VPCSwitch) {
+	tag := switchPortTag(sw)
+	if tag > 0 {
+		utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", veth, fmt.Sprintf("tag=%d", tag))
+		return
+	}
+	utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "clear", "Port", veth, "tag")
 }
 
 // ReconcileContainerNICs 在容器启动后对其全部 VPCVMBinding(kind=lxc) 施加 OVS/VLAN/限速。
@@ -288,8 +327,9 @@ func preCreateContainerOVSPorts(name string, blocks map[int]map[string]string) {
 		utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", br, pair)
 		if b, ok := bindings[o]; ok {
 			var sw model.VPCSwitch
-			if err := model.DB.First(&sw, b.SwitchID).Error; err == nil && sw.VLANID > 0 {
-				utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", pair, fmt.Sprintf("tag=%d", sw.VLANID))
+			if err := model.DB.First(&sw, b.SwitchID).Error; err == nil {
+				// netdev 此刻可能不存在，set/clear 失败仅记 DEBUG（与上方 add-port 一致）
+				setPortVLANTagQuiet(pair, sw)
 			}
 		}
 	}
@@ -349,7 +389,7 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 			info.SwitchName = varSw.Name
 			info.BridgeMode = varSw.BridgeMode
 			info.CIDR = varSw.CIDR
-			info.VLANID = varSw.VLANID
+			info.VLANID = switchPortTag(varSw)
 			info.Link = varSw.BridgeName
 		}
 		info.SecurityGroupName = lookupSGName(b.SecurityGroupID)
@@ -665,9 +705,7 @@ func hotplugNic(name string, order int, sw model.VPCSwitch) error {
 		bridge = defaultBridge()
 	}
 	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, a)
-	if sw.VLANID > 0 {
-		utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", a, fmt.Sprintf("tag=%d", sw.VLANID))
-	}
+	setPortVLANTagQuiet(a, sw)
 	// 注：热插拔的 veth host 侧 MAC 为随机值，与 lxc.net.N.hwaddr 不一致；
 	//     后续 ReconcileContainerNICs 仍按 config MAC 找不到该 veth，故热插拔为「临时生效」，
 	//     持久态依赖下次重启由 lxc-start 按 config 重建。引导用户重启以获一致状态。
