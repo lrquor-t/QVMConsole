@@ -689,12 +689,17 @@ func vethPairName(name string, order int) string {
 }
 
 func hotunplugNic(name string, order int) {
-	veth := findContainerHostVeth(name, order)
-	if veth == "" {
-		return
+	br := stablePortBridge(order, lxcBindingsByOrder(name))
+	pair := vethPairName(name, order)
+	// 清 OVS 端口：稳定名（新容器 port 名即 veth.pair）+ live veth 名（旧容器二者不同）。
+	// 历史用 defaultBridge()，对非 br-ovs 网卡（如 br0）会 del-port 到错的桥（--if-exists 吞错成空操作）→ 端口孤儿。
+	utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", br, pair)
+	if veth := findContainerHostVeth(name, order); veth != "" {
+		if veth != pair {
+			utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", br, veth)
+		}
+		utils.ExecCommandQuiet("ip", "link", "del", veth)
 	}
-	utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", defaultBridge(), veth)
-	utils.ExecCommandQuiet("ip", "link", "del", veth)
 }
 func containerPID(name string) string {
 	r := utils.ExecCommand("lxc-info", "-n", name, "-p")
