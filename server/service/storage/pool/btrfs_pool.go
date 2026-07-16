@@ -486,3 +486,100 @@ func btrfsPoolConfigExists(deviceID string) bool {
 	model.DB.Model(&model.HostStoragePool{}).Where("device_id = ?", deviceID).Count(&count)
 	return count > 0
 }
+
+// getConfigByDeviceID 从 DB 取单个 HostStoragePool 配置。
+func getConfigByDeviceID(deviceID string) (model.HostStoragePool, bool) {
+	var cfg model.HostStoragePool
+	if model.DB == nil {
+		return cfg, false
+	}
+	if err := model.DB.Where("device_id = ?", deviceID).First(&cfg).Error; err != nil {
+		return cfg, false
+	}
+	return cfg, true
+}
+
+// ── 删除 Btrfs 存储池 ──
+
+// DeleteBtrfsPool 销毁指定 Btrfs 存储池：umount → 删 fstab → wipefs 成员盘 → 删 DB。
+func DeleteBtrfsPool(ctx context.Context, label string, progress func(int, string)) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fmt.Errorf("存储池名称不能为空")
+	}
+	deviceID := normalizeStorageDeviceID("btrfs-" + label)
+	cfg, ok := getConfigByDeviceID(deviceID)
+	if !ok {
+		return fmt.Errorf("Btrfs 存储池 %s 不存在", label)
+	}
+	mountPath := cfg.MountPath
+	switch strings.TrimSpace(mountPath) {
+	case "/", "/boot", "/boot/efi", "/usr", "/var", "/home":
+		return fmt.Errorf("Btrfs 存储池挂载于系统关键路径 %s，禁止删除", mountPath)
+	}
+
+	// 卸载前先拿到成员盘（卸载后按挂载点查不到）
+	devs := scanBtrfsDevices(mountPath)
+
+	progress(20, fmt.Sprintf("正在卸载 %s ...", mountPath))
+	if r := utils.ExecCommandContextWithTimeout(ctx, "umount", 1*time.Minute, mountPath); r.Error != nil {
+		return fmt.Errorf("卸载失败: %s", r.Stderr)
+	}
+
+	progress(50, "正在清理开机挂载配置...")
+	removeFstabEntryByMount(mountPath)
+
+	progress(75, "正在擦除成员盘文件系统签名...")
+	for _, dp := range devs {
+		utils.ExecCommandContextWithTimeout(ctx, "wipefs", 2*time.Minute, "-a", dp)
+	}
+
+	progress(90, "正在清理存储池配置...")
+	if model.DB != nil {
+		model.DB.Where("device_id = ?", deviceID).Delete(&model.HostStoragePool{})
+	}
+
+	progress(100, "Btrfs 存储池已删除")
+	return nil
+}
+
+// ── 扩容 Btrfs 存储池 ──
+
+// ExpandBtrfsPoolRequest 扩容请求。
+type ExpandBtrfsPoolRequest struct {
+	Label     string   `json:"label"`
+	DeviceIDs []string `json:"device_ids"` // 新加入的磁盘
+}
+
+// ExpandBtrfsPool 给已存在的 btrfs 池加盘扩容（btrfs device add）。同步执行。
+func ExpandBtrfsPool(label string, deviceIDs []string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fmt.Errorf("存储池名称不能为空")
+	}
+	if len(deviceIDs) == 0 {
+		return fmt.Errorf("至少需要选择一个物理磁盘")
+	}
+	deviceID := normalizeStorageDeviceID("btrfs-" + label)
+	cfg, ok := getConfigByDeviceID(deviceID)
+	if !ok {
+		return fmt.Errorf("Btrfs 存储池 %s 不存在", label)
+	}
+	if cfg.MountPath == "" {
+		return fmt.Errorf("Btrfs 存储池 %s 未配置挂载点", label)
+	}
+	devicePaths, err := validateAndCollectPVTargets(deviceIDs)
+	if err != nil {
+		return fmt.Errorf("校验磁盘失败: %w", err)
+	}
+	devicePaths = resolveStableDevicePaths(devicePaths, readStableDeviceAliases())
+
+	// btrfs device add <dev>... <path>
+	args := append([]string{"device", "add"}, devicePaths...)
+	args = append(args, cfg.MountPath)
+	ctx := context.Background()
+	if r := utils.ExecCommandContextWithTimeout(ctx, "btrfs", 2*time.Minute, args...); r.Error != nil {
+		return fmt.Errorf("btrfs device add 失败: %s", strings.TrimSpace(r.Stderr))
+	}
+	return nil
+}
