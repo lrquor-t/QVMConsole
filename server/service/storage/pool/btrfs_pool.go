@@ -1,12 +1,15 @@
 package pool
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"kvm_console/model"
 	"kvm_console/utils"
@@ -279,4 +282,207 @@ func buildBtrfsMemberRefNode(label, devPath string) *HostStoragePoolInfo {
 		Readonly:     true,
 		StatusReason: "Btrfs 存储池 " + label + " 成员盘",
 	}
+}
+
+// ── 创建 Btrfs 存储池 ──
+
+// CreateBtrfsPool 创建 Btrfs 存储池，按顺序执行：
+// 校验 → wipefs → mkfs.btrfs → device scan → blkid → fstab → mount → vm-disks(+chattr +C) → 权限 → 存库。
+func CreateBtrfsPool(ctx context.Context, req BtrfsPoolRequest, progress func(int, string)) error {
+	if err := validateBtrfsLabel(req.Label); err != nil {
+		return err
+	}
+	profile := normalizeBtrfsProfile(req.DataProfile)
+	if len(req.DeviceIDs) == 0 {
+		return fmt.Errorf("至少需要选择一个物理磁盘")
+	}
+	minDisks := btrfsProfileMinDisks(profile)
+	if len(req.DeviceIDs) < minDisks {
+		return fmt.Errorf("%s 至少需要 %d 块磁盘，当前选择 %d 块", btrfsProfileLabel(profile), minDisks, len(req.DeviceIDs))
+	}
+	compression := normalizeBtrfsCompression(req.Compression)
+	mountPath := strings.TrimSpace(req.MountPath)
+	if mountPath == "" {
+		mountPath = defaultStorageMountPath("btrfs-" + req.Label)
+	}
+	noCow := req.NoCowVMDisks
+	addFstab := req.AddFstab
+
+	// 1) 校验并收集设备路径（已拒绝 lvm/zfs/raid member 盘）
+	progress(5, "正在校验选中的磁盘...")
+	devicePaths, err := validateAndCollectPVTargets(req.DeviceIDs)
+	if err != nil {
+		return fmt.Errorf("校验磁盘失败: %w", err)
+	}
+	devicePaths = resolveStableDevicePaths(devicePaths, readStableDeviceAliases())
+
+	// 2) 名称冲突检查
+	progress(10, "检查存储池名称冲突...")
+	deviceID := normalizeStorageDeviceID("btrfs-" + req.Label)
+	if btrfsPoolConfigExists(deviceID) {
+		return fmt.Errorf("Btrfs 存储池 %s 已存在", req.Label)
+	}
+
+	// 3) 清旧标记
+	progress(20, "正在清理旧文件系统标记...")
+	for _, dp := range devicePaths {
+		utils.ExecCommandContextWithTimeout(ctx, "wipefs", 2*time.Minute, "-a", dp)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// 4) mkfs.btrfs
+	progress(35, fmt.Sprintf("正在创建 Btrfs 文件系统（%s）...", btrfsProfileLabel(profile)))
+	mkfsArgs := buildMkfsBtrfsArgs(req.Label, profile, devicePaths)
+	if r := utils.ExecCommandContextWithTimeout(ctx, "mkfs.btrfs", 10*time.Minute, mkfsArgs...); r.Error != nil {
+		return fmt.Errorf("mkfs.btrfs 失败: %s", r.Stderr)
+	}
+
+	// 5) device scan（多盘挂载前置；单盘也无害）
+	progress(45, "正在扫描 Btrfs 设备...")
+	scanArgs := append([]string{"device", "scan"}, devicePaths...)
+	utils.ExecCommandContextWithTimeout(ctx, "btrfs", 1*time.Minute, scanArgs...)
+
+	// 6) blkid 取 UUID（用首盘）
+	progress(55, "正在读取文件系统 UUID...")
+	blkid := utils.ExecCommandContextWithTimeout(ctx, "blkid", 30*time.Second, "-s", "UUID", "-o", "value", devicePaths[0])
+	if blkid.Error != nil || strings.TrimSpace(blkid.Stdout) == "" {
+		rollbackBtrfsPool(ctx, devicePaths, mountPath)
+		return fmt.Errorf("读取 Btrfs UUID 失败: %s", blkid.Stderr)
+	}
+	uuid := strings.TrimSpace(blkid.Stdout)
+
+	// 7) 挂载目录 + fstab
+	if err := os.MkdirAll(mountPath, 0755); err != nil {
+		rollbackBtrfsPool(ctx, devicePaths, mountPath)
+		return fmt.Errorf("创建挂载目录失败: %w", err)
+	}
+	if addFstab {
+		progress(65, "正在写入开机自动挂载配置...")
+		if err := ensureBtrfsFstabEntry(uuid, mountPath, compression); err != nil {
+			rollbackBtrfsPool(ctx, devicePaths, mountPath)
+			return err
+		}
+	}
+
+	// 8) mount（多盘池挂首盘即可，内核自动接入其余成员盘）
+	progress(75, "正在挂载 Btrfs 文件系统...")
+	var mountArgs []string
+	if compression != "off" {
+		mountArgs = []string{"-o", "compress=" + compression, devicePaths[0], mountPath}
+	} else {
+		mountArgs = []string{devicePaths[0], mountPath}
+	}
+	if r := utils.ExecCommandContextWithTimeout(ctx, "mount", 2*time.Minute, mountArgs...); r.Error != nil {
+		rollbackBtrfsPool(ctx, devicePaths, mountPath)
+		return fmt.Errorf("挂载失败: %s", r.Stderr)
+	}
+
+	// 9) vm-disks 目录 + chattr +C（目录为空时设置才生效）
+	progress(85, "正在创建虚拟机磁盘目录...")
+	vmDir := filepath.Join(mountPath, "vm-disks")
+	if err := ensureVMStorageDir(vmDir); err != nil {
+		rollbackBtrfsPool(ctx, devicePaths, mountPath)
+		return err
+	}
+	if noCow {
+		progress(88, "正在为 vm-disks 关闭 CoW（nodatacow）...")
+		if r := utils.ExecCommandContextWithTimeout(ctx, "chattr", 30*time.Second, "+C", vmDir); r.Error != nil {
+			// 非致命：仅性能影响
+			progress(88, fmt.Sprintf("警告: 设置 nodatacow 失败: %s", strings.TrimSpace(r.Stderr)))
+		}
+	}
+
+	// 10) 存库
+	progress(95, "正在保存存储池配置...")
+	cfg := model.HostStoragePool{DeviceID: deviceID}
+	if err := model.DB.Where("device_id = ?", deviceID).Assign(map[string]interface{}{
+		"display_name": req.Label,
+		"enabled":      true,
+		"mount_path":   mountPath,
+	}).FirstOrCreate(&cfg).Error; err != nil {
+		rollbackBtrfsPool(ctx, devicePaths, mountPath)
+		return fmt.Errorf("保存存储池配置失败: %w", err)
+	}
+
+	progress(100, "Btrfs 存储池创建完成")
+	return nil
+}
+
+// ensureBtrfsFstabEntry 写入/更新 btrfs 的 fstab 条目（支持 compress 挂载选项）。
+func ensureBtrfsFstabEntry(uuid, mountPath, compression string) error {
+	data, err := os.ReadFile("/etc/fstab")
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("读取 /etc/fstab 失败: %w", err)
+	}
+	options := "defaults,nofail"
+	if compression != "off" {
+		options = "defaults,nofail,compress=" + compression
+	}
+	line := fmt.Sprintf("UUID=%s %s btrfs %s 0 0", uuid, mountPath, options)
+	var lines []string
+	found := false
+	for _, existing := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(existing)
+		if trimmed == "" {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 && (fields[0] == "UUID="+uuid || fields[1] == mountPath) {
+			lines = append(lines, line)
+			found = true
+			continue
+		}
+		lines = append(lines, existing)
+	}
+	if !found {
+		lines = append(lines, line)
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile("/etc/fstab", []byte(content), 0644); err != nil {
+		return fmt.Errorf("写入 /etc/fstab 失败: %w", err)
+	}
+	return nil
+}
+
+// removeFstabEntryByMount 按 mountPath 删除 fstab 条目。
+func removeFstabEntryByMount(mountPath string) {
+	data, err := os.ReadFile("/etc/fstab")
+	if err != nil {
+		return
+	}
+	var lines []string
+	for _, existing := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(existing)
+		if trimmed == "" {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 && fields[1] == mountPath {
+			continue
+		}
+		lines = append(lines, existing)
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	_ = os.WriteFile("/etc/fstab", []byte(content), 0644)
+}
+
+// rollbackBtrfsPool 创建失败回滚：umount + 删 fstab + wipefs 成员盘。
+func rollbackBtrfsPool(ctx context.Context, devicePaths []string, mountPath string) {
+	utils.ExecCommandContextWithTimeout(ctx, "umount", 1*time.Minute, mountPath)
+	removeFstabEntryByMount(mountPath)
+	for _, dp := range devicePaths {
+		utils.ExecCommandQuietWithTimeout("wipefs", 1*time.Minute, "-a", dp)
+	}
+}
+
+// btrfsPoolConfigExists 检查 DB 中是否已存在该 deviceID 的配置。
+func btrfsPoolConfigExists(deviceID string) bool {
+	if model.DB == nil {
+		return false
+	}
+	var count int64
+	model.DB.Model(&model.HostStoragePool{}).Where("device_id = ?", deviceID).Count(&count)
+	return count > 0
 }
