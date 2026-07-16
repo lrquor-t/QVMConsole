@@ -147,7 +147,7 @@
               </div>
             </div>
             <div class="disk-group-actions">
-              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool">
+              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool && !disk.is_btrfs_pool">
                 <el-button size="small" plain @click="openConfig(disk)">配置</el-button>
                 <el-button size="small" plain type="primary" :disabled="!disk.can_use_for_vm || disk.is_default" @click="handleSetDefault(disk)">设为默认</el-button>
                 <el-button size="small" plain type="warning" :disabled="!disk.can_format" @click="openFormat(disk)">格式化挂载</el-button>
@@ -161,6 +161,10 @@
                 <el-button size="small" plain type="primary" @click="openZfsScrub(disk.name)">Scrub / 健康</el-button>
                 <el-button size="small" plain type="warning" @click="openZfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="success" @click="openCreateDataset(disk.name)">创建数据集</el-button>
+                <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
+              </template>
+              <template v-if="disk.is_btrfs_pool">
+                <el-button size="small" plain type="warning" @click="openBtrfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
             </div>
@@ -868,6 +872,8 @@
 
     <!-- ZFS 存储池扩容 对话框 -->
     <ZfsExpandDialog ref="zfsExpandDialogRef" @success="fetchData" />
+    <!-- Btrfs 存储池扩容 对话框 -->
+    <BtrfsExpandDialog ref="btrfsExpandDialogRef" @success="fetchData" />
   </div>
 </template>
 
@@ -879,6 +885,7 @@ import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, for
 import ZfsScrubDialog from '@/components/ZfsScrubDialog.vue'
 import ZfsPropertyDialog from '@/components/ZfsPropertyDialog.vue'
 import ZfsExpandDialog from '@/components/ZfsExpandDialog.vue'
+import BtrfsExpandDialog from '@/components/BtrfsExpandDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -903,6 +910,10 @@ const openZfsProperty = (dataset) => { zfsPropertyDialogRef.value?.open(dataset)
 const zfsExpandDialogRef = ref(null)
 const openZfsExpand = (disk) => {
   zfsExpandDialogRef.value?.open(disk.name, disk.expand_vdev_type)
+}
+const btrfsExpandDialogRef = ref(null)
+const openBtrfsExpand = (disk) => {
+  btrfsExpandDialogRef.value?.open(disk)
 }
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
@@ -1348,19 +1359,24 @@ const deletingVolume = ref(false)
 const deleteVolumeConfirmed = ref(false)
 const deletingVolumeDisk = ref(null)
 
-const deleteVolumeDialogTitle = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool ? '销毁 ZFS 存储池' : '删除存储卷'
-)
-const deleteVolumeWarning = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool
-    ? `此操作将销毁 ZFS 存储池「${deletingVolumeDisk.value?.name}」及其所有数据集，数据将不可恢复！`
-    : `此操作将删除卷组「${deletingVolumeDisk.value?.name}」及其所有逻辑卷和物理卷，数据将不可恢复！`
-)
-const deleteVolumeConfirmText = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool
-    ? '我确认要销毁该 ZFS 存储池及其所有数据集'
-    : '我确认要删除该卷组及其所有逻辑卷和物理卷'
-)
+const deleteVolumeDialogTitle = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return '销毁 ZFS 存储池'
+  if (d?.is_btrfs_pool) return '销毁 Btrfs 存储池'
+  return '删除存储卷'
+})
+const deleteVolumeWarning = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return `此操作将销毁 ZFS 存储池「${d?.name}」及其所有数据集，数据将不可恢复！`
+  if (d?.is_btrfs_pool) return `此操作将销毁 Btrfs 存储池「${d?.name}」并擦除成员盘数据，数据将不可恢复！`
+  return `此操作将删除卷组「${d?.name}」及其所有逻辑卷和物理卷，数据将不可恢复！`
+})
+const deleteVolumeConfirmText = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return '我确认要销毁该 ZFS 存储池及其所有数据集'
+  if (d?.is_btrfs_pool) return '我确认要销毁该 Btrfs 存储池并擦除成员盘'
+  return '我确认要删除该卷组及其所有逻辑卷和物理卷'
+})
 
 const openDeleteVolume = (disk) => {
   deletingVolumeDisk.value = disk
@@ -1376,6 +1392,9 @@ const submitDeleteVolume = async () => {
     if (disk.is_zfs_pool) {
       await deleteZFSPool(disk.name)
       ElMessage.success('销毁 ZFS 存储池任务已提交，请在任务中心查看进度')
+    } else if (disk.is_btrfs_pool) {
+      await deleteBtrfsPool(disk.name)
+      ElMessage.success('销毁 Btrfs 存储池任务已提交，请在任务中心查看进度')
     } else {
       await deleteLVMVolume(disk.name)
       ElMessage.success('删除 LVM 存储卷任务已提交，请在任务中心查看进度')
