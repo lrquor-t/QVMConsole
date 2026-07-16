@@ -86,6 +86,12 @@ func DetachContainerFromVPC(name string) error {
 	if err := model.DB.Where("name = ?", name).First(&row).Error; err == nil && row.VethName != "" && !seen[row.VethName] {
 		utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", bridge, row.VethName)
 	}
+	// 多网卡预建端口按稳定名清（停机态 veth 已无，上面的 findContainerHostVeth 可能漏）
+	if data, err := os.ReadFile(configPath(name)); err == nil {
+		if _, blocks := SplitNICBlocks(string(data)); len(blocks) > 0 {
+			cleanStablePorts(name, blocks)
+		}
+	}
 	model.DB.Where("vm_name = ? AND kind = ?", name, "lxc").Delete(&model.VPCVMBinding{})
 	return nil
 }
@@ -286,6 +292,14 @@ func preCreateContainerOVSPorts(name string, blocks map[int]map[string]string) {
 				utils.ExecCommandQuiet("ovs-vsctl", "set", "Port", pair, fmt.Sprintf("tag=%d", sw.VLANID))
 			}
 		}
+	}
+}
+
+// cleanStablePorts 按稳定名删容器各网卡所在桥的预建端口（销毁/删网卡用，停机态也能清）。
+func cleanStablePorts(name string, blocks map[int]map[string]string) {
+	bindings := lxcBindingsByOrder(name)
+	for o := range blocks {
+		utils.ExecCommandQuiet("ovs-vsctl", "--if-exists", "del-port", stablePortBridge(o, bindings), vethPairName(name, o))
 	}
 }
 
@@ -538,6 +552,11 @@ func RemoveContainerInterface(name string, order int, force bool) error {
 	// 运行中：热拔
 	if containerRunning(name) {
 		hotunplugNic(name, order)
+	} else {
+		// 停机态：删网卡会 CompactNICBlocks 重排 order → 剩余网卡稳定名（含 hash）变化，
+		// 清全部旧稳定端口防孤儿（下次 start 由 preCreateContainerOVSPorts 重建）。
+		// 运行态不清（会 del-port 在跑的其余网卡致断网），仅上面 hotunplugNic 清被删卡。
+		cleanStablePorts(name, blocks)
 	}
 	delete(blocks, order)
 	blocks = CompactNICBlocks(blocks)
