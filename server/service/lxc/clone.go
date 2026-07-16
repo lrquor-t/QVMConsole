@@ -193,16 +193,18 @@ func CloneFromSnapshot(params *CloneParams, progress func(int, string)) error {
 		return fmt.Errorf("保存容器记录失败: %w", err)
 	}
 
-	// 4) 自动开机 + 接入与源相同的 VPC + 回填运行态
+	// 4) 接入与源相同的 VPC（建绑定）+ 自动开机 + 回填运行态
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.DstName)
-	progress(80, "启动容器")
+	// 先建 VPC 绑定：随后的 StartContainer 内 preCreate/Reconcile 会按 sw.BridgeName 落到
+	// 正确桥（如 br0 直通桥）并打 tag；若建在启动之后，preCreate 读不到绑定会回退默认 br-ovs。
+	progress(80, "接入 VPC 网络")
+	if err := ensureLXCVPCBinding(params.DstName, switchID, sgID); err != nil {
+		logger.App.Warn("克隆容器 VPC 绑定失败", "name", params.DstName, "error", err)
+	}
+	progress(90, "启动容器")
 	if err := StartContainer(params.DstName); err != nil {
 		logger.App.Warn("克隆容器启动失败（已创建，保持停止态）", "name", params.DstName, "error", err)
-	}
-	progress(90, "接入 VPC 网络")
-	if err := AttachContainerToVPC(params.DstName, switchID, sgID); err != nil {
-		logger.App.Warn("克隆容器 VPC 接入失败", "name", params.DstName, "error", err)
 	}
 	_ = RefreshRuntimeFields(params.DstName)
 

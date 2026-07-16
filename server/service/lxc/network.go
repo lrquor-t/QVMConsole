@@ -19,10 +19,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// AttachContainerToVPC 建立 VPCVMBinding（Kind=lxc）并在容器启动后把 host veth
-// 接入 OVS 桥、打 VLAN tag。VLAN/ACL/带宽策略复用既有 VPC 运行时工具（见 Task 7 Step 1
-// 探查）：此处采用与 VM 路径一致的 `ovs-vsctl set Port <veth> tag=<vlan>` 直接表达。
-func AttachContainerToVPC(name string, switchID, sgID uint) error {
+// ensureLXCVPCBinding 为容器主网卡（order 0）建立/更新 VPCVMBinding（Kind=lxc），仅写绑定记录。
+// OVS 端口接入 / VLAN tag / 带宽 / 回填 veth 由 StartContainer 内的 preCreateContainerOVSPorts
+// + ReconcileContainerNICs 按绑定统一施加（与正常创建路径一致）。
+//
+// 必须在 StartContainer 之前调用：否则 preCreate 读不到绑定，stablePortBridge 会回退默认 br-ovs，
+// 导致直通桥（如 br0）容器落错桥。旧实现（启动后再 attach + 写死 br-ovs 桥）已移除。
+func ensureLXCVPCBinding(name string, switchID, sgID uint) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("容器名不能为空")
 	}
@@ -41,25 +44,6 @@ func AttachContainerToVPC(name string, switchID, sgID uint) error {
 		Assign(binding).FirstOrCreate(&binding).Error; err != nil {
 		return fmt.Errorf("写入 VPC 绑定失败: %w", err)
 	}
-	var sw model.VPCSwitch
-	if err := model.DB.First(&sw, switchID).Error; err != nil {
-		return fmt.Errorf("交换机不存在: %w", err)
-	}
-	veth := waitForVeth(name)
-	if veth == "" {
-		return fmt.Errorf("无法解析容器 %s 的 host veth", name)
-	}
-	bridge := config.GlobalConfig.OVSBridge
-	if bridge == "" {
-		bridge = "br-ovs"
-	}
-	// 接入 OVS 网关桥（端口可能已存在，--may-exist 保证幂等）。
-	utils.ExecCommandQuiet("ovs-vsctl", "--may-exist", "add-port", bridge, veth)
-	if err := setPortVLANTag(veth, sw); err != nil {
-		return err
-	}
-	// 回填 host veth 到缓存行。
-	model.DB.Model(&model.LXCCache{}).Where("name = ?", name).Update("veth_name", veth)
 	return nil
 }
 
@@ -115,11 +99,6 @@ func ownerOf(name string) string {
 		return row.OwnerUsername
 	}
 	return "admin"
-}
-
-// waitForVeth 解析容器 order0 网卡在 host 侧的 veth 名（按网络命名空间，非 MAC）。
-func waitForVeth(name string) string {
-	return findContainerHostVeth(name, 0)
 }
 
 // ReadVethCounters 读取 host veth 的累计 rx/tx 字节数（来自 sysfs）。
@@ -468,7 +447,7 @@ func AddContainerInterface(name string, req AddLXCInterfaceRequest) error {
 //   - 附加网卡：逐张写 config 块 + 绑定。
 //
 // 之后 StartContainer → lxc-start 按 config 一次性建出全部网卡，ReconcileContainerNICs（在
-// StartContainer 内）按绑定统一接 OVS/VLAN/限速（含主卡，替代旧的启动后 AttachContainerToVPC）。
+// StartContainer 内）按绑定统一接 OVS/VLAN/限速（含主卡）。
 // MAC 由 NICMAC(name,order) 确定性派生，不依赖运行态。任一附加网卡准备失败即返回错误（中止创建）。
 func PrepareContainerNICs(name string, switchID, sgID uint, extraNics []AddLXCInterfaceRequest) error {
 	if switchID != 0 {
