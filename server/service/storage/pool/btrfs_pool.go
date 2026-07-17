@@ -278,6 +278,8 @@ func buildBtrfsMemberRefNode(label, devPath string) *HostStoragePoolInfo {
 		DisplayName:  devPath,
 		DevicePath:   devPath,
 		Type:         "pv",
+		FSType:       "btrfs",
+		IsBTRFSPool:  true,
 		Size:         0,
 		Readonly:     true,
 		StatusReason: "Btrfs 存储池 " + label + " 成员盘",
