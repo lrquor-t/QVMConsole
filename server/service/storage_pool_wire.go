@@ -23,6 +23,7 @@ type BtrfsPoolRequest = pool.BtrfsPoolRequest
 type BtrfsScrubStatus = pool.BtrfsScrubStatus
 type BtrfsBalanceStatus = pool.BtrfsBalanceStatus
 type BtrfsBalanceStartReq = pool.BtrfsBalanceStartReq
+type BtrfsPropertyInfo = pool.BtrfsPropertyInfo
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -195,6 +196,15 @@ func BtrfsAvailable() bool {
 func GetBtrfsScrubStatus(mount string) (BtrfsScrubStatus, error) {
 	return pool.GetBtrfsScrubStatus(mount)
 }
+
+// GetBtrfsProperty delegates to pool.GetBtrfsProperty
+func GetBtrfsProperty(mount string) (BtrfsPropertyInfo, error) { return pool.GetBtrfsProperty(mount) }
+
+// SetBtrfsCompression delegates to pool.SetBtrfsCompression
+func SetBtrfsCompression(mount, algo string) error { return pool.SetBtrfsCompression(mount, algo) }
+
+// SetBtrfsNoCow delegates to pool.SetBtrfsNoCow
+func SetBtrfsNoCow(mount string, enabled bool) error { return pool.SetBtrfsNoCow(mount, enabled) }
 
 // StartBtrfsScrub delegates to pool.StartBtrfsScrub
 func StartBtrfsScrub(mount string) error { return pool.StartBtrfsScrub(mount) }

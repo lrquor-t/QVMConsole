@@ -166,6 +166,7 @@
               <template v-if="disk.is_btrfs_pool">
                 <el-button size="small" plain type="primary" @click="openBtrfsScrub(disk)">Scrub</el-button>
                 <el-button size="small" plain type="primary" @click="openBtrfsBalance(disk)">Balance</el-button>
+                <el-button size="small" plain type="success" @click="openBtrfsProperty(disk)">属性</el-button>
                 <el-button size="small" plain type="warning" @click="openBtrfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
@@ -880,6 +881,8 @@
     <BtrfsScrubDialog ref="btrfsScrubDialogRef" />
     <!-- Btrfs Balance / 在线改 RAID 对话框 -->
     <BtrfsBalanceDialog ref="btrfsBalanceDialogRef" />
+    <!-- Btrfs 属性（压缩 + CoW）对话框 -->
+    <BtrfsPropertyDialog ref="btrfsPropertyDialogRef" />
   </div>
 </template>
 
@@ -894,6 +897,7 @@ import ZfsExpandDialog from '@/components/ZfsExpandDialog.vue'
 import BtrfsExpandDialog from '@/components/BtrfsExpandDialog.vue'
 import BtrfsScrubDialog from '@/components/BtrfsScrubDialog.vue'
 import BtrfsBalanceDialog from '@/components/BtrfsBalanceDialog.vue'
+import BtrfsPropertyDialog from '@/components/BtrfsPropertyDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -931,6 +935,8 @@ const btrfsBalanceDialogRef = ref(null)
 const openBtrfsBalance = (disk) => {
   btrfsBalanceDialogRef.value?.open(disk.name || disk.btrfs_label)
 }
+const btrfsPropertyDialogRef = ref(null)
+const openBtrfsProperty = (disk) => { btrfsPropertyDialogRef.value?.open(disk.name || disk.btrfs_label) }
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
 const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))

@@ -234,3 +234,11 @@ export function pauseBtrfsBalance(label) {
 export function resumeBtrfsBalance(label) {
   return request({ url: '/storage-pool/btrfs-balance/resume', method: 'post', data: { label } })
 }
+
+// ── Btrfs 属性 ──
+export function getBtrfsProperty(label) {
+  return request({ url: '/storage-pool/btrfs-property', method: 'get', params: { label } })
+}
+export function setBtrfsProperty(data) {
+  return request({ url: '/storage-pool/btrfs-property', method: 'put', data })
+}

@@ -762,3 +762,55 @@ func PauseBtrfsBalanceH(c *gin.Context) {
 func ResumeBtrfsBalanceH(c *gin.Context) {
 	balanceControlH(c, "resume_btrfs_balance", service.ResumeBtrfsBalance)
 }
+
+// ── Btrfs 属性 ──
+
+// GetBtrfsPropertyH GET /api/storage-pool/btrfs-property?label=
+func GetBtrfsPropertyH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	info, err := service.GetBtrfsProperty(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	info.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": info})
+}
+
+// SetBtrfsPropertyH PUT /api/storage-pool/btrfs-property
+// body: { label, compression?, nocow? }（只带变更字段）
+func SetBtrfsPropertyH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "set_btrfs_property") {
+		return
+	}
+	var req struct {
+		Label       string `json:"label" binding:"required"`
+		Compression string `json:"compression"`
+		NoCow       *bool  `json:"nocow"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	cur, _ := service.GetBtrfsProperty(mount)
+	if req.Compression != "" && req.Compression != cur.Compression {
+		if err := service.SetBtrfsCompression(mount, req.Compression); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	if req.NoCow != nil && *req.NoCow != cur.NoCow {
+		if err := service.SetBtrfsNoCow(mount, *req.NoCow); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "属性已更新"})
+}
