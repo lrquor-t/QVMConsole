@@ -46,11 +46,24 @@ func PreflightBtrfsShrink(label, mount string, deviceIDs []string) ([]string, er
 	for _, m := range members {
 		memberSet[m] = true
 	}
-	devicePaths, err := validateAndCollectPVTargets(deviceIDs)
-	if err != nil {
-		return nil, fmt.Errorf("校验磁盘失败: %w", err)
+	// 成员盘校验由下方 memberSet 兜底：缩容操作的是已存在成员盘（只读引用节点），
+	// 不能用 validateAndCollectPVTargets（它校验的是新 PV 候选，且按归一化 pool.ID 解析会与
+	// 前端发来的裸 /dev/sdX 路径对不上）。这里只做 /dev/ 前缀净化，保持裸路径与
+	// scanBtrfsDevices/scanBtrfsDeviceUsage 的 key 一致。
+	devicePaths := make([]string, 0, len(deviceIDs))
+	for _, d := range deviceIDs {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if !strings.HasPrefix(d, "/dev/") {
+			return nil, fmt.Errorf("无效的设备路径: %s", d)
+		}
+		devicePaths = append(devicePaths, d)
 	}
-	devicePaths = resolveStableDevicePaths(devicePaths, readStableDeviceAliases())
+	if len(devicePaths) == 0 {
+		return nil, fmt.Errorf("至少选择一块要移除的盘")
+	}
 	for _, dp := range devicePaths {
 		if !memberSet[dp] {
 			return nil, fmt.Errorf("%s 不是该存储池的成员盘", dp)
