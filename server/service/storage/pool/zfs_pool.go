@@ -572,10 +572,10 @@ func scanZPoolTopology(pool string) (vdev string, members []string) {
 			continue
 		}
 		n := f[0]
-		if strings.HasPrefix(n, "/dev/") {
-			if !seen[n] {
-				seen[n] = true
-				members = append(members, n)
+		if m := normalizeZPoolMember(n, pool); m != "" {
+			if !seen[m] {
+				seen[m] = true
+				members = append(members, m)
 			}
 			continue
 		}
@@ -593,6 +593,38 @@ func scanZPoolTopology(pool string) (vdev string, members []string) {
 		}
 	}
 	return
+}
+
+// zfsDiskNameRe 匹配常见块设备裸名（sd/nvme/vd/hd/xvd/md/dm-），用于从 zpool status
+// 的裸设备名（如 "sda"，无 /dev/ 前缀）识别成员；pool 名（zp01/tank 等）不匹配。
+var zfsDiskNameRe = regexp.MustCompile(`^(sd[a-z]+[0-9]*|nvme[0-9]+n[0-9]+(p[0-9]+)?|vd[a-z]+[0-9]*|hd[a-z]+[0-9]*|xvd[a-z]+[0-9]*|md[0-9]+|dm-[0-9]+)$`)
+
+// normalizeZPoolMember 把 zpool status config 块里的成员 token 规范化为 /dev/ 路径。
+// 兼容裸名（"sda"→"/dev/sda"）与已有 /dev/ 路径；排除 pool 名、mirror-/raidz- 等 vdev 容器名。
+// 非成员返回空串。
+func normalizeZPoolMember(tok, poolName string) string {
+	t := strings.TrimSpace(tok)
+	if t == "" || t == poolName {
+		return ""
+	}
+	if strings.HasPrefix(t, "/dev/") {
+		return t
+	}
+	switch {
+	case strings.HasPrefix(t, "mirror-"),
+		strings.HasPrefix(t, "raidz1-"),
+		strings.HasPrefix(t, "raidz2-"),
+		strings.HasPrefix(t, "raidz3-"),
+		t == "spare",
+		t == "logs",
+		t == "cache",
+		t == "special":
+		return ""
+	}
+	if zfsDiskNameRe.MatchString(t) {
+		return "/dev/" + t
+	}
+	return ""
 }
 
 // scanZFSDatasets 扫描指定 zpool 下所有数据集。LXC 容器/模板数据集聚合为一个节点
@@ -670,14 +702,15 @@ func scanZFSDatasets(pool string) []ZFSDatasetInfo {
 func injectZFSTree(pools []HostStoragePoolInfo, zPools []ZPoolInfo, mounts map[string]findmntInfo,
 	dfUsage map[string]mountUsage, configs map[string]model.HostStoragePool) []HostStoragePoolInfo {
 
-	// 收集成员盘路径 → pool 名映射
-	memberToPool := make(map[string]string)
+	// 成员盘路径集合：从顶层树移除（整盘被 ZFS 独占却在顶层显示会困扰用户），
+	// 成员盘仍作为池节点的子节点（buildZFSMemberRefNode）展示。
+	memberPaths := make(map[string]bool)
 	for _, zp := range zPools {
 		for _, m := range zp.Members {
-			memberToPool[m] = zp.Name
+			memberPaths[m] = true
 		}
 	}
-	markZFSMemberNodes(pools, memberToPool)
+	pools = removeZFSMemberNodes(pools, memberPaths)
 
 	// 为每个 zpool 创建合成节点
 	for _, zp := range zPools {
@@ -719,21 +752,19 @@ func injectZFSTree(pools []HostStoragePoolInfo, zPools []ZPoolInfo, mounts map[s
 	return pools
 }
 
-// markZFSMemberNodes 标记属于 zpool 的成员盘节点：只读、容量清零、提示已加入 ZFS 存储池。
-func markZFSMemberNodes(pools []HostStoragePoolInfo, memberToPool map[string]string) {
-	for i := range pools {
-		if poolName, ok := memberToPool[pools[i].DevicePath]; ok {
-			pools[i].Readonly = true
-			pools[i].CanFormat = false
-			pools[i].CanUseForVM = false
-			pools[i].StatusReason = "已加入 ZFS 存储池 " + poolName
-			pools[i].Size = 0
-			pools[i].Used = 0
-			pools[i].Available = 0
-			pools[i].UsePercent = 0
+// removeZFSMemberNodes 从树中移除属于 zpool 的成员盘节点。
+// 整盘被 ZFS 独占却仍在顶层显示会困扰用户（像一块可用盘），故移除；
+// 成员盘仍作为池节点的子节点（buildZFSMemberRefNode）展示。
+func removeZFSMemberNodes(pools []HostStoragePoolInfo, memberPaths map[string]bool) []HostStoragePoolInfo {
+	result := make([]HostStoragePoolInfo, 0, len(pools))
+	for _, p := range pools {
+		if memberPaths[p.DevicePath] {
+			continue
 		}
-		markZFSMemberNodes(pools[i].Children, memberToPool)
+		p.Children = removeZFSMemberNodes(p.Children, memberPaths)
+		result = append(result, p)
 	}
+	return result
 }
 
 // buildZFSDatasetNode 构建 ZFS 数据集节点（可作为 VM 落盘位置）。
@@ -788,6 +819,8 @@ func buildZFSMemberRefNode(poolName, devPath string) *HostStoragePoolInfo {
 		DisplayName:  devPath,
 		DevicePath:   devPath,
 		Type:         "zmember",
+		FSType:       "zfs_member",
+		IsZFSPool:    true,
 		Size:         0,
 		Readonly:     true,
 		StatusReason: "ZFS 存储池 " + poolName + " 成员盘",
