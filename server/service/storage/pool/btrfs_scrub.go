@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"kvm_console/utils"
 )
@@ -163,4 +164,28 @@ func CancelBtrfsScrub(mount string) error {
 		return fmt.Errorf("取消 scrub 失败: %s", strings.TrimSpace(r.Stderr))
 	}
 	return nil
+}
+
+// ── 共用工具函数（balance/shrink preflight 复用） ──
+
+// freeBytesOfMount 取挂载点可用字节数。
+func freeBytesOfMount(mount string) int64 {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(mount, &stat); err != nil {
+		return 0
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize)
+}
+
+// humanBtrfsBytes 字节数 → btrfs 风格人类可读。
+func humanBtrfsBytes(b int64) string {
+	const k = 1024
+	u := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
+	f := float64(b)
+	i := 0
+	for f >= k && i < len(u)-1 {
+		f /= k
+		i++
+	}
+	return strconv.FormatFloat(f, 'f', 2, 64) + u[i]
 }

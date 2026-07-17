@@ -681,3 +681,84 @@ func CancelBtrfsScrubH(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已取消: " + req.Label})
 }
+
+// ── Btrfs Balance ──
+
+// GetBtrfsBalanceStatusH GET /api/storage-pool/btrfs-balance/status?label=
+func GetBtrfsBalanceStatusH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	status, err := service.GetBtrfsBalanceStatus(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	status.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
+}
+
+// StartBtrfsBalanceH POST /api/storage-pool/btrfs-balance/start
+func StartBtrfsBalanceH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "start_btrfs_balance") {
+		return
+	}
+	var req service.BtrfsBalanceStartReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	// 护栏预检：校验错→400，命令错→500
+	if err := service.PreflightBtrfsBalance(req.Label, mount, req.Mode, req.TargetProfile, req.Usage); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := service.StartBtrfsBalance(mount, req.Mode, req.TargetProfile, req.Usage); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "balance 已启动"})
+}
+
+// balanceControlH 取消/暂停/恢复 balance 的共用壳子（label 校验 + 高危确认 + 委派）。
+func balanceControlH(c *gin.Context, op string, fn func(string) error) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	if !requireHighRiskVerification(c, op) {
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := fn(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "balance 已" + map[string]string{"cancel_btrfs_balance": "取消", "pause_btrfs_balance": "暂停", "resume_btrfs_balance": "恢复"}[op]})
+}
+
+// CancelBtrfsBalanceH POST /api/storage-pool/btrfs-balance/cancel
+func CancelBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "cancel_btrfs_balance", service.CancelBtrfsBalance)
+}
+
+// PauseBtrfsBalanceH POST /api/storage-pool/btrfs-balance/pause
+func PauseBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "pause_btrfs_balance", service.PauseBtrfsBalance)
+}
+
+// ResumeBtrfsBalanceH POST /api/storage-pool/btrfs-balance/resume
+func ResumeBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "resume_btrfs_balance", service.ResumeBtrfsBalance)
+}

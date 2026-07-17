@@ -217,3 +217,20 @@ export function startBtrfsScrub(label) {
 export function cancelBtrfsScrub(label) {
   return request({ url: '/storage-pool/btrfs-scrub/cancel', method: 'post', data: { label } })
 }
+
+// ── Btrfs Balance ──
+export function getBtrfsBalanceStatus(label) {
+  return request({ url: '/storage-pool/btrfs-balance/status', method: 'get', params: { label } })
+}
+export function startBtrfsBalance(data) {
+  return request({ url: '/storage-pool/btrfs-balance/start', method: 'post', data })
+}
+export function cancelBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/cancel', method: 'post', data: { label } })
+}
+export function pauseBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/pause', method: 'post', data: { label } })
+}
+export function resumeBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/resume', method: 'post', data: { label } })
+}

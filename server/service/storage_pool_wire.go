@@ -21,6 +21,8 @@ type ZFSPoolRequest = pool.ZFSPoolRequest
 type ZPoolInfo = pool.ZPoolInfo
 type BtrfsPoolRequest = pool.BtrfsPoolRequest
 type BtrfsScrubStatus = pool.BtrfsScrubStatus
+type BtrfsBalanceStatus = pool.BtrfsBalanceStatus
+type BtrfsBalanceStartReq = pool.BtrfsBalanceStartReq
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -199,6 +201,30 @@ func StartBtrfsScrub(mount string) error { return pool.StartBtrfsScrub(mount) }
 
 // CancelBtrfsScrub delegates to pool.CancelBtrfsScrub
 func CancelBtrfsScrub(mount string) error { return pool.CancelBtrfsScrub(mount) }
+
+// GetBtrfsBalanceStatus delegates to pool.GetBtrfsBalanceStatus
+func GetBtrfsBalanceStatus(mount string) (BtrfsBalanceStatus, error) {
+	return pool.GetBtrfsBalanceStatus(mount)
+}
+
+// PreflightBtrfsBalance delegates to pool.PreflightBtrfsBalance
+func PreflightBtrfsBalance(label, mount, mode, target string, usage int) error {
+	return pool.PreflightBtrfsBalance(label, mount, mode, target, usage)
+}
+
+// StartBtrfsBalance delegates to pool.StartBtrfsBalance
+func StartBtrfsBalance(mount, mode, target string, usage int) error {
+	return pool.StartBtrfsBalance(mount, mode, target, usage)
+}
+
+// CancelBtrfsBalance delegates to pool.CancelBtrfsBalance
+func CancelBtrfsBalance(mount string) error { return pool.CancelBtrfsBalance(mount) }
+
+// PauseBtrfsBalance delegates to pool.PauseBtrfsBalance
+func PauseBtrfsBalance(mount string) error { return pool.PauseBtrfsBalance(mount) }
+
+// ResumeBtrfsBalance delegates to pool.ResumeBtrfsBalance
+func ResumeBtrfsBalance(mount string) error { return pool.ResumeBtrfsBalance(mount) }
 
 // ValidateBtrfsLabelExported delegates to pool.ValidateBtrfsLabelExported
 func ValidateBtrfsLabelExported(name string) error { return pool.ValidateBtrfsLabelExported(name) }
