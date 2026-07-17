@@ -164,10 +164,11 @@
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
               <template v-if="disk.is_btrfs_pool">
+                <el-button size="small" plain type="warning" @click="openBtrfsExpand(disk)">扩容</el-button>
+                <el-button size="small" plain type="warning" @click="openBtrfsShrink(disk)">缩容</el-button>
                 <el-button size="small" plain type="primary" @click="openBtrfsScrub(disk)">Scrub</el-button>
                 <el-button size="small" plain type="primary" @click="openBtrfsBalance(disk)">Balance</el-button>
                 <el-button size="small" plain type="success" @click="openBtrfsProperty(disk)">属性</el-button>
-                <el-button size="small" plain type="warning" @click="openBtrfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
             </div>
@@ -883,6 +884,8 @@
     <BtrfsBalanceDialog ref="btrfsBalanceDialogRef" />
     <!-- Btrfs 属性（压缩 + CoW）对话框 -->
     <BtrfsPropertyDialog ref="btrfsPropertyDialogRef" />
+    <!-- Btrfs 缩容移盘 对话框 -->
+    <BtrfsShrinkDialog ref="btrfsShrinkDialogRef" @success="fetchData" />
   </div>
 </template>
 
@@ -898,6 +901,7 @@ import BtrfsExpandDialog from '@/components/BtrfsExpandDialog.vue'
 import BtrfsScrubDialog from '@/components/BtrfsScrubDialog.vue'
 import BtrfsBalanceDialog from '@/components/BtrfsBalanceDialog.vue'
 import BtrfsPropertyDialog from '@/components/BtrfsPropertyDialog.vue'
+import BtrfsShrinkDialog from '@/components/BtrfsShrinkDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -927,6 +931,8 @@ const btrfsExpandDialogRef = ref(null)
 const openBtrfsExpand = (disk) => {
   btrfsExpandDialogRef.value?.open(disk)
 }
+const btrfsShrinkDialogRef = ref(null)
+const openBtrfsShrink = (disk) => { btrfsShrinkDialogRef.value?.open(disk) }
 const btrfsScrubDialogRef = ref(null)
 const openBtrfsScrub = (disk) => {
   btrfsScrubDialogRef.value?.open(disk.name || disk.btrfs_label)

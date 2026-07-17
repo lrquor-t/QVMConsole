@@ -650,6 +650,25 @@ func registerTaskHandlers() {
 		return fmt.Sprintf(`{"label":"%s"}`, params.Label), nil
 	})
 
+	// 缩容 Btrfs 存储池（移除成员盘）
+	taskqueue.RegisterHandler(model.TaskTypeStorageRemoveBtrfsDevice, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params struct {
+			Label     string   `json:"label"`
+			DeviceIDs []string `json:"device_ids"`
+		}
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析参数失败: %w", err)
+		}
+		cfg, ok := service.GetBtrfsConfigByLabel(params.Label)
+		if !ok || cfg.MountPath == "" {
+			return "", fmt.Errorf("Btrfs 存储池 %s 不存在或未挂载", params.Label)
+		}
+		if err := service.ShrinkBtrfsPool(ctx, params.Label, cfg.MountPath, params.DeviceIDs, progress); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(`{"label":"%s"}`, params.Label), nil
+	})
+
 	// 删除虚拟机任务
 	taskqueue.RegisterHandler(model.TaskTypeDelete, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
 		var params struct {

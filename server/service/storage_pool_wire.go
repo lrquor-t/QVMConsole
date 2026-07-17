@@ -187,6 +187,16 @@ func ExpandBtrfsPool(label string, deviceIDs []string) error {
 	return pool.ExpandBtrfsPool(label, deviceIDs)
 }
 
+// PreflightBtrfsShrink delegates to pool.PreflightBtrfsShrink
+func PreflightBtrfsShrink(label, mount string, deviceIDs []string) ([]string, error) {
+	return pool.PreflightBtrfsShrink(label, mount, deviceIDs)
+}
+
+// ShrinkBtrfsPool delegates to pool.ShrinkBtrfsPool
+func ShrinkBtrfsPool(ctx context.Context, label, mount string, deviceIDs []string, progress func(int, string)) error {
+	return pool.ShrinkBtrfsPool(ctx, label, mount, deviceIDs, progress)
+}
+
 // BtrfsAvailable delegates to pool.BtrfsAvailable
 func BtrfsAvailable() bool {
 	return pool.BtrfsAvailable()

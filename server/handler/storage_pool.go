@@ -814,3 +814,41 @@ func SetBtrfsPropertyH(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "属性已更新"})
 }
+
+// ── Btrfs 缩容移盘 ──
+
+// ShrinkBtrfsPoolH POST /api/storage-pool/btrfs-shrink  提交缩容任务。
+func ShrinkBtrfsPoolH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "shrink_btrfs_pool") {
+		return
+	}
+	var req struct {
+		Label     string   `json:"label" binding:"required"`
+		DeviceIDs []string `json:"device_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if len(req.DeviceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请选择要移除的成员盘"})
+		return
+	}
+	// 护栏前置预检（校验错→400），通过后提交任务
+	label, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if _, err := service.PreflightBtrfsShrink(label, mount, req.DeviceIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageRemoveBtrfsDevice, gin.H{"label": req.Label, "device_ids": req.DeviceIDs}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交缩容任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "缩容任务已提交", "data": gin.H{"task_id": task.ID}})
+}

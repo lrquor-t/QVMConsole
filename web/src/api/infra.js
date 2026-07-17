@@ -242,3 +242,8 @@ export function getBtrfsProperty(label) {
 export function setBtrfsProperty(data) {
   return request({ url: '/storage-pool/btrfs-property', method: 'put', data })
 }
+
+// ── Btrfs 缩容移盘 ──
+export function shrinkBtrfsPool(data) {
+  return request({ url: '/storage-pool/btrfs-shrink', method: 'post', data })
+}

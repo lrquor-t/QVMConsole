@@ -492,6 +492,7 @@ func Setup() *gin.Engine {
 				storagePool.POST("/btrfs-balance/resume", middleware.AdminMiddleware(), handler.ResumeBtrfsBalanceH)
 				storagePool.GET("/btrfs-property", middleware.AdminMiddleware(), handler.GetBtrfsPropertyH)
 				storagePool.PUT("/btrfs-property", middleware.AdminMiddleware(), handler.SetBtrfsPropertyH)
+				storagePool.POST("/btrfs-shrink", middleware.AdminMiddleware(), handler.ShrinkBtrfsPoolH)
 				storagePool.POST("/zfs-dataset", middleware.AdminMiddleware(), handler.CreateZFSDataset)
 				storagePool.DELETE("/zfs-dataset", middleware.AdminMiddleware(), handler.DeleteZFSDataset)
 				storagePool.GET("/zfs-scrub/status", middleware.AdminMiddleware(), handler.GetZFSScrubStatus)
