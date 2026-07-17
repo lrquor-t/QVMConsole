@@ -797,9 +797,9 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item label="vm-disks 关闭 CoW">
+          <el-form-item label="VM 磁盘性能优化">
             <el-switch v-model="btrfsForm.nocow_vm_disks" />
-            <span style="color: #999; font-size: 12px; margin-left: 8px;">关闭 CoW 提升虚拟机磁盘随机写性能（该目录不压缩、不快照）；给 LXC 用或需快照时可关闭</span>
+            <span style="color: #999; font-size: 12px; margin-left: 8px;">开启后对 vm-disks 关闭 CoW（nodatacow），提升虚拟机磁盘随机写性能，但该目录不压缩、不支持 btrfs 快照；若主要给 LXC 容器使用或需要快照，请关闭此项（保留 CoW）</span>
           </el-form-item>
           <el-form-item label="开机自动挂载">
             <el-switch v-model="btrfsForm.add_fstab" />
@@ -1052,7 +1052,7 @@ const volumeTypeHint = computed(() => {
     }
     return {
       type: 'info',
-      text: 'Btrfs 存储池：支持多设备（raid0/1/10）、透明压缩（zstd）与子卷。vm-disks 默认关闭 CoW 以提升虚拟机磁盘性能；主要给 LXC 使用或需要快照时可关闭该选项。',
+      text: 'Btrfs 存储池：支持多设备（raid0/1/10）、透明压缩（zstd）与子卷。默认开启「VM 磁盘性能优化」（对 vm-disks 关闭 CoW）以提升虚拟机磁盘性能；若该池主要给 LXC 使用或需要快照，可在下方关闭该项以保留 CoW。',
     }
   }
   return {
