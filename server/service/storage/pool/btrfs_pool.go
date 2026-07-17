@@ -585,3 +585,13 @@ func ExpandBtrfsPool(label string, deviceIDs []string) error {
 	}
 	return nil
 }
+
+// ── Scrub 用导出 helper ──
+
+// ValidateBtrfsLabelExported 导出版本，供 handler 包校验 label。
+func ValidateBtrfsLabelExported(name string) error { return validateBtrfsLabel(name) }
+
+// GetBtrfsConfigByLabel 按 label 取受管 btrfs 池的配置。
+func GetBtrfsConfigByLabel(label string) (model.HostStoragePool, bool) {
+	return getConfigByDeviceID(normalizeStorageDeviceID("btrfs-" + label))
+}

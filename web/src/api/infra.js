@@ -206,3 +206,14 @@ export function deleteBtrfsPool(label) {
 export function expandBtrfsPool(data) {
   return request({ url: '/storage-pool/expand-btrfs-pool', method: 'post', data })
 }
+
+// ── Btrfs Scrub ──
+export function getBtrfsScrubStatus(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/status', method: 'get', params: { label } })
+}
+export function startBtrfsScrub(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/start', method: 'post', data: { label } })
+}
+export function cancelBtrfsScrub(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/cancel', method: 'post', data: { label } })
+}

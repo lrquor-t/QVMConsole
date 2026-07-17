@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"kvm_console/model"
 	pool "kvm_console/service/storage/pool"
 )
 
@@ -19,6 +20,7 @@ type PVInfo = pool.PVInfo
 type ZFSPoolRequest = pool.ZFSPoolRequest
 type ZPoolInfo = pool.ZPoolInfo
 type BtrfsPoolRequest = pool.BtrfsPoolRequest
+type BtrfsScrubStatus = pool.BtrfsScrubStatus
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -185,6 +187,25 @@ func ExpandBtrfsPool(label string, deviceIDs []string) error {
 // BtrfsAvailable delegates to pool.BtrfsAvailable
 func BtrfsAvailable() bool {
 	return pool.BtrfsAvailable()
+}
+
+// GetBtrfsScrubStatus delegates to pool.GetBtrfsScrubStatus
+func GetBtrfsScrubStatus(mount string) (BtrfsScrubStatus, error) {
+	return pool.GetBtrfsScrubStatus(mount)
+}
+
+// StartBtrfsScrub delegates to pool.StartBtrfsScrub
+func StartBtrfsScrub(mount string) error { return pool.StartBtrfsScrub(mount) }
+
+// CancelBtrfsScrub delegates to pool.CancelBtrfsScrub
+func CancelBtrfsScrub(mount string) error { return pool.CancelBtrfsScrub(mount) }
+
+// ValidateBtrfsLabelExported delegates to pool.ValidateBtrfsLabelExported
+func ValidateBtrfsLabelExported(name string) error { return pool.ValidateBtrfsLabelExported(name) }
+
+// GetBtrfsConfigByLabel delegates to pool.GetBtrfsConfigByLabel
+func GetBtrfsConfigByLabel(label string) (model.HostStoragePool, bool) {
+	return pool.GetBtrfsConfigByLabel(label)
 }
 
 // ── Unexported delegates (used internally by service root package) ──

@@ -604,3 +604,80 @@ func ExpandBtrfsPool(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "存储池 " + req.Label + " 已扩容"})
 }
+
+// ── Btrfs Scrub ──
+
+// resolveBtrfsMountByLabel 从 query/body 的 label 解析出 btrfs 池挂载点。
+// 复用于所有 btrfs 运维 handler。
+func resolveBtrfsMountByLabel(c *gin.Context, label string) (string, string, bool) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 label 参数"})
+		return "", "", false
+	}
+	if err := service.ValidateBtrfsLabelExported(label); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return "", "", false
+	}
+	cfg, ok := service.GetBtrfsConfigByLabel(label)
+	if !ok || cfg.MountPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Btrfs 存储池 " + label + " 不存在或未挂载"})
+		return "", "", false
+	}
+	return label, cfg.MountPath, true
+}
+
+// GetBtrfsScrubStatusH GET /api/storage-pool/btrfs-scrub/status?label=
+func GetBtrfsScrubStatusH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	status, err := service.GetBtrfsScrubStatus(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	status.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
+}
+
+// StartBtrfsScrubH POST /api/storage-pool/btrfs-scrub/start
+func StartBtrfsScrubH(c *gin.Context) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := service.StartBtrfsScrub(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已启动: " + req.Label})
+}
+
+// CancelBtrfsScrubH POST /api/storage-pool/btrfs-scrub/cancel
+func CancelBtrfsScrubH(c *gin.Context) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := service.CancelBtrfsScrub(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已取消: " + req.Label})
+}
