@@ -1042,7 +1042,7 @@ const volumeTypeHint = computed(() => {
       return { type: 'warning', text: 'ZFS 存储池：' + (zfsUnavailableReason.value || '宿主机未安装 zfsutils-linux，无法创建。') }
     }
     return {
-      type: 'success',
+      type: 'info',
       text: 'ZFS 存储池：基于多块磁盘构建镜像或 RAIDZ 阵列，自带压缩、数据校验与自愈能力，数据安全性高，适合存放重要数据。',
     }
   }
@@ -1051,7 +1051,7 @@ const volumeTypeHint = computed(() => {
       return { type: 'warning', text: 'Btrfs 存储池：' + (btrfsUnavailableReason.value || '宿主机未安装 btrfs-progs，无法创建。') }
     }
     return {
-      type: 'success',
+      type: 'info',
       text: 'Btrfs 存储池：支持多设备（raid0/1/10）、透明压缩（zstd）与子卷。vm-disks 默认关闭 CoW 以提升虚拟机磁盘性能；主要给 LXC 使用或需要快照时可关闭该选项。',
     }
   }
