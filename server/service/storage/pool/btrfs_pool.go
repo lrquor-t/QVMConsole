@@ -180,14 +180,15 @@ func ListBtrfsPools(configs map[string]model.HostStoragePool) []BtrfsPoolInfo {
 func injectBtrfsTree(pools []HostStoragePoolInfo, bPools []BtrfsPoolInfo,
 	dfUsage map[string]mountUsage, configs map[string]model.HostStoragePool) []HostStoragePoolInfo {
 
-	// 成员盘路径 → label
-	memberToLabel := make(map[string]string)
+	// 成员盘路径集合：从顶层树移除（btrfs 成员盘 lsblk fstype 可能为空或带 label，
+	// 保留在顶层会与池节点重名或被误判为未分配）。成员盘仍作为池节点子节点展示。
+	memberPaths := make(map[string]bool)
 	for _, bp := range bPools {
 		for _, m := range bp.Devices {
-			memberToLabel[m] = bp.Label
+			memberPaths[m] = true
 		}
 	}
-	markBtrfsMemberNodes(pools, memberToLabel)
+	pools = removeBtrfsMemberNodes(pools, memberPaths)
 
 	for _, bp := range bPools {
 		deviceID := normalizeStorageDeviceID("btrfs-" + bp.Label)
@@ -252,21 +253,20 @@ func injectBtrfsTree(pools []HostStoragePoolInfo, bPools []BtrfsPoolInfo,
 	return pools
 }
 
-// markBtrfsMemberNodes 标记属于受管 btrfs 池的成员盘节点：只读、容量清零。
-func markBtrfsMemberNodes(pools []HostStoragePoolInfo, memberToLabel map[string]string) {
-	for i := range pools {
-		if label, ok := memberToLabel[pools[i].DevicePath]; ok {
-			pools[i].Readonly = true
-			pools[i].CanFormat = false
-			pools[i].CanUseForVM = false
-			pools[i].StatusReason = "已加入 Btrfs 存储池 " + label
-			pools[i].Size = 0
-			pools[i].Used = 0
-			pools[i].Available = 0
-			pools[i].UsePercent = 0
+// removeBtrfsMemberNodes 从树中移除受管 btrfs 池的成员盘节点。
+// btrfs 成员盘在 lsblk 中 fstype 可能为空（非主成员，如扩容加入的盘）或带 label（主成员），
+// 若保留在顶层会与池节点重名（label 冲突）或被误判为未分配（fstype 空），故移除；
+// 成员盘仍作为池节点的子节点（buildBtrfsMemberRefNode）展示。
+func removeBtrfsMemberNodes(pools []HostStoragePoolInfo, memberPaths map[string]bool) []HostStoragePoolInfo {
+	result := make([]HostStoragePoolInfo, 0, len(pools))
+	for _, p := range pools {
+		if memberPaths[p.DevicePath] {
+			continue
 		}
-		markBtrfsMemberNodes(pools[i].Children, memberToLabel)
+		p.Children = removeBtrfsMemberNodes(p.Children, memberPaths)
+		result = append(result, p)
 	}
+	return result
 }
 
 // buildBtrfsMemberRefNode 构建 Btrfs 成员盘引用节点（仅展示层级，不可操作）。
