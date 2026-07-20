@@ -125,3 +125,50 @@ func DeleteContainerPortForward(name string, id int) error {
 	}
 	return netpkg.DeletePortForward(id) // service/network/port_forward.go:462
 }
+
+// BuildLXCOwnerByIP 构建 LXC 容器 "IP -> (容器名 + 属主)" 映射，
+// 供 service/network.buildPortForwardTargetInfoMap 回填 LXC 规则的 vm_name/owner_username。
+//
+// 数据源（与 collectContainerIPs 对齐，保证单容器视角与全局列表视角一致）：
+//  1. LXCCache.CachedIP —— 运行态缓存 IP（最贴近当前转发目标，优先）
+//  2. VPCVMBinding{Kind:"lxc"} —— 按 SwitchID + 网卡 MAC 反查 dhcp-hosts 绑定的静态 IP
+//     （兼容容器重启后 IP 变化，历史规则仍指向旧 IP 时也能正确归属）
+//
+// 同一 IP 已被前序源填则跳过；最终合并进 targetMap 时也遵循 "IP 已存在则跳过" 的语义，
+// 因此 VM/静态/手动绑定优先于 LXC。
+func BuildLXCOwnerByIP() map[string]netpkg.PortForwardOwnerInfo {
+	out := make(map[string]netpkg.PortForwardOwnerInfo)
+	if model.DB == nil {
+		return out
+	}
+	set := func(ip, name, owner string) {
+		ip = strings.TrimSpace(ip)
+		name = strings.TrimSpace(name)
+		if ip == "" || name == "" {
+			return
+		}
+		if _, exists := out[ip]; exists {
+			return
+		}
+		out[ip] = netpkg.PortForwardOwnerInfo{VMName: name, OwnerUsername: strings.TrimSpace(owner)}
+	}
+
+	// 1. LXCCache.CachedIP（运行 IP）
+	var caches []model.LXCCache
+	if err := model.DB.Find(&caches).Error; err == nil {
+		for _, c := range caches {
+			set(c.CachedIP, c.Name, c.OwnerUsername)
+		}
+	}
+
+	// 2. VPCVMBinding{Kind:"lxc"} -> 静态绑定 IP
+	var bindings []model.VPCVMBinding
+	if err := model.DB.Where("kind = ?", "lxc").Find(&bindings).Error; err == nil {
+		for _, b := range bindings {
+			mac := NICMAC(b.VMName, b.InterfaceOrder)
+			set(GetVPCStaticIPByMACExported(b.SwitchID, mac), b.VMName, b.Username)
+		}
+	}
+
+	return out
+}
