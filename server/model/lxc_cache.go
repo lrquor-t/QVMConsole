@@ -31,3 +31,9 @@ type LXCCache struct {
 }
 
 func (LXCCache) TableName() string { return "lxc_containers" }
+
+// UpdateLXCCacheHealthStatus 更新容器聚合健康状态。
+func UpdateLXCCacheHealthStatus(name, status string, at time.Time) error {
+	return DB.Model(&LXCCache{}).Where("name = ?", name).
+		Updates(map[string]interface{}{"health_status": status, "last_health_at": at}).Error
+}

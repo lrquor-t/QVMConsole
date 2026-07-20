@@ -73,3 +73,14 @@ func DeleteLXCHealthCheck(id uint) error {
 func DeleteLXCHealthChecksByContainer(name string) error {
 	return DB.Where("name = ?", name).Delete(&LXCHealthCheck{}).Error
 }
+
+// UpdateLXCHealthCheckResult 写最近一次检查结果。
+func UpdateLXCHealthCheckResult(id uint, status string, latencyMs int, errMsg string, at time.Time) error {
+	return DB.Model(&LXCHealthCheck{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"last_status":     status,
+			"last_latency_ms": latencyMs,
+			"last_error":      errMsg,
+			"last_checked_at": at,
+		}).Error
+}
