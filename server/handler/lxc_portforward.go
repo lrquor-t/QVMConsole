@@ -64,6 +64,9 @@ func AddLXCPortForward(c *gin.Context) {
 
 // DeleteLXCPortForward 删除端口映射（service 层校验规则归属，防误删他者规则）。
 func DeleteLXCPortForward(c *gin.Context) {
+	if !requireHighRiskVerification(c, "delete_port_forward") {
+		return
+	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "id 参数错误"})
