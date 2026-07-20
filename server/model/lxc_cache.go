@@ -20,6 +20,8 @@ type LXCCache struct {
 	MacAddress     string    `json:"mac_address" gorm:"size:64"`
 	VethName       string    `json:"veth_name" gorm:"size:64"` // host 侧 veth（运行态解析回填）
 	CachedIP       string    `json:"cached_ip" gorm:"size:64"`
+	HealthStatus   string    `json:"health_status" gorm:"size:16;index"` // healthy/degraded/unhealthy/unknown
+	LastHealthAt   time.Time `json:"last_health_at" gorm:"index"`
 	BandwidthIn    int       `json:"bandwidth_in"`
 	BandwidthOut   int       `json:"bandwidth_out"`
 	Present        bool      `json:"present" gorm:"index;not null;default:true"`
