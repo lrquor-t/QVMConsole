@@ -20,6 +20,7 @@ const (
 	healthAggHealthy      = "healthy"
 	healthAggDegraded     = "degraded"
 	healthAggUnhealthy    = "unhealthy"
+	healthAggUnknown      = "unknown"
 )
 
 // ProbeHealthCheck 执行单条检查。容器未运行/无 IP 时返回 unknown。
@@ -118,31 +119,37 @@ type healthProbeResult struct {
 	Status   string
 }
 
-// AggregateHealth 按四色规则聚合：全过=healthy；仅非critical失败=degraded；critical失败或全挂=unhealthy；无规则=unhealthy。
-// 注意：无启用规则的 unknown 由调用方（RunHealthCheckForContainer）判定，此处不返回 unknown。
+// AggregateHealth 按四色规则聚合：全过=healthy；仅非critical失败=degraded；
+// critical失败或全部失败=unhealthy；全 unknown（容器停机/无 IP）=unknown。
+// 注意：无启用规则的 unknown 由调用方（RunHealthCheckForContainer）在调用前判定。
 func AggregateHealth(results []healthProbeResult) string {
 	if len(results) == 0 {
-		return healthAggUnhealthy // 无启用规则由调用方判定 unknown；有规则但全 unknown 视为 unhealthy
+		return healthAggUnhealthy
 	}
-	anyFailed, anyCriticalFailed := false, false
+	anyHealthy, anyFailed, anyCriticalFailed := false, false, false
 	for _, r := range results {
 		switch r.Status {
 		case healthStatusHealthy:
-			// pass
+			anyHealthy = true
 		case healthStatusUnhealthy:
 			anyFailed = true
 			if r.Critical {
 				anyCriticalFailed = true
 			}
+		// healthStatusUnknown: counts as neither healthy nor failed
 		}
 	}
 	switch {
-	case !anyFailed:
-		return healthAggHealthy
+	case !anyHealthy && !anyFailed:
+		return healthAggUnknown // 全 unknown（容器停机/无 IP）
 	case anyCriticalFailed:
 		return healthAggUnhealthy
+	case !anyHealthy:
+		return healthAggUnhealthy // 全部失败（无 healthy 项）
+	case anyFailed:
+		return healthAggDegraded // 仅非 critical 失败，但有 healthy 项
 	default:
-		return healthAggDegraded // 仅非 critical 失败
+		return healthAggHealthy
 	}
 }
 
