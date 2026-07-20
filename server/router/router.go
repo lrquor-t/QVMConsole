@@ -297,6 +297,11 @@ func Setup() *gin.Engine {
 				lxcGroup.PUT("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.UpdateLXCInterface)
 				lxcGroup.DELETE("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.RemoveLXCInterface)
 
+				// LXC 端口映射（复用 VM iptables DNAT；owner 可自查/增删，配额走 max_port_forwards）
+				lxcGroup.GET("/:name/port-forwards", handler.ListLXCPortForwards)
+				lxcGroup.POST("/:name/port-forwards", handler.AddLXCPortForward)
+				lxcGroup.DELETE("/:name/port-forwards/:id", handler.DeleteLXCPortForward)
+
 				// LXC 模板（仅管理员）
 				lxcTmpl := lxcGroup.Group("/template")
 				lxcTmpl.Use(middleware.AdminMiddleware())

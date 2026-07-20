@@ -6,6 +6,7 @@ import (
 	"kvm_console/model"
 	"kvm_console/service/lxc"
 	"kvm_console/service/lxc/zfsbacking"
+	netpkg "kvm_console/service/network"
 )
 
 // LXCSyncContainerCache 同步 LXC 容器缓存。
@@ -299,4 +300,24 @@ func LXCAddMount(name string, m lxc.LXCMount) error {
 // LXCDeleteMount 按 target 删除一条目录挂载。
 func LXCDeleteMount(name, target string) error {
 	return lxc.DeleteMount(name, target)
+}
+
+// ── LXC 端口映射（复用 VM iptables DNAT 链路）──
+
+// LXCPortForwardRequest 透出 lxc.PortForwardRequest，便于 handler 只依赖 service 包。
+type LXCPortForwardRequest = lxc.PortForwardRequest
+
+// LXCListPortForwards 列出容器关联的端口转发规则（按容器所有可能 IP 过滤）。
+func LXCListPortForwards(name string) ([]netpkg.PortForwardRule, error) {
+	return lxc.ListContainerPortForwards(name)
+}
+
+// LXCAddPortForward 给容器新增端口转发（自动填容器 IP；HostPort 留空自动分配）。
+func LXCAddPortForward(name string, req lxc.PortForwardRequest, createdBy string, isAdmin bool) error {
+	return lxc.AddContainerPortForward(name, req, createdBy, isAdmin)
+}
+
+// LXCDeletePortForward 删除容器的一条端口转发（校验归属，避免误删其他容器/VM 规则）。
+func LXCDeletePortForward(name string, id int) error {
+	return lxc.DeleteContainerPortForward(name, id)
 }
