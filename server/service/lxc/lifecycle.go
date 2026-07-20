@@ -7,6 +7,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/model"
+	netpkg "kvm_console/service/network"
 	"kvm_console/utils"
 )
 
@@ -57,6 +58,12 @@ func UnfreezeContainer(name string) error {
 
 // DestroyContainer 先停后删，并清理缓存行与 VPC 绑定。
 func DestroyContainer(name string) error {
+	// 先清理指向该容器全部 IP 的端口转发规则（运行 IP + VPC 静态绑定 IP）。
+	// 必须在 DetachContainerFromVPC 删 binding 前取 IP，否则静态绑定 IP 将查不到。
+	// 与 VM 删除路径（clone/delete.go:64）一致：best-effort，不阻断删除。
+	for _, ip := range collectContainerIPs(name) {
+		netpkg.RemovePortForwardsForIP(ip)
+	}
 	// 先解除 VPC 接入（删 OVS 端口、清理绑定），再删除容器。
 	_ = DetachContainerFromVPC(name)
 	// 先停后删
