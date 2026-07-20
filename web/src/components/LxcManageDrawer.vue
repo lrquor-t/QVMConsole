@@ -75,6 +75,15 @@
             :name="currentName"
           />
         </el-tab-pane>
+        <el-tab-pane name="portforward" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><Promotion /></el-icon> 端口映射</span>
+          </template>
+          <LxcPortForwardPanel
+            v-if="visible && currentName && activeTab === 'portforward'"
+            :container-name="currentName"
+          />
+        </el-tab-pane>
         <el-tab-pane name="monitor" lazy>
           <template #label>
             <span class="lxc-tab-label"><el-icon><TrendCharts /></el-icon> 监控</span>
@@ -110,11 +119,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files, Document } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files, Document, Promotion } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcConfigFilePanel from './LxcConfigFilePanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
+import LxcPortForwardPanel from './LxcPortForwardPanel.vue'
 import LxcMonitorPanel from './LxcMonitorPanel.vue'
 import LxcSchedulePanel from './LxcSchedulePanel.vue'
 import LxcMountPanel from './LxcMountPanel.vue'

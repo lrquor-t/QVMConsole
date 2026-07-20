@@ -259,3 +259,19 @@ export function deleteLXCConfigFileBackup(name, bak) {
 export function getLXCConfigFileBackup(name, bak) {
   return request({ url: `/lxc/${name}/config-file/backups/${bak}`, method: 'get' })
 }
+
+// ==================== LXC 端口映射 ====================
+// 列表（按容器所有可能 IP 过滤全局规则；后端自动回填 vm_name/owner）
+export function getLXCPortForwards(name) {
+  return request({ url: `/lxc/${name}/port-forwards`, method: 'get' })
+}
+
+// 新增（host_port 留空自动分配；data: { host_port, vm_port, protocol, comment? }）
+export function addLXCPortForward(name, data) {
+  return request({ url: `/lxc/${name}/port-forwards`, method: 'post', data })
+}
+
+// 删除（后端 requireHighRiskVerification，二次验证由全局 axios 拦截器触发）
+export function deleteLXCPortForward(name, id) {
+  return request({ url: `/lxc/${name}/port-forwards/${id}`, method: 'delete' })
+}
