@@ -46,3 +46,13 @@ func ListAllLXCCaches() ([]LXCCache, error) {
 	}
 	return list, nil
 }
+
+// GetLXCCacheByName 取指定容器的缓存投影（含聚合 HealthStatus）。
+// handler 读聚合健康用；不存在返 gorm.ErrRecordNotFound。
+func GetLXCCacheByName(name string) (*LXCCache, error) {
+	var c LXCCache
+	if err := DB.Where("name = ?", name).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}

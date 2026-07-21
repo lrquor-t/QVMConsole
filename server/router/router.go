@@ -302,6 +302,14 @@ func Setup() *gin.Engine {
 				lxcGroup.POST("/:name/port-forwards", handler.AddLXCPortForward)
 				lxcGroup.DELETE("/:name/port-forwards/:id", handler.DeleteLXCPortForward)
 
+				// LXC 健康检查（规则 CRUD + 聚合状态 + 手动探测；script 类型在 handler 内限管理员）
+				lxcGroup.GET("/:name/health-checks", handler.ListLXCHealthChecks)
+				lxcGroup.POST("/:name/health-checks", handler.AddLXCHealthCheck)
+				lxcGroup.PUT("/:name/health-checks/:id", handler.UpdateLXCHealthCheck)
+				lxcGroup.DELETE("/:name/health-checks/:id", handler.DeleteLXCHealthCheck)
+				lxcGroup.GET("/:name/health", handler.GetLXCHealth)
+				lxcGroup.POST("/:name/health/probe", handler.ProbeLXCHealth)
+
 				// LXC 模板（仅管理员）
 				lxcTmpl := lxcGroup.Group("/template")
 				lxcTmpl.Use(middleware.AdminMiddleware())

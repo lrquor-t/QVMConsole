@@ -332,3 +332,44 @@ func LXCAddPortForward(name string, req lxc.PortForwardRequest, createdBy string
 func LXCDeletePortForward(name string, id int) error {
 	return lxc.DeleteContainerPortForward(name, id)
 }
+
+// ── LXC 健康检查（规则 CRUD + 手动探测 + 聚合状态查询）──
+
+// LXCListHealthChecks 列出容器全部健康检查规则。
+func LXCListHealthChecks(name string) ([]model.LXCHealthCheck, error) {
+	return model.ListLXCHealthChecksByContainer(name)
+}
+
+// LXCCreateHealthCheck 创建健康检查规则。
+func LXCCreateHealthCheck(h *model.LXCHealthCheck) error {
+	return model.CreateLXCHealthCheck(h)
+}
+
+// LXCGetHealthCheck 取容器下指定规则（按 id+container 校验归属）。
+func LXCGetHealthCheck(id uint, name string) (*model.LXCHealthCheck, error) {
+	return model.GetLXCHealthCheckByIDAndContainer(id, name)
+}
+
+// LXCUpdateHealthCheck 保存健康检查规则。
+func LXCUpdateHealthCheck(h *model.LXCHealthCheck) error {
+	return model.UpdateLXCHealthCheck(h)
+}
+
+// LXCDeleteHealthCheck 删除单条规则（按 id+container 校验归属，避免误删他者规则）。
+func LXCDeleteHealthCheck(id uint, name string) error {
+	h, err := model.GetLXCHealthCheckByIDAndContainer(id, name)
+	if err != nil {
+		return err
+	}
+	return model.DeleteLXCHealthCheck(h.ID)
+}
+
+// LXCRunHealthProbe 立即探测一次容器健康（写各项结果 + 聚合状态），返回聚合状态。
+func LXCRunHealthProbe(name string) (string, error) {
+	return lxc.RunHealthCheckForContainer(name)
+}
+
+// LXCGetCacheByName 取容器缓存行（含聚合 HealthStatus）。GetLXCHealth handler 用。
+func LXCGetCacheByName(name string) (*model.LXCCache, error) {
+	return model.GetLXCCacheByName(name)
+}
