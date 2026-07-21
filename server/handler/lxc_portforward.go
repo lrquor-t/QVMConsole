@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"kvm_console/service"
+	"kvm_console/service/lxc"
 	netservice "kvm_console/service/network"
 )
 
@@ -73,6 +75,10 @@ func DeleteLXCPortForward(c *gin.Context) {
 		return
 	}
 	if err := service.LXCDeletePortForward(c.Param("name"), id); err != nil {
+		if errors.Is(err, lxc.ErrPortForwardNotOwned) {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

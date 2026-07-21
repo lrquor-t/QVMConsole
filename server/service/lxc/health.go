@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"kvm_console/logger"
 	"kvm_console/model"
 )
 
@@ -171,7 +172,9 @@ func RunHealthCheckForContainer(name string) (string, error) {
 	}
 
 	if len(enabled) == 0 {
-		_ = model.UpdateLXCCacheHealthStatus(name, healthStatusUnknown, now) // 见 model/lxc_cache.go
+		if err := model.UpdateLXCCacheHealthStatus(name, healthStatusUnknown, now); err != nil { // 见 model/lxc_cache.go
+			logger.App.Warn("健康检查写入聚合状态失败", "name", name, "error", err)
+		}
 		return healthStatusUnknown, nil
 	}
 
@@ -180,10 +183,14 @@ func RunHealthCheckForContainer(name string) (string, error) {
 		c := enabled[i]
 		status, latency, msg := ProbeHealthCheck(&c, ip)
 		results = append(results, healthProbeResult{Critical: c.Critical, Status: status})
-		_ = model.UpdateLXCHealthCheckResult(c.ID, status, latency, msg, now) // 见 model/lxc_health_check.go
+		if err := model.UpdateLXCHealthCheckResult(c.ID, status, latency, msg, now); err != nil { // 见 model/lxc_health_check.go
+			logger.App.Warn("健康检查写入单项结果失败", "name", name, "id", c.ID, "error", err)
+		}
 	}
 
 	agg := AggregateHealth(results)
-	_ = model.UpdateLXCCacheHealthStatus(name, agg, now)
+	if err := model.UpdateLXCCacheHealthStatus(name, agg, now); err != nil {
+		logger.App.Warn("健康检查写入聚合状态失败", "name", name, "error", err)
+	}
 	return agg, nil
 }

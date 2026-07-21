@@ -18,6 +18,10 @@ type PortForwardRequest struct {
 	Comment  string `json:"comment"`
 }
 
+// ErrPortForwardNotOwned 表示端口转发规则不属于该容器（删除时归属校验失败）。
+// 哨兵错误，供 handler 层 errors.Is 识别后映射为 404（与 VM DeletePortForward 语义对齐）。
+var ErrPortForwardNotOwned = errors.New("该端口转发规则不属于此容器")
+
 // resolveContainerIP 取容器当前运行 IP，无 IP 则报错。
 // 端口转发的目标 IP 必须现役可用，故容器停机/IP 未拿到时直接失败。
 func resolveContainerIP(name string) (string, error) {
@@ -121,7 +125,7 @@ func DeleteContainerPortForward(name string, id int) error {
 		}
 	}
 	if !owned {
-		return errors.New("该端口转发规则不属于此容器")
+		return ErrPortForwardNotOwned
 	}
 	return netpkg.DeletePortForward(id) // service/network/port_forward.go:462
 }

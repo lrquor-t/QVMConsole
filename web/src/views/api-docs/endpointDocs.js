@@ -355,7 +355,7 @@ export const endpointGroups = [
       ep('POST', '/lxc/:name/health-checks', '新增健康检查规则', { pathParams: ['name'], body: 'JSON: check_name, type(http/tcp/script), target, expected_code(默认200), critical(bool), enabled(bool)', notes: [apiCompatible, 'type=script 在容器内 lxc-attach 执行任意命令，仅管理员可配置（非 admin 返回 403）；http/tcp 任意 owner 可配。'] }),
       ep('PUT', '/lxc/:name/health-checks/:id', '更新健康检查规则', { pathParams: ['name', 'id'], body: 'JSON: check_name, type, target, expected_code, critical, enabled', notes: [apiCompatible, 'script 类型同样限管理员（防止把已有 http 规则改成 script 绕过限制）。'] }),
       ep('DELETE', '/lxc/:name/health-checks/:id', '删除健康检查规则', { pathParams: ['name', 'id'], notes: [apiCompatible, 'service 层校验 id+容器归属，防误删他者规则。'] }),
-      ep('GET', '/lxc/:name/health', '取容器聚合健康状态', { pathParams: ['name'], response: 'data: status(healthy/degraded/down/unknown 四色聚合), checks[], checked_at。', notes: [apiCompatible, '聚合状态从 LXCCache.HealthStatus 读（后台调度器写入）；checks 为各规则最新一次探测结果明细。'] }),
+      ep('GET', '/lxc/:name/health', '取容器聚合健康状态', { pathParams: ['name'], response: 'data: status(healthy/degraded/unhealthy/unknown 四色聚合), checks[], checked_at。', notes: [apiCompatible, '聚合状态从 LXCCache.HealthStatus 读（后台调度器写入）；checks 为各规则最新一次探测结果明细。'] }),
       ep('POST', '/lxc/:name/health/probe', '立即探测一次健康状态', { pathParams: ['name'], response: 'data: status(探测后最新聚合状态)。', notes: [apiCompatible, '同步执行全部启用规则并刷新聚合状态；不等后台调度周期。'] }),
     ]
   },
