@@ -136,8 +136,10 @@ func GetLXCHealth(c *gin.Context) {
 		return
 	}
 	agg := ""
+	var lastHealthAt time.Time
 	if cache, err := service.LXCGetCacheByName(c.Param("name")); err == nil {
 		agg = cache.HealthStatus
+		lastHealthAt = cache.LastHealthAt
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
@@ -145,7 +147,7 @@ func GetLXCHealth(c *gin.Context) {
 		"data": gin.H{
 			"status":     agg,
 			"checks":     list,
-			"checked_at": time.Now(),
+			"checked_at": lastHealthAt,
 		},
 	})
 }
