@@ -69,6 +69,7 @@ func runHealthCheckCycle() {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
+			defer utils.RecoverAndLog("lxc-health-check-worker")
 			defer wg.Done()
 			defer func() { <-sem }()
 			if _, err := RunHealthCheckForContainer(c.Name); err != nil {
