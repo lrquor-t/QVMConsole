@@ -22,12 +22,12 @@ type PortForwardRequest struct {
 // 哨兵错误，供 handler 层 errors.Is 识别后映射为 404（与 VM DeletePortForward 语义对齐）。
 var ErrPortForwardNotOwned = errors.New("该端口转发规则不属于此容器")
 
-// resolveContainerIP 取容器当前运行 IP，无 IP 则报错。
-// 端口转发的目标 IP 必须现役可用，故容器停机/IP 未拿到时直接失败。
+// resolveContainerIP 取容器主网卡（eth0）的运行 IP，无 IP 则报错。
+// 端口转发一律针对主网卡：目标 IP 必须现役可用，故容器停机/eth0 未拿到 IP 时直接失败。
 func resolveContainerIP(name string) (string, error) {
-	ip := ResolveContainerVPCIP(name) // 已存在，service/lxc/network.go:82
+	ip := ResolveContainerNICIP(name, 0) // 主网卡 eth0
 	if ip == "" {
-		return "", errors.New("容器当前无可用 IP，无法配置端口映射（请确认容器已启动并分配到 IP）")
+		return "", errors.New("容器主网卡当前无可用 IP，无法配置端口映射（请确认容器已启动并分配到 IP）")
 	}
 	return ip, nil
 }
@@ -45,8 +45,8 @@ func collectContainerIPs(name string) []string {
 			ips = append(ips, ip)
 		}
 	}
-	// 1. 运行 IP（lxc-info -i，最权威的"当前转发目标"）
-	add(ResolveContainerVPCIP(name))
+	// 1. 主网卡 eth0 的运行 IP（端口转发一律针对主网卡，最权威的"当前转发目标"）
+	add(ResolveContainerNICIP(name, 0))
 	// 2. VPC 静态绑定 IP：按 binding 的 switchID + 网卡 MAC 查 dhcp-hosts-<switchID>
 	if model.DB != nil {
 		var bindings []model.VPCVMBinding
@@ -157,11 +157,14 @@ func BuildLXCOwnerByIP() map[string]netpkg.PortForwardOwnerInfo {
 		out[ip] = netpkg.PortForwardOwnerInfo{VMName: name, OwnerUsername: strings.TrimSpace(owner)}
 	}
 
-	// 1. LXCCache.CachedIP（运行 IP）
+	// 1. LXCCache.CachedIP（运行 IP）。多网卡时 CachedIP 形如 "ip1, ip2"（lxc-info/lxc-ls 全量），
+	//    逐个登记以匹配单条规则的 DestIP（整串当 key 会匹配失败）；set 内部已 trim/去空/去重。
 	var caches []model.LXCCache
 	if err := model.DB.Find(&caches).Error; err == nil {
 		for _, c := range caches {
-			set(c.CachedIP, c.Name, c.OwnerUsername)
+			for _, ip := range strings.Split(c.CachedIP, ",") {
+				set(ip, c.Name, c.OwnerUsername)
+			}
 		}
 	}
 

@@ -237,7 +237,7 @@ func dispatchKindForName(vmName string) string {
 
 func GetFirewallVMIP(vmName string) string {
 	if dispatchKindForName(vmName) == "lxc" {
-		return lxc.ResolveContainerVPCIP(vmName)
+		return lxc.ResolveContainerNICIP(vmName, 0) // 主网卡 eth0 的 IP（与端口转发/健康检查一致）
 	}
 	ip := strings.TrimSpace(ip_resolver.GetVMIP(vmName, true))
 	if ip == "" || ip == "unknown" {

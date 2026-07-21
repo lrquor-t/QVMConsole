@@ -78,16 +78,6 @@ func DetachContainerFromVPC(name string) error {
 	return nil
 }
 
-// ResolveContainerVPCIP 取容器在 VPC 内的 IPv4（lxc-info -i，多 IP 取首个）。
-func ResolveContainerVPCIP(name string) string {
-	res := LxcInfo(name)
-	if res.ExitCode != 0 {
-		return ""
-	}
-	d, _ := ParseLxcInfo(res.Stdout)
-	return firstIP(d.IP)
-}
-
 // ---- helpers ----
 
 func ownerOf(name string) string {
@@ -350,7 +340,6 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 		orders = append(orders, o)
 	}
 	sort.Ints(orders)
-	ip := ResolveContainerVPCIP(name)
 	out := make([]LXCInterfaceInfo, 0, len(orders))
 	for _, o := range orders {
 		blk := blocks[o]
@@ -377,9 +366,8 @@ func ListContainerInterfaces(name string) ([]LXCInterfaceInfo, error) {
 			rx, tx := ReadVethCounters(veth)
 			info.RXBytes, info.TXBytes = rx, tx
 		}
-		if o == 0 {
-			info.IP = ip
-		}
+		// 每张网卡各自进容器取 eth<order> 的 IPv4（多网卡下不再错配，附加网卡也能显示）。
+		info.IP = ResolveContainerNICIP(name, o)
 		out = append(out, info)
 	}
 	return out, nil

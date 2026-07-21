@@ -137,7 +137,7 @@ func AggregateHealth(results []healthProbeResult) string {
 			if r.Critical {
 				anyCriticalFailed = true
 			}
-		// healthStatusUnknown: counts as neither healthy nor failed
+			// healthStatusUnknown: counts as neither healthy nor failed
 		}
 	}
 	switch {
@@ -161,7 +161,7 @@ func RunHealthCheckForContainer(name string) (string, error) {
 	if err != nil {
 		return healthStatusUnknown, err
 	}
-	ip := ResolveContainerVPCIP(name)
+	ip := ResolveContainerNICIP(name, 0) // 主网卡 eth0 的 IP（健康检查一律针对主网卡）
 	now := time.Now()
 
 	var enabled []model.LXCHealthCheck
