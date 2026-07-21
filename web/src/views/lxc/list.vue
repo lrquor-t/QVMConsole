@@ -78,11 +78,20 @@
             <span class="lxc-name">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="110" align="center">
+        <el-table-column label="状态" width="130" align="center">
           <template #default="{ row }">
             <span class="lxc-status" :class="'is-' + statusType(row.status)">
               <span class="lxc-status-dot"></span>
               <el-tag :type="statusType(row.status)" size="small" effect="light">{{ statusText(row.status) }}</el-tag>
+              <el-tooltip v-if="row.health_status" placement="top">
+                <template #content>
+                  <div style="max-width:240px">
+                    <div>健康：{{ healthText(row.health_status) }}</div>
+                    <div v-if="!row.health_status || row.health_status === 'unknown'" style="opacity:.7">未配置或未探测</div>
+                  </div>
+                </template>
+                <span class="lxc-health-dot" :class="'health-' + (row.health_status || 'unknown')"></span>
+              </el-tooltip>
             </span>
           </template>
         </el-table-column>
@@ -238,6 +247,10 @@ const statusType = (status) => {
 const statusText = (status) => {
   const map = { RUNNING: '运行中', STOPPED: '已停止', FROZEN: '已冻结', STARTING: '启动中', ABORTING: '异常' }
   return map[status] || (status ? status : '已停止')
+}
+const healthText = (status) => {
+  const map = { healthy: '健康', degraded: '亚健康', unhealthy: '异常', unknown: '未知' }
+  return map[status] || '未知'
 }
 
 const fetchData = async () => {
@@ -445,6 +458,29 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .lxc-status.is-warning .lxc-status-dot {
   background: var(--el-color-warning);
   box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.18);
+}
+.lxc-health-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.lxc-health-dot.health-healthy {
+  background: #67c23a;
+  box-shadow: 0 0 0 3px rgba(103, 194, 58, 0.18);
+}
+.lxc-health-dot.health-degraded {
+  background: #e6a23c;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.18);
+}
+.lxc-health-dot.health-unhealthy {
+  background: #f56c6c;
+  box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.18);
+}
+.lxc-health-dot.health-unknown {
+  background: #c0c4cc;
 }
 .lxc-remark-cell {
   display: flex;
