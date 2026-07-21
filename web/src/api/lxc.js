@@ -275,3 +275,34 @@ export function addLXCPortForward(name, data) {
 export function deleteLXCPortForward(name, id) {
   return request({ url: `/lxc/${name}/port-forwards/${id}`, method: 'delete' })
 }
+
+// ==================== LXC 健康检查 ====================
+// 列出容器全部健康检查规则
+export function getLXCHealthChecks(name) {
+  return request({ url: `/lxc/${name}/health-checks`, method: 'get' })
+}
+
+// 新增（data: { check_name, type, target, expected_code, critical, enabled }；script 仅管理员）
+export function addLXCHealthCheck(name, data) {
+  return request({ url: `/lxc/${name}/health-checks`, method: 'post', data })
+}
+
+// 更新
+export function updateLXCHealthCheck(name, id, data) {
+  return request({ url: `/lxc/${name}/health-checks/${id}`, method: 'put', data })
+}
+
+// 删除
+export function deleteLXCHealthCheck(name, id) {
+  return request({ url: `/lxc/${name}/health-checks/${id}`, method: 'delete' })
+}
+
+// 容器聚合健康状态 + 各规则最新探测结果（返回 { status, checks, checked_at }）
+export function getLXCHealth(name) {
+  return request({ url: `/lxc/${name}/health`, method: 'get' })
+}
+
+// 手动立即探测一次（返回 { status }）
+export function probeLXCHealth(name) {
+  return request({ url: `/lxc/${name}/health/probe`, method: 'post' })
+}

@@ -84,6 +84,15 @@
             :container-name="currentName"
           />
         </el-tab-pane>
+        <el-tab-pane name="health" lazy>
+          <template #label>
+            <span class="lxc-tab-label"><el-icon><Aim /></el-icon> 健康检查</span>
+          </template>
+          <LxcHealthCheckPanel
+            v-if="visible && currentName && activeTab === 'health'"
+            :container-name="currentName"
+          />
+        </el-tab-pane>
         <el-tab-pane name="monitor" lazy>
           <template #label>
             <span class="lxc-tab-label"><el-icon><TrendCharts /></el-icon> 监控</span>
@@ -119,12 +128,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files, Document, Promotion } from '@element-plus/icons-vue'
+import { Camera, Setting, Monitor, Connection, TrendCharts, AlarmClock, Files, Document, Promotion, Aim } from '@element-plus/icons-vue'
 import LxcSnapshotPanel from './LxcSnapshotPanel.vue'
 import LxcConfigPanel from './LxcConfigPanel.vue'
 import LxcConfigFilePanel from './LxcConfigFilePanel.vue'
 import LxcNetworkPanel from './LxcNetworkPanel.vue'
 import LxcPortForwardPanel from './LxcPortForwardPanel.vue'
+import LxcHealthCheckPanel from './LxcHealthCheckPanel.vue'
 import LxcMonitorPanel from './LxcMonitorPanel.vue'
 import LxcSchedulePanel from './LxcSchedulePanel.vue'
 import LxcMountPanel from './LxcMountPanel.vue'
