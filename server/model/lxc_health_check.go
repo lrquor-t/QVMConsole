@@ -11,8 +11,8 @@ type LXCHealthCheck struct {
 	Type          string     `gorm:"size:16;not null" json:"type"`                                   // http/tcp/script
 	Target        string     `gorm:"size:512;not null" json:"target"`                                // URL / IP:Port / 命令
 	ExpectedCode  int        `gorm:"not null;default:200" json:"expected_code"`                      // http 期望状态码
-	Critical      bool       `gorm:"not null;default:true" json:"critical"`                          // 是否核心项
-	Enabled       bool       `gorm:"not null;default:true;index:idx_lxc_health_enabled" json:"enabled"`
+	Critical      bool       `gorm:"not null" json:"critical"`                                        // 是否核心项
+	Enabled       bool       `gorm:"not null;index:idx_lxc_health_enabled" json:"enabled"`
 	CreatedBy     string     `gorm:"size:100;not null" json:"created_by"`
 	LastStatus    string     `gorm:"size:16" json:"last_status"` // healthy/unhealthy/unknown
 	LastLatencyMs int        `json:"last_latency_ms"`
