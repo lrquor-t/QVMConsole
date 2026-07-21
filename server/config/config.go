@@ -139,6 +139,10 @@ type Config struct {
 	PortForwardHTTPProbeEnabled         bool `json:"port_forward_http_probe_enabled"`
 	PortForwardHTTPProbeIntervalMinutes int  `json:"port_forward_http_probe_interval_minutes"`
 	PortForwardHTTPProbeTimeoutSeconds  int  `json:"port_forward_http_probe_timeout_seconds"`
+	// LXC 容器健康检查后台调度
+	LXCHealthCheckEnabled         bool `json:"lxc_health_check_enabled"`          // 默认 true
+	LXCHealthCheckIntervalSeconds int  `json:"lxc_health_check_interval_seconds"` // 默认 30
+	LXCHealthCheckConcurrency     int  `json:"lxc_health_check_concurrency"`     // 默认 10
 	// 虚拟机磁盘 IOPS 默认限制（0 表示不限制）
 	DefaultDiskIOPSTotal int `json:"default_disk_iops_total"` // 默认总 IOPS 限制
 	DefaultDiskIOPSRead  int `json:"default_disk_iops_read"`  // 默认读 IOPS 限制
@@ -286,6 +290,9 @@ func Init() {
 		PortForwardHTTPProbeEnabled:           getEnvBool("KVM_PORT_FORWARD_HTTP_PROBE_ENABLED", true),
 		PortForwardHTTPProbeIntervalMinutes:   getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_INTERVAL_MINUTES", 60),
 		PortForwardHTTPProbeTimeoutSeconds:    getEnvInt("KVM_PORT_FORWARD_HTTP_PROBE_TIMEOUT_SECONDS", 3),
+		LXCHealthCheckEnabled:                 getEnvBool("LXC_HEALTH_CHECK_ENABLED", true),
+		LXCHealthCheckIntervalSeconds:         getEnvInt("LXC_HEALTH_CHECK_INTERVAL_SECONDS", 30),
+		LXCHealthCheckConcurrency:             getEnvInt("LXC_HEALTH_CHECK_CONCURRENCY", 10),
 		BatchCloneMaxConcurrency:              getEnvInt("KVM_BATCH_CLONE_MAX_CONCURRENCY", 10),
 		ChunkUploadConcurrency:                getEnvInt("KVM_CHUNK_UPLOAD_CONCURRENCY", 3),
 		RateLimitPublicPerMin:                 getEnvInt("KVM_RATE_LIMIT_PUBLIC", 20),
@@ -519,6 +526,9 @@ var PersistableKeys = []string{
 	"port_forward_http_probe_enabled",
 	"port_forward_http_probe_interval_minutes",
 	"port_forward_http_probe_timeout_seconds",
+	"lxc_health_check_enabled",
+	"lxc_health_check_interval_seconds",
+	"lxc_health_check_concurrency",
 	"vpc_subnet_prefix",
 	"vpc_vlan_start",
 	"vpc_vlan_end",
@@ -597,6 +607,9 @@ var keyToEnvVar = map[string]string{
 	"port_forward_http_probe_enabled":           "KVM_PORT_FORWARD_HTTP_PROBE_ENABLED",
 	"port_forward_http_probe_interval_minutes":  "KVM_PORT_FORWARD_HTTP_PROBE_INTERVAL_MINUTES",
 	"port_forward_http_probe_timeout_seconds":   "KVM_PORT_FORWARD_HTTP_PROBE_TIMEOUT_SECONDS",
+	"lxc_health_check_enabled":                  "LXC_HEALTH_CHECK_ENABLED",
+	"lxc_health_check_interval_seconds":         "LXC_HEALTH_CHECK_INTERVAL_SECONDS",
+	"lxc_health_check_concurrency":              "LXC_HEALTH_CHECK_CONCURRENCY",
 	"vpc_subnet_prefix":                         "KVM_VPC_SUBNET_PREFIX",
 	"vpc_vlan_start":                            "KVM_VPC_VLAN_START",
 	"vpc_vlan_end":                              "KVM_VPC_VLAN_END",
@@ -779,6 +792,18 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			if v, err := strconv.Atoi(value); err == nil {
 				c.PortForwardHTTPProbeTimeoutSeconds = v
 			}
+		case "lxc_health_check_enabled":
+			if v, err := strconv.ParseBool(value); err == nil {
+				c.LXCHealthCheckEnabled = v
+			}
+		case "lxc_health_check_interval_seconds":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.LXCHealthCheckIntervalSeconds = v
+			}
+		case "lxc_health_check_concurrency":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.LXCHealthCheckConcurrency = v
+			}
 		case "vpc_subnet_prefix":
 			c.VPCSubnetPrefix = value
 		case "vpc_vlan_start":
@@ -926,6 +951,9 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"port_forward_http_probe_enabled":           strconv.FormatBool(c.PortForwardHTTPProbeEnabled),
 		"port_forward_http_probe_interval_minutes":  strconv.Itoa(c.PortForwardHTTPProbeIntervalMinutes),
 		"port_forward_http_probe_timeout_seconds":   strconv.Itoa(c.PortForwardHTTPProbeTimeoutSeconds),
+		"lxc_health_check_enabled":                  strconv.FormatBool(c.LXCHealthCheckEnabled),
+		"lxc_health_check_interval_seconds":         strconv.Itoa(c.LXCHealthCheckIntervalSeconds),
+		"lxc_health_check_concurrency":              strconv.Itoa(c.LXCHealthCheckConcurrency),
 		"vpc_subnet_prefix":                         c.VPCSubnetPrefix,
 		"vpc_vlan_start":                            strconv.Itoa(c.VPCVLANStart),
 		"vpc_vlan_end":                              strconv.Itoa(c.VPCVLANEnd),

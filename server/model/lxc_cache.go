@@ -37,3 +37,12 @@ func UpdateLXCCacheHealthStatus(name, status string, at time.Time) error {
 	return DB.Model(&LXCCache{}).Where("name = ?", name).
 		Updates(map[string]interface{}{"health_status": status, "last_health_at": at}).Error
 }
+
+// ListAllLXCCaches 列出所有 present 容器的缓存投影（健康检查后台调度使用）。
+func ListAllLXCCaches() ([]LXCCache, error) {
+	var list []LXCCache
+	if err := DB.Where("present = ?", true).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}

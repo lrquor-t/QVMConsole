@@ -104,6 +104,7 @@ func main() {
 	service.StartPortForwardHTTPProbeScheduler()
 	service.StartVMScheduleRunner()
 	service.StartLXCScheduleRunner()
+	service.StartLXCHealthCheckScheduler()
 	service.StartJWTSecretRotator()
 	service.StartExpiredUploadSessionCleanup() // 清理过期分片上传会话
 

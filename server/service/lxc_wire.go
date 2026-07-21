@@ -9,6 +9,17 @@ import (
 	netpkg "kvm_console/service/network"
 )
 
+// init 注入 service 根包实现给 service/lxc 包的 Hook 变量，
+// 打破反向依赖：service/lxc 不能 import service 根包。
+func init() {
+	lxc.HookIsMaintenanceModeEnabled = IsMaintenanceModeEnabled
+}
+
+// StartLXCHealthCheckScheduler 启动 LXC 健康检查后台调度器。
+func StartLXCHealthCheckScheduler() {
+	lxc.StartLXCHealthCheckScheduler()
+}
+
 // LXCSyncContainerCache 同步 LXC 容器缓存。
 func LXCSyncContainerCache() error { return lxc.SyncContainerCache() }
 
