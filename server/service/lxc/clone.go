@@ -18,6 +18,7 @@ type CloneParams struct {
 	Snap    string `json:"snap"`               // 源 zfs 快照名
 	DstName string `json:"dst_name"`           // 新容器名
 	Remark  string `json:"remark"`             // 新容器备注
+	FixedIP string `json:"fixed_ip,omitempty"` // 源主网卡固定 IP（克隆继承源网卡，仅 order0 可绑）
 }
 
 // ParseCloneParams 反序列化克隆任务参数。

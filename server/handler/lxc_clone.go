@@ -14,6 +14,7 @@ type cloneLXCReq struct {
 	Snap    string `json:"snap" binding:"required"`
 	DstName string `json:"dst_name" binding:"required"`
 	Remark  string `json:"remark"`
+	FixedIP string `json:"fixed_ip,omitempty"` // 源主网卡固定 IP（克隆继承源网卡，仅 order0 可绑）
 }
 
 // CloneFromContainer 从源容器的指定快照克隆出新容器（异步任务）。

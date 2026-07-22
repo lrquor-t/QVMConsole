@@ -76,6 +76,7 @@ type AddVMInterfaceRequest struct {
 	SwitchID             uint   `json:"switch_id"`
 	SecurityGroupID      uint   `json:"security_group_id"`
 	NicModel             string `json:"nic_model"`
+	FixedIP              string `json:"fixed_ip,omitempty"` // 该网卡固定 IP（留空=动态 DHCP）
 	BandwidthInboundAvg  int    `json:"bandwidth_inbound_avg"`
 	BandwidthOutboundAvg int    `json:"bandwidth_outbound_avg"`
 }
