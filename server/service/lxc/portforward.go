@@ -22,14 +22,20 @@ type PortForwardRequest struct {
 // 哨兵错误，供 handler 层 errors.Is 识别后映射为 404（与 VM DeletePortForward 语义对齐）。
 var ErrPortForwardNotOwned = errors.New("该端口转发规则不属于此容器")
 
-// resolveContainerIP 取容器主网卡（eth0）的运行 IP，无 IP 则报错。
-// 端口转发一律针对主网卡：目标 IP 必须现役可用，故容器停机/eth0 未拿到 IP 时直接失败。
+// resolveContainerIP 解析端口转发目标 IP（与 VM 对齐：尽量固化为静态绑定）。
+// 优先 netpkg.ResolvePortForwardTargetIP——对绑定了 VPC 交换机的主网卡，取当前静态绑定/DHCP
+// 租约并写 dhcp-hosts 固化，重启后 IP 不变、转发规则持久生效（修复旧实现仅取 eth0 运行 IP、
+// 容器重启 DHCP 换 IP 致转发失效）。
+// 无 VPC 绑定（switchID=0 默认桥等，firstNICMAC 取不到 MAC）或固化失败时，回退进容器取 eth0
+// 当前运行 IP——保证不回归（这类容器本就无 VPC 静态 IP 体系可固化）。
 func resolveContainerIP(name string) (string, error) {
-	ip := ResolveContainerNICIP(name, 0) // 主网卡 eth0
-	if ip == "" {
-		return "", errors.New("容器主网卡当前无可用 IP，无法配置端口映射（请确认容器已启动并分配到 IP）")
+	if ip, err := netpkg.ResolvePortForwardTargetIP(name, ""); err == nil && strings.TrimSpace(ip) != "" {
+		return ip, nil
 	}
-	return ip, nil
+	if ip := ResolveContainerNICIP(name, 0); ip != "" {
+		return ip, nil
+	}
+	return "", errors.New("容器主网卡当前无可用 IP，无法配置端口映射（请确认容器已启动并分配到 IP）")
 }
 
 // collectContainerIPs 聚合容器可能关联的全部目标 IP：运行 IP + VPC 静态绑定 IP。
