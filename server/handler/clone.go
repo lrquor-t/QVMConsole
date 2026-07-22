@@ -235,6 +235,10 @@ func CloneVm(c *gin.Context) {
 		return
 	}
 
+	if !validateVMNICFixedIPs(c, req.SwitchID, req.FixedIP, req.ExtraNics) {
+		return
+	}
+
 	params := &clonepkg.CloneParams{
 		Name:                 req.Name,
 		Remark:               req.Remark,
@@ -268,6 +272,7 @@ func CloneVm(c *gin.Context) {
 		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
+		FixedIP:              req.FixedIP,
 		ExtraNics:            req.ExtraNics,
 		StoragePoolID:        req.StoragePoolID,
 		ExtraDisks:           req.ExtraDisks,

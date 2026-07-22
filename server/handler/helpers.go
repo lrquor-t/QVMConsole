@@ -176,3 +176,41 @@ func validateBatchVMNamesNotExists(c *gin.Context, prefix string, startNum, coun
 	}
 	return true
 }
+
+// validateVMNICFixedIPs 预检 VM 主卡+附加网卡固定 IP（空跳过）。非法/占用即 400 返回 false。
+func validateVMNICFixedIPs(c *gin.Context, primarySwitchID uint, primaryIP string, extraNics []service.AddVMInterfaceRequest) bool {
+	if ip := strings.TrimSpace(primaryIP); ip != "" {
+		if err := service.ValidateFixedIPForSwitch(primarySwitchID, ip); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return false
+		}
+	}
+	for _, nic := range extraNics {
+		if ip := strings.TrimSpace(nic.FixedIP); ip != "" {
+			if err := service.ValidateFixedIPForSwitch(nic.SwitchID, ip); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// validateLXCNICFixedIPs 预检 LXC 主卡+附加网卡固定 IP（空跳过）。
+func validateLXCNICFixedIPs(c *gin.Context, primarySwitchID uint, primaryIP string, extraNics []service.LXCAddInterfaceRequest) bool {
+	if ip := strings.TrimSpace(primaryIP); ip != "" {
+		if err := service.ValidateFixedIPForSwitch(primarySwitchID, ip); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return false
+		}
+	}
+	for _, nic := range extraNics {
+		if ip := strings.TrimSpace(nic.FixedIP); ip != "" {
+			if err := service.ValidateFixedIPForSwitch(nic.SwitchID, ip); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+				return false
+			}
+		}
+	}
+	return true
+}

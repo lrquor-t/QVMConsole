@@ -111,6 +111,10 @@ func CreateVm(c *gin.Context) {
 		return
 	}
 
+	if !validateVMNICFixedIPs(c, req.SwitchID, req.FixedIP, req.ExtraNics) {
+		return
+	}
+
 	params := &service.CreateVMParams{
 		Name:            req.Name,
 		Remark:          req.Remark,
@@ -146,6 +150,7 @@ func CreateVm(c *gin.Context) {
 		MemoryDynamic:   req.MemoryDynamic,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID,
+		FixedIP:         req.FixedIP,
 		ExtraNics:       req.ExtraNics,
 		StoragePoolID:   req.StoragePoolID,
 		SystemDiskIOPS:  req.SystemDiskIOPS,
