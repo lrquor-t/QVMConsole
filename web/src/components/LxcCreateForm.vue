@@ -112,6 +112,21 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
+                  <el-row :gutter="16" v-if="isNicNatSwitch(nic) && form.batch_count <= 1">
+                    <el-col :span="24">
+                      <el-form-item label="固定 IP" label-width="100px">
+                        <div style="display:flex; gap:8px; width:100%;">
+                          <el-input v-model="nic.fixed_ip" placeholder="留空则动态 DHCP" style="flex:1;" />
+                          <el-button @click="openPicker(nic)">选择</el-button>
+                        </div>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <el-row :gutter="16" v-else-if="nic.switch_id">
+                    <el-col :span="24">
+                      <div style="color: var(--el-text-color-secondary); font-size: 12px; padding-left: 100px;">该网络/批量模式不支持固定 IP</div>
+                    </el-col>
+                  </el-row>
               </div>
             </div>
             <div v-else class="form-section-card-body">
@@ -148,6 +163,7 @@
       <el-button v-if="step < steps.length - 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button type="warning" :loading="loading" :disabled="!allRequiredFilled" @click="submit">立即创建</el-button>
     </template>
+    <IpPickerDialog v-model="pickerVisible" :switch-id="pickerNic?.switch_id" @select="onPickerSelect" />
   </el-dialog>
 </template>
 
@@ -160,6 +176,7 @@ import { createLXC, batchCreateLXC, getLXCTemplateList, getLXCDownloadList, getL
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
 import { getSettings } from '@/api/settings'
 import { generateRandomLXCName } from '@/utils/lxc'
+import IpPickerDialog from './IpPickerDialog.vue'
 
 const emit = defineEmits(['success'])
 const userStore = useUserStore()
@@ -242,6 +259,14 @@ const switchLabel = (s) => {
   return `${prefix}${s.name} (${s.cidr})`
 }
 const switchOf = (id) => vpcSwitches.value.find(s => s.id === id) || null
+const pickerVisible = ref(false)
+const pickerNic = ref(null)
+const openPicker = (nic) => { pickerNic.value = nic; pickerVisible.value = true }
+const onPickerSelect = (ip) => { if (pickerNic.value) pickerNic.value.fixed_ip = ip }
+const isNicNatSwitch = (nic) => {
+  const sw = switchOf(nic.switch_id)
+  return !!sw && sw.bridge_mode === 'nat' && sw.vlan_id > 0 && !!sw.cidr
+}
 // 系统交换机（username 空）→ 全部；私属交换机 → 按属主过滤（与 LxcNetworkPanel 一致）
 const sgsForSwitch = (switchId) => {
   const sw = switchOf(switchId)
@@ -268,16 +293,18 @@ const onNicSwitchChange = async (nic) => {
   const sw = switchOf(nic.switch_id)
   const cur = vpcSecurityGroups.value.find(g => g.id === nic.security_group_id)
   if (cur && sw && sw.username && cur.username !== sw.username) nic.security_group_id = null
+  nic.fixed_ip = ''
 }
-const addNic = async () => { await loadVPCOptions(); extraNics.value.push({ switch_id: vpcSwitches.value[0]?.id ?? null, security_group_id: null }) }
+const addNic = async () => { await loadVPCOptions(); extraNics.value.push({ switch_id: vpcSwitches.value[0]?.id ?? null, security_group_id: null, fixed_ip: '' }) }
 const buildAllNicsPayload = () => {
   const valid = extraNics.value.filter(n => n.switch_id)
-  if (!valid.length) return { primarySwitchId: 0, primarySecurityGroupId: 0, extraNics: [] }
+  if (!valid.length) return { primarySwitchId: 0, primarySecurityGroupId: 0, primaryFixedIp: '', extraNics: [] }
   const first = valid[0]
   return {
     primarySwitchId: first.switch_id,
     primarySecurityGroupId: first.security_group_id || 0,
-    extraNics: valid.slice(1).map(n => ({ switch_id: n.switch_id, security_group_id: n.security_group_id || 0 }))
+    primaryFixedIp: first.fixed_ip || '',
+    extraNics: valid.slice(1).map(n => ({ switch_id: n.switch_id, security_group_id: n.security_group_id || 0, fixed_ip: n.fixed_ip || '' })),
   }
 }
 const nicsSummary = computed(() => {
@@ -346,7 +373,7 @@ const submit = async () => {
           cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, disk_limit_gb: form.disk_limit_gb,
           autostart: form.autostart, group_name: form.group_name, remark: form.remark,
           switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
-          extra_nics: nics.extraNics
+          extra_nics: nics.extraNics.map(n => ({ switch_id: n.switch_id, security_group_id: n.security_group_id }))
         })
         ElMessage.success(`批量创建任务已提交（${form.batch_count} 个），请在任务中查看进度`)
       } else {
@@ -356,6 +383,7 @@ const submit = async () => {
           cpu_shares: form.cpu_shares, memory_mb: form.memory_mb, disk_limit_gb: form.disk_limit_gb,
           autostart: form.autostart, group_name: form.group_name, remark: form.remark,
           switch_id: nics.primarySwitchId, security_group_id: nics.primarySecurityGroupId,
+          fixed_ip: nics.primaryFixedIp || undefined,
           extra_nics: nics.extraNics
         })
         ElMessage.success('创建任务已提交')
