@@ -8,6 +8,11 @@ export function getVPCSwitches(params) {
   return request({ url: '/vpc/switches', method: 'get', params })
 }
 
+// 获取 VPC 交换机子网内当前可分配的 IP 列表
+export function getAvailableIPs(switchId) {
+  return request({ url: `/vpc/switches/${switchId}/available-ips`, method: 'get' })
+}
+
 export function createVPCSwitch(data) {
   return request({ url: '/vpc/switches', method: 'post', data })
 }
