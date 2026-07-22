@@ -35,6 +35,18 @@
       <el-form-item label="备注">
         <el-input v-model="form.remark" placeholder="选填" maxlength="200" show-word-limit />
       </el-form-item>
+      <el-form-item v-if="isNatPrimary" label="固定 IP" label-width="100px">
+        <div style="display:flex; gap:8px; width:100%;">
+          <el-input v-model="form.fixed_ip" placeholder="留空则动态 DHCP（继承源主网卡）" style="flex:1;" />
+          <el-button @click="pickerVisible = true">选择</el-button>
+        </div>
+        <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px;">
+          绑定到源容器主网卡所属交换机（{{ srcPrimarySwitch?.name || '-' }}）。
+        </div>
+      </el-form-item>
+      <el-form-item v-else-if="srcPrimarySwitchId" label="固定 IP" label-width="100px">
+        <div style="color: var(--el-text-color-secondary); font-size: 12px;">源主网卡为直通/桥接网络，不支持固定 IP。</div>
+      </el-form-item>
       <div class="form-hint">
         <el-icon><InfoFilled /></el-icon>
         其余规格（CPU/内存/自启/分组/网络）继承自源容器，仅刷新 MAC 与主机名
@@ -44,6 +56,7 @@
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="submitting" :disabled="!isZfs || snapshots.length === 0" @click="submit">克隆</el-button>
     </template>
+    <IpPickerDialog v-model="pickerVisible" :switch-id="srcPrimarySwitchId" @select="(ip) => form.fixed_ip = ip" />
   </el-dialog>
 </template>
 
@@ -51,8 +64,10 @@
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { InfoFilled, WarningFilled, Plus } from '@element-plus/icons-vue'
-import { listLXCSnapshots, cloneLXCFromSnapshot } from '@/api/lxc'
+import { listLXCSnapshots, cloneLXCFromSnapshot, listLXCInterfaces } from '@/api/lxc'
+import { getVPCSwitches } from '@/api/vpc'
 import { generateRandomLXCName } from '@/utils/lxc'
+import IpPickerDialog from './IpPickerDialog.vue'
 
 const emit = defineEmits(['success', 'goto-snapshot'])
 const visible = ref(false)
@@ -67,8 +82,29 @@ const form = reactive({
   snap: '',
   dst_name: '',
   remark: '',
+  fixed_ip: '',
 })
 const isZfs = computed(() => (form.backing || '').toLowerCase() === 'zfs')
+const srcPrimarySwitchId = ref(0)
+const srcPrimarySwitch = ref(null)
+const pickerVisible = ref(false)
+const isNatPrimary = computed(() => {
+  const sw = srcPrimarySwitch.value
+  return !!sw && sw.bridge_mode === 'nat' && sw.vlan_id > 0 && !!sw.cidr
+})
+
+const loadSrcPrimary = async () => {
+  srcPrimarySwitchId.value = 0
+  srcPrimarySwitch.value = null
+  try {
+    const [ifaceRes, swRes] = await Promise.all([listLXCInterfaces(form.src_name), getVPCSwitches()])
+    const ifaces = ifaceRes.data || []
+    const primary = ifaces.find(i => i.is_primary) || ifaces[0]
+    const switches = swRes.data || []
+    srcPrimarySwitchId.value = primary?.switch_id || 0
+    srcPrimarySwitch.value = switches.find(s => s.id === srcPrimarySwitchId.value) || null
+  } catch (e) { /* 忽略：探测失败则隐藏固定 IP 字段 */ }
+}
 
 const rules = {
   snap: [{ required: true, message: '请选择一个快照', trigger: 'change' }],
@@ -86,10 +122,12 @@ const open = async (row) => {
     snap: '',
     dst_name: generateRandomLXCName(), // 打开时先随机生成一个新名，用户可改
     remark: '',
+    fixed_ip: '',
   })
   formRef.value?.clearValidate()
   snapshots.value = []
   visible.value = true
+  loadSrcPrimary() // best-effort，不阻塞快照加载
   if (!isZfs.value) return
   loadingSnaps.value = true
   try {
@@ -122,6 +160,7 @@ const submit = async () => {
       snap: form.snap,
       dst_name: form.dst_name,
       remark: form.remark,
+      fixed_ip: form.fixed_ip || '',
     })
     ElMessage.success('克隆任务已提交，可在任务中心查看进度')
     visible.value = false
