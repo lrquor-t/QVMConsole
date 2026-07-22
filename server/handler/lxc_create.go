@@ -65,6 +65,9 @@ func CreateLXCContainer(c *gin.Context) {
 			return
 		}
 	}
+	if !validateLXCNICFixedIPs(c, req.SwitchID, req.FixedIP, req.ExtraNics) {
+		return
+	}
 	params := &service.LXCCreateContainerParams{
 		Name:            req.Name,
 		Template:        req.Template,
@@ -76,6 +79,7 @@ func CreateLXCContainer(c *gin.Context) {
 		Autostart:       req.Autostart,
 		SwitchID:        req.SwitchID,
 		SecurityGroupID: req.SecurityGroupID,
+		FixedIP:         req.FixedIP,
 		Source:          source,
 		Distro:          req.Distro,
 		Release:         req.Release,

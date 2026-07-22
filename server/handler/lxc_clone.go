@@ -31,6 +31,9 @@ func CloneFromContainer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	if !validateLXCNICFixedIPs(c, service.LXCSourcePrimarySwitchID(srcName), req.FixedIP, nil) {
+		return
+	}
 	username, _ := c.Get("username")
 	role, _ := c.Get("role")
 	// 非 admin 校验配额：克隆继承源规格，按源 CPU/Mem 计配额
@@ -50,6 +53,7 @@ func CloneFromContainer(c *gin.Context) {
 		Snap:    req.Snap,
 		DstName: req.DstName,
 		Remark:  req.Remark,
+		FixedIP: req.FixedIP,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCClone, params, username.(string))
 	if err != nil {
