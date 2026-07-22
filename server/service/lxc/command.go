@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -127,16 +128,6 @@ func tableCell(line string, cols []headerCol, i int) string {
 	return strings.TrimSpace(line[start:end])
 }
 
-// firstIP 取逗号分隔 IP 串的第一个非空项（lxc-ls/lxc-info 多 IP 以 ", " 连接）。
-func firstIP(joined string) string {
-	for _, p := range strings.Split(joined, ",") {
-		if v := strings.TrimSpace(p); v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 // ParseLxcInfo 解析 `lxc-info -n <name>` 的 "Key: Value" 输出。
 func ParseLxcInfo(stdout string) (ContainerDetail, error) {
 	d := ContainerDetail{}
@@ -158,7 +149,7 @@ func ParseLxcInfo(stdout string) (ContainerDetail, error) {
 			d.Status = val
 		case "ip":
 			// lxc-info 对多 IP 容器每个地址输出一行 "IP: x.x.x.x"；累积并以 ", " 连接，
-			// 与 lxc-ls 单元格格式一致，便于展示。只要首 IP 用 firstIP() 取。
+			// 与 lxc-ls 单元格格式一致，供 CachedIP 展示该容器全部 IPv4。
 			if val == "" {
 				continue
 			}
@@ -218,9 +209,9 @@ func RefreshRuntimeFields(name string) error {
 //
 // LXC 的 host 侧 veth MAC 由内核随机分配，与容器内 eth<order> 的 lxc.net.<order>.hwaddr 无关，
 // 故不能按 MAC 匹配。这里改用 peer ifindex：
-//   1. lxc-attach 进容器 `ip -o link show dev eth<order>`，取其 peer ifindex——即 `eth0@ifN` 里的 N，
-//      它是 host 侧 veth 在 host 上的 ifindex（host 上唯一，不受多容器 eth0 同 ifindex 影响）；
-//   2. host 上 `ip -o link` 找 ifindex == N 的接口名。
+//  1. lxc-attach 进容器 `ip -o link show dev eth<order>`，取其 peer ifindex——即 `eth0@ifN` 里的 N，
+//     它是 host 侧 veth 在 host 上的 ifindex（host 上唯一，不受多容器 eth0 同 ifindex 影响）；
+//  2. host 上 `ip -o link` 找 ifindex == N 的接口名。
 //
 // 容器未运行/找不到时返回空串。
 func findContainerHostVeth(name string, order int) string {
@@ -277,3 +268,35 @@ func findIfaceByIfindexFromText(out, idx string) string {
 	return ""
 }
 
+// inetAddrRe 匹配 `ip addr` 输出中的 IPv4（iproute2 `inet a.b.c.d` 与 busybox `inet addr:a.b.c.d` 均覆盖）。
+var inetAddrRe = regexp.MustCompile(`inet\s+(?:addr:)?(\d{1,3}(?:\.\d{1,3}){3})`)
+
+// parseNICIPv4 从 `ip -4 addr show dev <if>` 输出中提取全部非 link-local 的 IPv4，以 ", " 连接
+// （与 lxc-info/lxc-ls 的多 IP 展示一致）。兼容 iproute2（`-o` 单行 `\` 续行）与 busybox 两种输出。纯函数。
+func parseNICIPv4(out string) string {
+	var ips []string
+	seen := map[string]bool{}
+	for _, m := range inetAddrRe.FindAllStringSubmatch(out, -1) {
+		ip := m[1]
+		if strings.HasPrefix(ip, "169.254.") { // 跳过 link-local（无业务意义）
+			continue
+		}
+		if seen[ip] {
+			continue
+		}
+		seen[ip] = true
+		ips = append(ips, ip)
+	}
+	return strings.Join(ips, ", ")
+}
+
+// ResolveContainerNICIP 取容器 <name> 第 <order> 网卡（容器内 eth<order>）的 IPv4。
+// 进容器执行 `ip -o -4 addr show dev eth<order>`，逐网卡精确取 IP——修复 ListContainerInterfaces
+// 旧实现用 lxc-info 全局取首个 IP，多网卡下既错配主网卡、又令附加网卡始终无 IP 的问题。
+// 容器未运行 / 无 ip 命令 / 该网卡无 IPv4 时返回空串（best-effort）。
+func ResolveContainerNICIP(name string, order int) string {
+	ifname := "eth" + strconv.Itoa(order)
+	res := utils.ExecShellQuiet("lxc-attach -n " + utils.ShellSingleQuote(name) +
+		" -- ip -o -4 addr show dev " + ifname + " 2>/dev/null")
+	return parseNICIPv4(res.Stdout)
+}

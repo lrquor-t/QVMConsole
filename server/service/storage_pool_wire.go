@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"kvm_console/model"
 	pool "kvm_console/service/storage/pool"
 )
 
@@ -18,6 +19,11 @@ type LVInfo = pool.LVInfo
 type PVInfo = pool.PVInfo
 type ZFSPoolRequest = pool.ZFSPoolRequest
 type ZPoolInfo = pool.ZPoolInfo
+type BtrfsPoolRequest = pool.BtrfsPoolRequest
+type BtrfsScrubStatus = pool.BtrfsScrubStatus
+type BtrfsBalanceStatus = pool.BtrfsBalanceStatus
+type BtrfsBalanceStartReq = pool.BtrfsBalanceStartReq
+type BtrfsPropertyInfo = pool.BtrfsPropertyInfo
 
 // ── Exported delegates (used by handler and other service files) ──
 
@@ -164,6 +170,88 @@ func ZFSAvailable() bool {
 // ListZPools delegates to pool.ListZPools
 func ListZPools() ([]ZPoolInfo, error) {
 	return pool.ListZPools()
+}
+
+// CreateBtrfsPool delegates to pool.CreateBtrfsPool
+func CreateBtrfsPool(ctx context.Context, req BtrfsPoolRequest, progress func(int, string)) error {
+	return pool.CreateBtrfsPool(ctx, req, progress)
+}
+
+// DeleteBtrfsPool delegates to pool.DeleteBtrfsPool
+func DeleteBtrfsPool(ctx context.Context, label string, progress func(int, string)) error {
+	return pool.DeleteBtrfsPool(ctx, label, progress)
+}
+
+// ExpandBtrfsPool delegates to pool.ExpandBtrfsPool
+func ExpandBtrfsPool(label string, deviceIDs []string) error {
+	return pool.ExpandBtrfsPool(label, deviceIDs)
+}
+
+// PreflightBtrfsShrink delegates to pool.PreflightBtrfsShrink
+func PreflightBtrfsShrink(label, mount string, deviceIDs []string) ([]string, error) {
+	return pool.PreflightBtrfsShrink(label, mount, deviceIDs)
+}
+
+// ShrinkBtrfsPool delegates to pool.ShrinkBtrfsPool
+func ShrinkBtrfsPool(ctx context.Context, label, mount string, deviceIDs []string, progress func(int, string)) error {
+	return pool.ShrinkBtrfsPool(ctx, label, mount, deviceIDs, progress)
+}
+
+// BtrfsAvailable delegates to pool.BtrfsAvailable
+func BtrfsAvailable() bool {
+	return pool.BtrfsAvailable()
+}
+
+// GetBtrfsScrubStatus delegates to pool.GetBtrfsScrubStatus
+func GetBtrfsScrubStatus(mount string) (BtrfsScrubStatus, error) {
+	return pool.GetBtrfsScrubStatus(mount)
+}
+
+// GetBtrfsProperty delegates to pool.GetBtrfsProperty
+func GetBtrfsProperty(mount string) (BtrfsPropertyInfo, error) { return pool.GetBtrfsProperty(mount) }
+
+// SetBtrfsCompression delegates to pool.SetBtrfsCompression
+func SetBtrfsCompression(mount, algo string) error { return pool.SetBtrfsCompression(mount, algo) }
+
+// SetBtrfsNoCow delegates to pool.SetBtrfsNoCow
+func SetBtrfsNoCow(mount string, enabled bool) error { return pool.SetBtrfsNoCow(mount, enabled) }
+
+// StartBtrfsScrub delegates to pool.StartBtrfsScrub
+func StartBtrfsScrub(mount string) error { return pool.StartBtrfsScrub(mount) }
+
+// CancelBtrfsScrub delegates to pool.CancelBtrfsScrub
+func CancelBtrfsScrub(mount string) error { return pool.CancelBtrfsScrub(mount) }
+
+// GetBtrfsBalanceStatus delegates to pool.GetBtrfsBalanceStatus
+func GetBtrfsBalanceStatus(mount string) (BtrfsBalanceStatus, error) {
+	return pool.GetBtrfsBalanceStatus(mount)
+}
+
+// PreflightBtrfsBalance delegates to pool.PreflightBtrfsBalance
+func PreflightBtrfsBalance(label, mount, mode, target string, usage int) error {
+	return pool.PreflightBtrfsBalance(label, mount, mode, target, usage)
+}
+
+// StartBtrfsBalance delegates to pool.StartBtrfsBalance
+func StartBtrfsBalance(mount, mode, target string, usage int) error {
+	return pool.StartBtrfsBalance(mount, mode, target, usage)
+}
+
+// CancelBtrfsBalance delegates to pool.CancelBtrfsBalance
+func CancelBtrfsBalance(mount string) error { return pool.CancelBtrfsBalance(mount) }
+
+// PauseBtrfsBalance delegates to pool.PauseBtrfsBalance
+func PauseBtrfsBalance(mount string) error { return pool.PauseBtrfsBalance(mount) }
+
+// ResumeBtrfsBalance delegates to pool.ResumeBtrfsBalance
+func ResumeBtrfsBalance(mount string) error { return pool.ResumeBtrfsBalance(mount) }
+
+// ValidateBtrfsLabelExported delegates to pool.ValidateBtrfsLabelExported
+func ValidateBtrfsLabelExported(name string) error { return pool.ValidateBtrfsLabelExported(name) }
+
+// GetBtrfsConfigByLabel delegates to pool.GetBtrfsConfigByLabel
+func GetBtrfsConfigByLabel(label string) (model.HostStoragePool, bool) {
+	return pool.GetBtrfsConfigByLabel(label)
 }
 
 // ── Unexported delegates (used internally by service root package) ──

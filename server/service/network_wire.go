@@ -2,6 +2,7 @@ package service
 
 import (
 	"kvm_console/model"
+	"kvm_console/service/lxc"
 	netpkg "kvm_console/service/network"
 	ovspkg "kvm_console/service/ovs"
 )
@@ -199,6 +200,9 @@ func init() {
 	// ── VM / User hooks ──
 	netpkg.HookGetUserVMList = GetUserVMList
 	netpkg.HookFindVMOwner = FindVMOwner
+
+	// ── LXC hook（service/lxc 不能被 service/network 反向依赖，故在此注入）──
+	netpkg.HookBuildLXCOwnerByIP = lxc.BuildLXCOwnerByIP
 
 	// ── Port forward probe hooks ──
 	netpkg.HookSyncPortForwardProbeStateOnAdd = SyncPortForwardProbeStateOnAdd

@@ -259,3 +259,50 @@ export function deleteLXCConfigFileBackup(name, bak) {
 export function getLXCConfigFileBackup(name, bak) {
   return request({ url: `/lxc/${name}/config-file/backups/${bak}`, method: 'get' })
 }
+
+// ==================== LXC 端口映射 ====================
+// 列表（按容器所有可能 IP 过滤全局规则；后端自动回填 vm_name/owner）
+export function getLXCPortForwards(name) {
+  return request({ url: `/lxc/${name}/port-forwards`, method: 'get' })
+}
+
+// 新增（host_port 留空自动分配；data: { host_port, vm_port, protocol, comment? }）
+export function addLXCPortForward(name, data) {
+  return request({ url: `/lxc/${name}/port-forwards`, method: 'post', data })
+}
+
+// 删除（后端 requireHighRiskVerification，二次验证由全局 axios 拦截器触发）
+export function deleteLXCPortForward(name, id) {
+  return request({ url: `/lxc/${name}/port-forwards/${id}`, method: 'delete' })
+}
+
+// ==================== LXC 健康检查 ====================
+// 列出容器全部健康检查规则
+export function getLXCHealthChecks(name) {
+  return request({ url: `/lxc/${name}/health-checks`, method: 'get' })
+}
+
+// 新增（data: { check_name, type, target, expected_code, critical, enabled }；script 仅管理员）
+export function addLXCHealthCheck(name, data) {
+  return request({ url: `/lxc/${name}/health-checks`, method: 'post', data })
+}
+
+// 更新
+export function updateLXCHealthCheck(name, id, data) {
+  return request({ url: `/lxc/${name}/health-checks/${id}`, method: 'put', data })
+}
+
+// 删除
+export function deleteLXCHealthCheck(name, id) {
+  return request({ url: `/lxc/${name}/health-checks/${id}`, method: 'delete' })
+}
+
+// 容器聚合健康状态 + 各规则最新探测结果（返回 { status, checks, checked_at }）
+export function getLXCHealth(name) {
+  return request({ url: `/lxc/${name}/health`, method: 'get' })
+}
+
+// 手动立即探测一次（返回 { status }）
+export function probeLXCHealth(name) {
+  return request({ url: `/lxc/${name}/health/probe`, method: 'post' })
+}

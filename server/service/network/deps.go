@@ -100,6 +100,21 @@ var (
 	HookFindVMOwner   func(vmName string) string
 )
 
+// ── LXC owner-resolution hook (避免 network → lxc 反向依赖) ──
+
+// PortForwardOwnerInfo 镜像内部 portForwardTargetInfo 的对外契约，
+// 供 service/lxc 回传 "容器 IP -> (容器名 + 属主)" 给 buildPortForwardTargetInfoMap。
+type PortForwardOwnerInfo struct {
+	VMName        string
+	OwnerUsername string
+}
+
+var (
+	// HookBuildLXCOwnerByIP 返回 LXC 容器 IP -> (容器名 + 属主) 映射；
+	// 由 service 根包在 network_wire.go 注入 lxc.BuildLXCOwnerByIP。
+	HookBuildLXCOwnerByIP func() map[string]PortForwardOwnerInfo
+)
+
 // ── Port forward probe hooks ──
 
 var (

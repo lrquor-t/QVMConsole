@@ -20,6 +20,8 @@ type LXCCache struct {
 	MacAddress     string    `json:"mac_address" gorm:"size:64"`
 	VethName       string    `json:"veth_name" gorm:"size:64"` // host 侧 veth（运行态解析回填）
 	CachedIP       string    `json:"cached_ip" gorm:"size:64"`
+	HealthStatus   string    `json:"health_status" gorm:"size:16;index"` // healthy/degraded/unhealthy/unknown
+	LastHealthAt   time.Time `json:"last_health_at" gorm:"index"`
 	BandwidthIn    int       `json:"bandwidth_in"`
 	BandwidthOut   int       `json:"bandwidth_out"`
 	Present        bool      `json:"present" gorm:"index;not null;default:true"`
@@ -29,3 +31,28 @@ type LXCCache struct {
 }
 
 func (LXCCache) TableName() string { return "lxc_containers" }
+
+// UpdateLXCCacheHealthStatus 更新容器聚合健康状态。
+func UpdateLXCCacheHealthStatus(name, status string, at time.Time) error {
+	return DB.Model(&LXCCache{}).Where("name = ?", name).
+		Updates(map[string]interface{}{"health_status": status, "last_health_at": at}).Error
+}
+
+// ListAllLXCCaches 列出所有 present 容器的缓存投影（健康检查后台调度使用）。
+func ListAllLXCCaches() ([]LXCCache, error) {
+	var list []LXCCache
+	if err := DB.Where("present = ?", true).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// GetLXCCacheByName 取指定容器的缓存投影（含聚合 HealthStatus）。
+// handler 读聚合健康用；不存在返 gorm.ErrRecordNotFound。
+func GetLXCCacheByName(name string) (*LXCCache, error) {
+	var c LXCCache
+	if err := DB.Where("name = ?", name).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}

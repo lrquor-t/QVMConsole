@@ -344,6 +344,19 @@ export const endpointGroups = [
       ep('POST', '/lxc/:name/exec', '在容器内执行单条命令', { pathParams: ['name'], body: 'JSON: command(必填), timeout_sec(0=默认30,上限300)', notes: [apiCompatible, '同步返回 {stdout,stderr,exit_code,truncated,timed_out}；lxc-attach -- sh -c，root 执行；输出各截断 512KB；超时杀进程组。容器须 RUNNING，FROZEN/STOPPED 拒绝。属主可用（与 console 同级）。'] }),
       ep('GET', '/lxc/:name/cpu-limit', '读取容器 CPU 硬限制', { pathParams: ['name'], notes: [admin, apiCompatible, '解析 config 的 lxc.cgroup2.cpu.max / lxc.cgroup2.cpuset.cpus；返回 {cores(0=不限),cpuset}。'] }),
       ep('PUT', '/lxc/:name/cpu-limit', '设置容器 CPU 硬限制', { pathParams: ['name'], body: 'JSON: cores(核数,支持小数,0=不限), cpuset(如 0-3,^2,空=不绑)', notes: [admin, apiCompatible, 'cores→lxc.cgroup2.cpu.max（period 100000），cpuset→lxc.cgroup2.cpuset.cpus。运行中 cpu.max 热应用；清除 cpuset 仅更新配置，需重启生效。校验：cores∈[0,nproc] 且 ≤3 位小数。'] }),
+
+      // 端口映射（复用 VM iptables DNAT；owner 可自查/增删，配额与 VM 共用 max_port_forwards）
+      ep('GET', '/lxc/:name/port-forwards', '列出容器端口映射', { pathParams: ['name'], notes: [apiCompatible, '按容器当前所有可能 IP 过滤全局规则；普通用户只能访问归属自己的容器。'] }),
+      ep('POST', '/lxc/:name/port-forwards', '新增容器端口映射', { pathParams: ['name'], body: 'JSON: host_port(留空自动分配), vm_port(必填), protocol(tcp/udp/both), comment', notes: [apiCompatible, '与 VM 共用 max_port_forwards 用户配额（非 admin 走 CheckUserPortForwardQuota，容器与 VM 共池）；容器须已分配 IP，否则拒绝。'] }),
+      ep('DELETE', '/lxc/:name/port-forwards/:id', '删除容器端口映射', { pathParams: ['name', 'id'], notes: [apiCompatible, 'service 层校验规则归属该容器，防误删他者规则。'], highRisk: 'delete_port_forward' }),
+
+      // 健康检查（规则 CRUD + 聚合状态 + 手动探测；script 类型在 handler 内限管理员）
+      ep('GET', '/lxc/:name/health-checks', '列出健康检查规则', { pathParams: ['name'], notes: [apiCompatible, '返回该容器全部规则（含启用/禁用、最新探测结果）。普通用户只能访问归属自己的容器。'] }),
+      ep('POST', '/lxc/:name/health-checks', '新增健康检查规则', { pathParams: ['name'], body: 'JSON: check_name, type(http/tcp/script), target, expected_code(默认200), critical(bool), enabled(bool)', notes: [apiCompatible, 'type=script 在容器内 lxc-attach 执行任意命令，仅管理员可配置（非 admin 返回 403）；http/tcp 任意 owner 可配。'] }),
+      ep('PUT', '/lxc/:name/health-checks/:id', '更新健康检查规则', { pathParams: ['name', 'id'], body: 'JSON: check_name, type, target, expected_code, critical, enabled', notes: [apiCompatible, 'script 类型同样限管理员（防止把已有 http 规则改成 script 绕过限制）。'] }),
+      ep('DELETE', '/lxc/:name/health-checks/:id', '删除健康检查规则', { pathParams: ['name', 'id'], notes: [apiCompatible, 'service 层校验 id+容器归属，防误删他者规则。'] }),
+      ep('GET', '/lxc/:name/health', '取容器聚合健康状态', { pathParams: ['name'], response: 'data: status(healthy/degraded/unhealthy/unknown 四色聚合), checks[], checked_at。', notes: [apiCompatible, '聚合状态从 LXCCache.HealthStatus 读（后台调度器写入）；checks 为各规则最新一次探测结果明细。'] }),
+      ep('POST', '/lxc/:name/health/probe', '立即探测一次健康状态', { pathParams: ['name'], response: 'data: status(探测后最新聚合状态)。', notes: [apiCompatible, '同步执行全部启用规则并刷新聚合状态；不等后台调度周期。'] }),
     ]
   },
   {

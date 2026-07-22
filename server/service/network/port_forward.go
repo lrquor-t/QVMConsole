@@ -68,6 +68,19 @@ func buildPortForwardTargetInfoMap() map[string]portForwardTargetInfo {
 		}
 	}
 
+	// LXC 容器：按 IP 回填容器名/属主（IP 已存在则跳过——VM/静态/手动绑定优先）
+	if HookBuildLXCOwnerByIP != nil {
+		for ip, info := range HookBuildLXCOwnerByIP() {
+			if _, exists := targetMap[ip]; exists {
+				continue
+			}
+			targetMap[ip] = portForwardTargetInfo{
+				VMName:        info.VMName,
+				OwnerUsername: info.OwnerUsername,
+			}
+		}
+	}
+
 	return targetMap
 }
 

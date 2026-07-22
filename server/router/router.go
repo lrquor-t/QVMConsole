@@ -297,6 +297,19 @@ func Setup() *gin.Engine {
 				lxcGroup.PUT("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.UpdateLXCInterface)
 				lxcGroup.DELETE("/:name/interfaces/:order", middleware.AdminMiddleware(), handler.RemoveLXCInterface)
 
+				// LXC 端口映射（复用 VM iptables DNAT；owner 可自查/增删，配额走 max_port_forwards）
+				lxcGroup.GET("/:name/port-forwards", handler.ListLXCPortForwards)
+				lxcGroup.POST("/:name/port-forwards", handler.AddLXCPortForward)
+				lxcGroup.DELETE("/:name/port-forwards/:id", handler.DeleteLXCPortForward)
+
+				// LXC 健康检查（规则 CRUD + 聚合状态 + 手动探测；script 类型在 handler 内限管理员）
+				lxcGroup.GET("/:name/health-checks", handler.ListLXCHealthChecks)
+				lxcGroup.POST("/:name/health-checks", handler.AddLXCHealthCheck)
+				lxcGroup.PUT("/:name/health-checks/:id", handler.UpdateLXCHealthCheck)
+				lxcGroup.DELETE("/:name/health-checks/:id", handler.DeleteLXCHealthCheck)
+				lxcGroup.GET("/:name/health", handler.GetLXCHealth)
+				lxcGroup.POST("/:name/health/probe", handler.ProbeLXCHealth)
+
 				// LXC 模板（仅管理员）
 				lxcTmpl := lxcGroup.Group("/template")
 				lxcTmpl.Use(middleware.AdminMiddleware())
@@ -478,6 +491,21 @@ func Setup() *gin.Engine {
 				storagePool.POST("/create-zfs-pool", middleware.AdminMiddleware(), handler.CreateZFSPool)
 				storagePool.POST("/delete-zfs-pool", middleware.AdminMiddleware(), handler.DeleteZFSPool)
 				storagePool.POST("/expand-zfs-pool", middleware.AdminMiddleware(), handler.ExpandZFSPool)
+				storagePool.GET("/btrfs-status", middleware.AdminMiddleware(), handler.GetBtrfsStatus)
+				storagePool.POST("/create-btrfs-pool", middleware.AdminMiddleware(), handler.CreateBtrfsPool)
+				storagePool.POST("/delete-btrfs-pool", middleware.AdminMiddleware(), handler.DeleteBtrfsPool)
+				storagePool.POST("/expand-btrfs-pool", middleware.AdminMiddleware(), handler.ExpandBtrfsPool)
+				storagePool.GET("/btrfs-scrub/status", middleware.AdminMiddleware(), handler.GetBtrfsScrubStatusH)
+				storagePool.POST("/btrfs-scrub/start", middleware.AdminMiddleware(), handler.StartBtrfsScrubH)
+				storagePool.POST("/btrfs-scrub/cancel", middleware.AdminMiddleware(), handler.CancelBtrfsScrubH)
+				storagePool.GET("/btrfs-balance/status", middleware.AdminMiddleware(), handler.GetBtrfsBalanceStatusH)
+				storagePool.POST("/btrfs-balance/start", middleware.AdminMiddleware(), handler.StartBtrfsBalanceH)
+				storagePool.POST("/btrfs-balance/cancel", middleware.AdminMiddleware(), handler.CancelBtrfsBalanceH)
+				storagePool.POST("/btrfs-balance/pause", middleware.AdminMiddleware(), handler.PauseBtrfsBalanceH)
+				storagePool.POST("/btrfs-balance/resume", middleware.AdminMiddleware(), handler.ResumeBtrfsBalanceH)
+				storagePool.GET("/btrfs-property", middleware.AdminMiddleware(), handler.GetBtrfsPropertyH)
+				storagePool.PUT("/btrfs-property", middleware.AdminMiddleware(), handler.SetBtrfsPropertyH)
+				storagePool.POST("/btrfs-shrink", middleware.AdminMiddleware(), handler.ShrinkBtrfsPoolH)
 				storagePool.POST("/zfs-dataset", middleware.AdminMiddleware(), handler.CreateZFSDataset)
 				storagePool.DELETE("/zfs-dataset", middleware.AdminMiddleware(), handler.DeleteZFSDataset)
 				storagePool.GET("/zfs-scrub/status", middleware.AdminMiddleware(), handler.GetZFSScrubStatus)

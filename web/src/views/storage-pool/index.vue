@@ -147,7 +147,7 @@
               </div>
             </div>
             <div class="disk-group-actions">
-              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool">
+              <template v-if="disk.type !== 'vg' && !disk.is_lvm_vg && !disk.is_zfs_pool && !disk.is_btrfs_pool">
                 <el-button size="small" plain @click="openConfig(disk)">配置</el-button>
                 <el-button size="small" plain type="primary" :disabled="!disk.can_use_for_vm || disk.is_default" @click="handleSetDefault(disk)">设为默认</el-button>
                 <el-button size="small" plain type="warning" :disabled="!disk.can_format" @click="openFormat(disk)">格式化挂载</el-button>
@@ -161,6 +161,14 @@
                 <el-button size="small" plain type="primary" @click="openZfsScrub(disk.name)">Scrub / 健康</el-button>
                 <el-button size="small" plain type="warning" @click="openZfsExpand(disk)">扩容</el-button>
                 <el-button size="small" plain type="success" @click="openCreateDataset(disk.name)">创建数据集</el-button>
+                <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
+              </template>
+              <template v-if="disk.is_btrfs_pool">
+                <el-button size="small" plain type="warning" @click="openBtrfsExpand(disk)">扩容</el-button>
+                <el-button size="small" plain type="warning" @click="openBtrfsShrink(disk)">缩容</el-button>
+                <el-button size="small" plain type="primary" @click="openBtrfsScrub(disk)">Scrub</el-button>
+                <el-button size="small" plain type="primary" @click="openBtrfsBalance(disk)">Balance</el-button>
+                <el-button size="small" plain type="success" @click="openBtrfsProperty(disk)">属性</el-button>
                 <el-button size="small" plain type="danger" :disabled="disk.system_disk" @click="openDeleteVolume(disk)">销毁存储池</el-button>
               </template>
             </div>
@@ -477,11 +485,20 @@
               </el-card>
             </el-col>
             <el-col :span="8">
-              <el-card shadow="hover" class="volume-type-card disabled-card" style="opacity: 0.4; cursor: not-allowed;">
+              <el-tooltip v-if="!btrfsAvailable" :content="btrfsUnavailableReason || '未安装 btrfs-progs'" placement="top">
+                <el-card shadow="hover" class="volume-type-card disabled-card" style="opacity: 0.4; cursor: not-allowed;">
+                  <div style="text-align: center; padding: 10px;">
+                    <el-icon :size="36" color="#909399"><Box /></el-icon>
+                    <h3 style="margin: 10px 0 4px;">Btrfs 存储池</h3>
+                    <p style="color: #999; font-size: 12px; margin: 0;">{{ btrfsUnavailableReason || '未安装 btrfs-progs' }}</p>
+                  </div>
+                </el-card>
+              </el-tooltip>
+              <el-card v-else shadow="hover" class="volume-type-card" :class="{ selected: volumeType === 'btrfs' }" @click="volumeType = 'btrfs'">
                 <div style="text-align: center; padding: 10px;">
-                  <el-icon :size="36" color="#909399"><Box /></el-icon>
+                  <el-icon :size="36" color="#67C23A"><Box /></el-icon>
                   <h3 style="margin: 10px 0 4px;">Btrfs 存储池</h3>
-                  <p style="color: #999; font-size: 12px; margin: 0;">即将推出</p>
+                  <p style="color: #999; font-size: 12px; margin: 0;">支持多设备、压缩、子卷</p>
                 </div>
               </el-card>
             </el-col>
@@ -722,6 +739,87 @@
           <el-button type="primary" :disabled="!volumeConfirmed || !zfsForm.pool_name || zfsForm.device_ids.length === 0 || !zfsDisksEnough" :loading="creatingVolume" @click="submitCreateVolume">提交任务</el-button>
         </div>
       </template>
+
+      <!-- 第二步：Btrfs 配置表单 -->
+      <template v-if="volumeStep === 'config' && volumeType === 'btrfs'">
+        <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>此操作会将选中的磁盘创建为 Btrfs 文件系统（多设备池）并挂载。磁盘上的所有数据将被清除。</template>
+        </el-alert>
+
+        <el-form :model="btrfsForm" label-width="110px" label-position="top">
+          <el-form-item label="成员磁盘选择">
+            <div style="width: 100%;">
+              <el-alert v-if="pvTargets.length === 0" type="info" :closable="false">未找到可用的磁盘设备。</el-alert>
+              <el-checkbox-group v-model="btrfsForm.device_ids" v-else>
+                <el-card v-for="disk in pvTargets" :key="disk.id" shadow="never" class="pv-disk-item" style="margin-bottom: 8px;">
+                  <el-checkbox :value="disk.id" style="width: 100%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                      <span style="font-weight: 500;">{{ disk.display_name }}</span>
+                      <span style="color: #999; font-size: 12px;">{{ disk.device_path }} · {{ formatBytes(disk.size) }}</span>
+                    </div>
+                  </el-checkbox>
+                </el-card>
+              </el-checkbox-group>
+              <div class="form-tip" v-if="pvTargets.length > 0">
+                <el-icon><InfoFilled /></el-icon>
+                当前选择 {{ btrfsForm.device_ids.length }} 块，{{ btrfsProfileLabel(btrfsForm.data_profile) }} 至少需要 {{ btrfsProfileMinDisks(btrfsForm.data_profile) }} 块
+                <span v-if="!btrfsDisksEnough" style="color: #f56c6c;">（不足）</span>
+              </div>
+            </div>
+          </el-form-item>
+
+          <el-divider content-position="left">存储池配置</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="卷标 (label)">
+                <el-input v-model="btrfsForm.label" placeholder="例如: btank" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="数据 profile">
+                <el-select v-model="btrfsForm.data_profile" style="width: 100%;">
+                  <el-option label="单盘/单副本 (single)" value="single" />
+                  <el-option label="RAID0（条带）— 2 块起" value="raid0" />
+                  <el-option label="RAID1（镜像）— 2 块起" value="raid1" />
+                  <el-option label="RAID10 — 4 块起" value="raid10" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="压缩">
+                <el-select v-model="btrfsForm.compression" style="width: 100%;">
+                  <el-option label="zstd（推荐）" value="zstd" />
+                  <el-option label="关闭" value="off" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="挂载路径">
+                <el-input v-model="btrfsForm.mount_path" placeholder="留空则自动生成 /var/lib/kvm-storage/..." />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="VM 磁盘性能优化">
+            <el-switch v-model="btrfsForm.nocow_vm_disks" />
+            <span style="color: #999; font-size: 12px; margin-left: 8px;">开启后对 vm-disks 关闭 CoW（nodatacow），提升虚拟机磁盘随机写性能，但该目录不压缩、不支持 btrfs 快照；若主要给 LXC 容器使用或需要快照，请关闭此项（保留 CoW）</span>
+          </el-form-item>
+          <el-form-item label="开机自动挂载">
+            <el-switch v-model="btrfsForm.add_fstab" />
+          </el-form-item>
+        </el-form>
+
+        <div class="confirm-line" style="margin-top: 16px;">
+          <el-checkbox v-model="volumeConfirmed">我确认要创建 Btrfs 存储池，选中的磁盘数据将被清除</el-checkbox>
+        </div>
+
+        <div style="text-align: right; margin-top: 20px;">
+          <el-button @click="volumeStep = 'type'">上一步</el-button>
+          <el-button @click="createVolumeVisible = false">取消</el-button>
+          <el-button type="primary" :disabled="!volumeConfirmed || !btrfsForm.label || btrfsForm.device_ids.length === 0 || !btrfsDisksEnough" :loading="creatingVolume" @click="submitCreateVolume">提交任务</el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- 删除存储卷确认对话框 -->
@@ -778,6 +876,16 @@
 
     <!-- ZFS 存储池扩容 对话框 -->
     <ZfsExpandDialog ref="zfsExpandDialogRef" @success="fetchData" />
+    <!-- Btrfs 存储池扩容 对话框 -->
+    <BtrfsExpandDialog ref="btrfsExpandDialogRef" @success="fetchData" />
+    <!-- Btrfs Scrub / 健康 对话框 -->
+    <BtrfsScrubDialog ref="btrfsScrubDialogRef" />
+    <!-- Btrfs Balance / 在线改 RAID 对话框 -->
+    <BtrfsBalanceDialog ref="btrfsBalanceDialogRef" />
+    <!-- Btrfs 属性（压缩 + CoW）对话框 -->
+    <BtrfsPropertyDialog ref="btrfsPropertyDialogRef" />
+    <!-- Btrfs 缩容移盘 对话框 -->
+    <BtrfsShrinkDialog ref="btrfsShrinkDialogRef" @success="fetchData" />
   </div>
 </template>
 
@@ -785,10 +893,15 @@
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Box, Refresh, FolderOpened, Coin, Files, Connection, ArrowRight, ArrowDown, Plus } from '@element-plus/icons-vue'
-import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool } from '@/api/infra'
+import { getStoragePoolList, updateStoragePoolConfig, setDefaultStoragePool, formatMountStoragePool, createStoragePartition, deleteStoragePartitions, getAvailablePVTargets, createLVMVolume, deleteLVMVolume, getZFSStatus, createZFSPool, createZFSDataset, deleteZFSDataset, deleteZFSPool, getBtrfsStatus, createBtrfsPool, deleteBtrfsPool, expandBtrfsPool } from '@/api/infra'
 import ZfsScrubDialog from '@/components/ZfsScrubDialog.vue'
 import ZfsPropertyDialog from '@/components/ZfsPropertyDialog.vue'
 import ZfsExpandDialog from '@/components/ZfsExpandDialog.vue'
+import BtrfsExpandDialog from '@/components/BtrfsExpandDialog.vue'
+import BtrfsScrubDialog from '@/components/BtrfsScrubDialog.vue'
+import BtrfsBalanceDialog from '@/components/BtrfsBalanceDialog.vue'
+import BtrfsPropertyDialog from '@/components/BtrfsPropertyDialog.vue'
+import BtrfsShrinkDialog from '@/components/BtrfsShrinkDialog.vue'
 import * as echarts from 'echarts'
 
 const tableData = ref([])
@@ -814,6 +927,22 @@ const zfsExpandDialogRef = ref(null)
 const openZfsExpand = (disk) => {
   zfsExpandDialogRef.value?.open(disk.name, disk.expand_vdev_type)
 }
+const btrfsExpandDialogRef = ref(null)
+const openBtrfsExpand = (disk) => {
+  btrfsExpandDialogRef.value?.open(disk)
+}
+const btrfsShrinkDialogRef = ref(null)
+const openBtrfsShrink = (disk) => { btrfsShrinkDialogRef.value?.open(disk) }
+const btrfsScrubDialogRef = ref(null)
+const openBtrfsScrub = (disk) => {
+  btrfsScrubDialogRef.value?.open(disk.name || disk.btrfs_label)
+}
+const btrfsBalanceDialogRef = ref(null)
+const openBtrfsBalance = (disk) => {
+  btrfsBalanceDialogRef.value?.open(disk.name || disk.btrfs_label)
+}
+const btrfsPropertyDialogRef = ref(null)
+const openBtrfsProperty = (disk) => { btrfsPropertyDialogRef.value?.open(disk.name || disk.btrfs_label) }
 const creatingDataset = ref(false)
 const datasetForm = ref({ pool: '', name: '' })
 const zpoolList = computed(() => tableData.value.filter(n => n.type === 'zpool').map(n => n.name))
@@ -913,6 +1042,27 @@ const zfsVdevLabel = (vdev) => {
 }
 const zfsDisksEnough = computed(() => zfsForm.device_ids.length >= zfsVdevMinDisks(zfsForm.vdev_type))
 
+const btrfsAvailable = ref(false)
+const btrfsUnavailableReason = ref('')
+const btrfsForm = reactive({
+  device_ids: [],
+  label: '',
+  data_profile: 'single',
+  compression: 'zstd',
+  mount_path: '',
+  nocow_vm_disks: true,
+  add_fstab: true,
+})
+const btrfsProfileMinDisks = (p) => {
+  const map = { single: 1, raid0: 2, raid1: 2, raid10: 4 }
+  return map[p] || 1
+}
+const btrfsProfileLabel = (p) => {
+  const map = { single: '单盘/单副本', raid0: 'RAID0', raid1: 'RAID1（镜像）', raid10: 'RAID10' }
+  return map[p] || p
+}
+const btrfsDisksEnough = computed(() => btrfsForm.device_ids.length >= btrfsProfileMinDisks(btrfsForm.data_profile))
+
 // 根据当前选中的存储卷类型，在卡片上方给出不同的说明提示
 const volumeTypeHint = computed(() => {
   if (volumeType.value === 'zfs') {
@@ -920,8 +1070,17 @@ const volumeTypeHint = computed(() => {
       return { type: 'warning', text: 'ZFS 存储池：' + (zfsUnavailableReason.value || '宿主机未安装 zfsutils-linux，无法创建。') }
     }
     return {
-      type: 'success',
+      type: 'info',
       text: 'ZFS 存储池：基于多块磁盘构建镜像或 RAIDZ 阵列，自带压缩、数据校验与自愈能力，数据安全性高，适合存放重要数据。',
+    }
+  }
+  if (volumeType.value === 'btrfs') {
+    if (!btrfsAvailable.value) {
+      return { type: 'warning', text: 'Btrfs 存储池：' + (btrfsUnavailableReason.value || '宿主机未安装 btrfs-progs，无法创建。') }
+    }
+    return {
+      type: 'info',
+      text: 'Btrfs 存储池：支持多设备（raid0/1/10）、透明压缩（zstd）与子卷。默认开启「VM 磁盘性能优化」（对 vm-disks 关闭 CoW）以提升虚拟机磁盘性能；若该池主要给 LXC 使用或需要快照，可在下方关闭该项以保留 CoW。',
     }
   }
   return {
@@ -1122,6 +1281,17 @@ const openCreateVolume = async () => {
     zfsAvailable.value = false
     zfsUnavailableReason.value = '检测 ZFS 可用性失败'
   }
+
+  // 检测 Btrfs 可用性
+  try {
+    const res = await getBtrfsStatus()
+    btrfsAvailable.value = !!res.data?.available
+    btrfsUnavailableReason.value = res.data?.reason || ''
+  } catch (err) {
+    console.error(err)
+    btrfsAvailable.value = false
+    btrfsUnavailableReason.value = '检测 Btrfs 可用性失败'
+  }
 }
 
 const onLVTypeChange = (type) => {
@@ -1136,6 +1306,27 @@ const onLVTypeChange = (type) => {
 const submitCreateVolume = async () => {
   creatingVolume.value = true
   try {
+    if (volumeType.value === 'btrfs') {
+      await createBtrfsPool({
+        device_ids: btrfsForm.device_ids,
+        label: btrfsForm.label,
+        data_profile: btrfsForm.data_profile,
+        compression: btrfsForm.compression,
+        mount_path: btrfsForm.mount_path,
+        nocow_vm_disks: btrfsForm.nocow_vm_disks,
+        add_fstab: btrfsForm.add_fstab,
+      })
+      ElMessage.success('创建 Btrfs 存储池任务已提交，请在任务中心查看进度')
+      createVolumeVisible.value = false
+      btrfsForm.device_ids = []
+      btrfsForm.label = ''
+      btrfsForm.data_profile = 'single'
+      btrfsForm.compression = 'zstd'
+      btrfsForm.mount_path = ''
+      btrfsForm.nocow_vm_disks = true
+      btrfsForm.add_fstab = true
+      return
+    }
     if (volumeType.value === 'zfs') {
       await createZFSPool({
         device_ids: zfsForm.device_ids,
@@ -1196,19 +1387,24 @@ const deletingVolume = ref(false)
 const deleteVolumeConfirmed = ref(false)
 const deletingVolumeDisk = ref(null)
 
-const deleteVolumeDialogTitle = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool ? '销毁 ZFS 存储池' : '删除存储卷'
-)
-const deleteVolumeWarning = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool
-    ? `此操作将销毁 ZFS 存储池「${deletingVolumeDisk.value?.name}」及其所有数据集，数据将不可恢复！`
-    : `此操作将删除卷组「${deletingVolumeDisk.value?.name}」及其所有逻辑卷和物理卷，数据将不可恢复！`
-)
-const deleteVolumeConfirmText = computed(() =>
-  deletingVolumeDisk.value?.is_zfs_pool
-    ? '我确认要销毁该 ZFS 存储池及其所有数据集'
-    : '我确认要删除该卷组及其所有逻辑卷和物理卷'
-)
+const deleteVolumeDialogTitle = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return '销毁 ZFS 存储池'
+  if (d?.is_btrfs_pool) return '销毁 Btrfs 存储池'
+  return '删除存储卷'
+})
+const deleteVolumeWarning = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return `此操作将销毁 ZFS 存储池「${d?.name}」及其所有数据集，数据将不可恢复！`
+  if (d?.is_btrfs_pool) return `此操作将销毁 Btrfs 存储池「${d?.name}」并擦除成员盘数据，数据将不可恢复！`
+  return `此操作将删除卷组「${d?.name}」及其所有逻辑卷和物理卷，数据将不可恢复！`
+})
+const deleteVolumeConfirmText = computed(() => {
+  const d = deletingVolumeDisk.value
+  if (d?.is_zfs_pool) return '我确认要销毁该 ZFS 存储池及其所有数据集'
+  if (d?.is_btrfs_pool) return '我确认要销毁该 Btrfs 存储池并擦除成员盘'
+  return '我确认要删除该卷组及其所有逻辑卷和物理卷'
+})
 
 const openDeleteVolume = (disk) => {
   deletingVolumeDisk.value = disk
@@ -1224,6 +1420,9 @@ const submitDeleteVolume = async () => {
     if (disk.is_zfs_pool) {
       await deleteZFSPool(disk.name)
       ElMessage.success('销毁 ZFS 存储池任务已提交，请在任务中心查看进度')
+    } else if (disk.is_btrfs_pool) {
+      await deleteBtrfsPool(disk.name)
+      ElMessage.success('销毁 Btrfs 存储池任务已提交，请在任务中心查看进度')
     } else {
       await deleteLVMVolume(disk.name)
       ElMessage.success('删除 LVM 存储卷任务已提交，请在任务中心查看进度')
@@ -1254,7 +1453,7 @@ const progressColor = (pct = 0) => {
 }
 
 const typeLabel = (type) => {
-  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱', vg: '卷组', lv: '逻辑卷', pv: '物理卷', zpool: 'ZFS 池', zdataset: 'ZFS 数据集', zmember: '成员盘' }
+  const map = { disk: '硬盘', part: '分区', lvm: 'LVM', loop: 'Loop', rom: '光驱', vg: '卷组', lv: '逻辑卷', pv: '物理卷', zpool: 'ZFS 池', zdataset: 'ZFS 数据集', zmember: '成员盘', btrfs: 'Btrfs 池', dir: '目录' }
   return map[type] || type || '-'
 }
 

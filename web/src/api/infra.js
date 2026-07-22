@@ -186,3 +186,64 @@ export function getZFSProperty(dataset) {
 export function setZFSProperty(dataset, property, value) {
   return request({ url: '/storage-pool/zfs-property', method: 'put', data: { dataset, property, value } })
 }
+
+// 检测宿主机 Btrfs 可用性
+export function getBtrfsStatus() {
+  return request({ url: '/storage-pool/btrfs-status', method: 'get' })
+}
+
+// 创建 Btrfs 存储池
+export function createBtrfsPool(data) {
+  return request({ url: '/storage-pool/create-btrfs-pool', method: 'post', data })
+}
+
+// 销毁 Btrfs 存储池
+export function deleteBtrfsPool(label) {
+  return request({ url: '/storage-pool/delete-btrfs-pool', method: 'post', data: { label } })
+}
+
+// 扩容 Btrfs 存储池（加盘）
+export function expandBtrfsPool(data) {
+  return request({ url: '/storage-pool/expand-btrfs-pool', method: 'post', data })
+}
+
+// ── Btrfs Scrub ──
+export function getBtrfsScrubStatus(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/status', method: 'get', params: { label } })
+}
+export function startBtrfsScrub(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/start', method: 'post', data: { label } })
+}
+export function cancelBtrfsScrub(label) {
+  return request({ url: '/storage-pool/btrfs-scrub/cancel', method: 'post', data: { label } })
+}
+
+// ── Btrfs Balance ──
+export function getBtrfsBalanceStatus(label) {
+  return request({ url: '/storage-pool/btrfs-balance/status', method: 'get', params: { label } })
+}
+export function startBtrfsBalance(data) {
+  return request({ url: '/storage-pool/btrfs-balance/start', method: 'post', data })
+}
+export function cancelBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/cancel', method: 'post', data: { label } })
+}
+export function pauseBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/pause', method: 'post', data: { label } })
+}
+export function resumeBtrfsBalance(label) {
+  return request({ url: '/storage-pool/btrfs-balance/resume', method: 'post', data: { label } })
+}
+
+// ── Btrfs 属性 ──
+export function getBtrfsProperty(label) {
+  return request({ url: '/storage-pool/btrfs-property', method: 'get', params: { label } })
+}
+export function setBtrfsProperty(data) {
+  return request({ url: '/storage-pool/btrfs-property', method: 'put', data })
+}
+
+// ── Btrfs 缩容移盘 ──
+export function shrinkBtrfsPool(data) {
+  return request({ url: '/storage-pool/btrfs-shrink', method: 'post', data })
+}

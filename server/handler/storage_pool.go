@@ -518,3 +518,337 @@ func SetZFSPropertyHandler(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": req.Property + " 已更新"})
 }
+
+// GetBtrfsStatus 检测宿主机 Btrfs 可用性
+func GetBtrfsStatus(c *gin.Context) {
+	available := service.BtrfsAvailable()
+	reason := "ok"
+	if !available {
+		reason = "未检测到 btrfs-progs（mkfs.btrfs/btrfs/chattr），请先安装"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": gin.H{
+		"available": available,
+		"reason":    reason,
+	}})
+}
+
+// CreateBtrfsPool 提交创建 Btrfs 存储池任务
+func CreateBtrfsPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_btrfs_pool") {
+		return
+	}
+	var req service.BtrfsPoolRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	paramsJSON, _ := json.Marshal(req)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageCreateBtrfsPool, gin.H{"params": string(paramsJSON)}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交创建 Btrfs 存储池任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "创建 Btrfs 存储池任务已提交", "data": gin.H{"task_id": task.ID}})
+}
+
+// DeleteBtrfsPool 提交销毁 Btrfs 存储池任务
+func DeleteBtrfsPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "delete_btrfs_pool") {
+		return
+	}
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Label) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "存储池名称不能为空"})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageDeleteBtrfsPool, gin.H{"label": req.Label}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交销毁 Btrfs 存储池任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "销毁 Btrfs 存储池任务已提交", "data": gin.H{"task_id": task.ID}})
+}
+
+type expandBtrfsPoolReq struct {
+	Label     string   `json:"label" binding:"required"`
+	DeviceIDs []string `json:"device_ids"`
+}
+
+// ExpandBtrfsPool 给已存在 btrfs 池加盘扩容（同步，高风险验证）。
+func ExpandBtrfsPool(c *gin.Context) {
+	if !requireHighRiskVerification(c, "expand_btrfs_pool") {
+		return
+	}
+	var req expandBtrfsPoolReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需指定 label/device_ids"})
+		return
+	}
+	if err := service.ExpandBtrfsPool(req.Label, req.DeviceIDs); err != nil {
+		if strings.HasPrefix(err.Error(), "btrfs device add 失败") {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "存储池 " + req.Label + " 已扩容"})
+}
+
+// ── Btrfs Scrub ──
+
+// resolveBtrfsMountByLabel 从 query/body 的 label 解析出 btrfs 池挂载点。
+// 复用于所有 btrfs 运维 handler。
+func resolveBtrfsMountByLabel(c *gin.Context, label string) (string, string, bool) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "缺少 label 参数"})
+		return "", "", false
+	}
+	if err := service.ValidateBtrfsLabelExported(label); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return "", "", false
+	}
+	cfg, ok := service.GetBtrfsConfigByLabel(label)
+	if !ok || cfg.MountPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Btrfs 存储池 " + label + " 不存在或未挂载"})
+		return "", "", false
+	}
+	return label, cfg.MountPath, true
+}
+
+// GetBtrfsScrubStatusH GET /api/storage-pool/btrfs-scrub/status?label=
+func GetBtrfsScrubStatusH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	status, err := service.GetBtrfsScrubStatus(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	status.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
+}
+
+// StartBtrfsScrubH POST /api/storage-pool/btrfs-scrub/start
+func StartBtrfsScrubH(c *gin.Context) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := service.StartBtrfsScrub(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已启动: " + req.Label})
+}
+
+// CancelBtrfsScrubH POST /api/storage-pool/btrfs-scrub/cancel
+func CancelBtrfsScrubH(c *gin.Context) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := service.CancelBtrfsScrub(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "scrub 已取消: " + req.Label})
+}
+
+// ── Btrfs Balance ──
+
+// GetBtrfsBalanceStatusH GET /api/storage-pool/btrfs-balance/status?label=
+func GetBtrfsBalanceStatusH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	status, err := service.GetBtrfsBalanceStatus(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	status.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
+}
+
+// StartBtrfsBalanceH POST /api/storage-pool/btrfs-balance/start
+func StartBtrfsBalanceH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "start_btrfs_balance") {
+		return
+	}
+	var req service.BtrfsBalanceStartReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	// 护栏预检：校验错→400，命令错→500
+	if err := service.PreflightBtrfsBalance(req.Label, mount, req.Mode, req.TargetProfile, req.Usage); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := service.StartBtrfsBalance(mount, req.Mode, req.TargetProfile, req.Usage); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "balance 已启动"})
+}
+
+// balanceControlH 取消/暂停/恢复 balance 的共用壳子（label 校验 + 高危确认 + 委派）。
+func balanceControlH(c *gin.Context, op string, fn func(string) error) {
+	var req struct {
+		Label string `json:"label" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: 需要 label"})
+		return
+	}
+	if !requireHighRiskVerification(c, op) {
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if err := fn(mount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "balance 已" + map[string]string{"cancel_btrfs_balance": "取消", "pause_btrfs_balance": "暂停", "resume_btrfs_balance": "恢复"}[op]})
+}
+
+// CancelBtrfsBalanceH POST /api/storage-pool/btrfs-balance/cancel
+func CancelBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "cancel_btrfs_balance", service.CancelBtrfsBalance)
+}
+
+// PauseBtrfsBalanceH POST /api/storage-pool/btrfs-balance/pause
+func PauseBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "pause_btrfs_balance", service.PauseBtrfsBalance)
+}
+
+// ResumeBtrfsBalanceH POST /api/storage-pool/btrfs-balance/resume
+func ResumeBtrfsBalanceH(c *gin.Context) {
+	balanceControlH(c, "resume_btrfs_balance", service.ResumeBtrfsBalance)
+}
+
+// ── Btrfs 属性 ──
+
+// GetBtrfsPropertyH GET /api/storage-pool/btrfs-property?label=
+func GetBtrfsPropertyH(c *gin.Context) {
+	label, mount, ok := resolveBtrfsMountByLabel(c, c.Query("label"))
+	if !ok {
+		return
+	}
+	info, err := service.GetBtrfsProperty(mount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	info.Label = label
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": info})
+}
+
+// SetBtrfsPropertyH PUT /api/storage-pool/btrfs-property
+// body: { label, compression?, nocow? }（只带变更字段）
+func SetBtrfsPropertyH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "set_btrfs_property") {
+		return
+	}
+	var req struct {
+		Label       string `json:"label" binding:"required"`
+		Compression string `json:"compression"`
+		NoCow       *bool  `json:"nocow"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	_, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	cur, _ := service.GetBtrfsProperty(mount)
+	if req.Compression != "" && req.Compression != cur.Compression {
+		if err := service.SetBtrfsCompression(mount, req.Compression); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	if req.NoCow != nil && *req.NoCow != cur.NoCow {
+		if err := service.SetBtrfsNoCow(mount, *req.NoCow); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "属性已更新"})
+}
+
+// ── Btrfs 缩容移盘 ──
+
+// ShrinkBtrfsPoolH POST /api/storage-pool/btrfs-shrink  提交缩容任务。
+func ShrinkBtrfsPoolH(c *gin.Context) {
+	if !requireHighRiskVerification(c, "shrink_btrfs_pool") {
+		return
+	}
+	var req struct {
+		Label     string   `json:"label" binding:"required"`
+		DeviceIDs []string `json:"device_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if len(req.DeviceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请选择要移除的成员盘"})
+		return
+	}
+	// 护栏前置预检（校验错→400），通过后提交任务
+	label, mount, ok := resolveBtrfsMountByLabel(c, req.Label)
+	if !ok {
+		return
+	}
+	if _, err := service.PreflightBtrfsShrink(label, mount, req.DeviceIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	username, _ := c.Get("username")
+	usernameStr, _ := username.(string)
+	task, err := taskqueue.SubmitWithStruct(model.TaskTypeStorageRemoveBtrfsDevice, gin.H{"label": req.Label, "device_ids": req.DeviceIDs}, usernameStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交缩容任务失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "缩容任务已提交", "data": gin.H{"task_id": task.ID}})
+}
