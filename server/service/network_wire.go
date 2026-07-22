@@ -13,6 +13,7 @@ type PortForwardRule = netpkg.PortForwardRule
 type PortForwardAddParams = netpkg.PortForwardAddParams
 type PortForwardUpdateParams = netpkg.PortForwardUpdateParams
 type PortForwardAutoAddParams = netpkg.PortForwardAutoAddParams
+type NICFixedIP = netpkg.NICFixedIP
 
 // init wires network package function variables to service root implementations.
 // This breaks the circular dependency: network package cannot import service,
@@ -203,6 +204,7 @@ func init() {
 
 	// ── LXC hook（service/lxc 不能被 service/network 反向依赖，故在此注入）──
 	netpkg.HookBuildLXCOwnerByIP = lxc.BuildLXCOwnerByIP
+	netpkg.HookGetLXCNICMAC = lxc.NICMAC
 
 	// ── Port forward probe hooks ──
 	netpkg.HookSyncPortForwardProbeStateOnAdd = SyncPortForwardProbeStateOnAdd
@@ -274,4 +276,14 @@ func removePortForwardsForCIDR(cidr string) {
 // cleanupOVSStaticHostsForVMs delegates to network.CleanupOVSStaticHostsForVMs
 func cleanupOVSStaticHostsForVMs(vmNames []string) {
 	netpkg.CleanupOVSStaticHostsForVMs(vmNames)
+}
+
+// BindStaticIPForNICs delegates to network.BindStaticIPForNICs
+func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
+	return netpkg.BindStaticIPForNICs(vmName, plans)
+}
+
+// ValidateFixedIPForSwitch delegates to network.ValidateFixedIPForSwitch
+func ValidateFixedIPForSwitch(switchID uint, ip string) error {
+	return netpkg.ValidateFixedIPForSwitch(switchID, ip)
 }
