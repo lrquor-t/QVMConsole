@@ -104,18 +104,23 @@
       <!-- 静态 IP -->
       <el-tab-pane v-if="!isLightweight && hasNatSwitch" label="静态 IP" name="staticip">
         <div style="margin-bottom: 10px;">
-          <el-button type="primary" size="small" :disabled="staticIPDisabled" @click="handleBindIP">绑定 IP</el-button>
+          <el-button type="primary" size="small" :disabled="!hasBindableNic" @click="handleBindIP">绑定 IP</el-button>
         </div>
         <el-alert
-          v-if="currentSwitchIsBridge"
+          v-if="multiNicInterfaces.length > 0 && !hasBindableNic"
           type="info"
           show-icon
           :closable="false"
-          title="当前 VM 接入桥接直通交换机，不使用面板 DHCP；静态 IP 请在虚拟机系统或上级路由器中配置。"
+          title="当前 VM 所有网卡均接入桥接直通交换机，不使用面板 DHCP；静态 IP 请在虚拟机系统或上级路由器中配置。"
           style="margin-bottom: 10px;"
         />
         <h4>静态绑定</h4>
         <el-table :data="currentVmBindings" border size="small" v-loading="ipLoading">
+          <el-table-column label="网卡" min-width="150">
+            <template #default="{ row }">
+              {{ staticBindNicLabel(row.interface_order) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="ip" label="IP 地址" />
           <el-table-column prop="mac" label="MAC 地址" />
           <el-table-column label="操作" width="80">
@@ -593,12 +598,23 @@
     </el-dialog>
 
     <!-- 绑定静态 IP 对话框 -->
-    <el-dialog title="绑定静态 IP" v-model="bindIPVisible" width="400px" append-to-body>
+    <el-dialog title="绑定静态 IP" v-model="bindIPVisible" width="420px" append-to-body>
       <el-form :model="bindForm" label-width="100px">
+        <el-form-item label="网卡">
+          <el-select v-model="selectedBindNicOrder" style="width: 100%;" placeholder="选择网卡" @change="onBindNicChange">
+            <el-option
+              v-for="n in bindNicOptions"
+              :key="n.order"
+              :label="`网卡${n.order}${n.order === 0 ? '（主）' : ''} · ${n.name}${n.isBridge ? '（桥接，不可用）' : ''}`"
+              :value="n.order"
+              :disabled="n.isBridge"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="DHCP 租约">
           <el-select v-model="selectedLeaseIP" style="width: 100%;" placeholder="选择要绑定的租约" @change="onLeaseSelected">
             <el-option
-              v-for="item in currentVmDhcpLeases"
+              v-for="item in selectedNicLeases"
               :key="item.ip"
               :label="`${item.ip}（${item.hostname || item.vm_name}）`"
               :value="item.ip"
@@ -609,7 +625,7 @@
         <el-form-item label="IP 地址" v-if="selectedLeaseIP === ''">
           <div style="display:flex; gap:8px; width:100%;">
             <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位数字" style="flex:1;" />
-            <el-button @click="pickerVisible = true">选择</el-button>
+            <el-button @click="pickerVisible = true" :disabled="!selectedBindNic">选择</el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -619,7 +635,7 @@
       </template>
     </el-dialog>
 
-    <IpPickerDialog v-model="pickerVisible" :switch-id="vpcInfo?.switch?.id || 0" @select="(ip) => bindForm.ip = ip" />
+    <IpPickerDialog v-model="pickerVisible" :switch-id="selectedBindNic?.switchId || 0" @select="(ip) => bindForm.ip = ip" />
 
     <!-- 添加网口对话框（仅管理员） -->
     <el-dialog title="添加网口" v-model="addNicVisible" width="500px" append-to-body>
@@ -826,9 +842,49 @@ const dhcpLeases = ref([])
 const ipLoading = ref(false)
 const bindIPVisible = ref(false)
 const bindIPSubmitting = ref(false)
-const bindForm = reactive({ vm_name: '', ip: '' })
+const bindForm = reactive({ vm_name: '', interface_order: 0, ip: '' })
+const selectedBindNicOrder = ref(0)
 const selectedLeaseIP = ref('')
 const pickerVisible = ref(false)
+// 静态 IP 绑定：网卡下拉选项（来自网口列表）
+const bindNicOptions = computed(() => {
+  return multiNicInterfaces.value
+    .slice()
+    .sort((a, b) => (a.binding?.interface_order ?? 0) - (b.binding?.interface_order ?? 0))
+    .map(i => ({
+      order: i.binding?.interface_order ?? 0,
+      name: i.switch?.name || '-',
+      switchId: i.switch?.id || 0,
+      isBridge: i.switch?.bridge_mode === 'bridge'
+    }))
+})
+const selectedBindNic = computed(() => bindNicOptions.value.find(n => n.order === selectedBindNicOrder.value) || null)
+const hasBindableNic = computed(() => bindNicOptions.value.some(n => !n.isBridge))
+// 选中网卡的 MAC（VM 从运行时状态按序号取，序号即数组下标）
+const selectedBindNicMAC = computed(() => {
+  const order = selectedBindNicOrder.value
+  const ifaces = runtimeStatus.value?.interfaces || []
+  if (order >= 0 && order < ifaces.length) return (ifaces[order].mac || '').toLowerCase()
+  return ''
+})
+// 选中网卡对应的 DHCP 租约（按 MAC 过滤）
+const selectedNicLeases = computed(() => {
+  if (!selectedBindNicMAC.value) return []
+  return currentVmDhcpLeases.value.filter(l => (l.mac || '').toLowerCase() === selectedBindNicMAC.value)
+})
+const ensureNicList = async () => {
+  if (isAdmin.value) {
+    await fetchMultiNicInterfaces()
+  } else if (vpcInfo.value) {
+    buildInterfacesFromVpcInfo()
+  }
+}
+const staticBindNicLabel = (order) => {
+  const o = order ?? 0
+  const nic = multiNicInterfaces.value.find(i => (i.binding?.interface_order ?? 0) === o)
+  const name = nic?.switch?.name
+  return name ? `网卡${o}${o === 0 ? '（主）' : ''} · ${name}` : `网卡${o}${o === 0 ? '（主）' : ''}`
+}
 const runtimeStatus = ref(null)
 const runtimeLoading = ref(false)
 const selfQuota = ref(null)
@@ -1105,6 +1161,7 @@ const fetchData = async () => {
   if (!props.vmName) return
   forwardLoading.value = true
   await Promise.all([fetchForwardRules(), fetchStaticIPs(), fetchManualIPs(), fetchRuntimeStatus(), fetchSelfQuota(), fetchVPCBinding(), fetchWhitelistSummary()])
+  await ensureNicList()
   initPortForwardIntro()
   forwardLoading.value = false
 }
@@ -2013,22 +2070,27 @@ const handleRunCurrentVMProbe = async () => {
 }
 
 // 静态 IP - 绑定
-const handleBindIP = () => {
-  if (staticIPDisabled.value) {
-    ElMessage.warning('桥接直通交换机不使用面板 DHCP，不能在这里绑定静态 IP')
+const handleBindIP = async () => {
+  await ensureNicList()
+  if (!hasBindableNic.value) {
+    ElMessage.warning('没有可绑定静态 IP 的网卡（均为桥接）')
     return
   }
   bindForm.vm_name = props.vmName
   bindForm.ip = ''
   selectedLeaseIP.value = ''
-
-  // 如果只有一个 DHCP 租约，默认选中
-  if (currentVmDhcpLeases.value.length === 1) {
-    selectedLeaseIP.value = currentVmDhcpLeases.value[0].ip
-    bindForm.ip = currentVmDhcpLeases.value[0].ip
-  }
-
+  // 默认选主网卡（序号 0）；若主网卡为桥接则选第一个 NAT 网卡
+  const natOpts = bindNicOptions.value.filter(n => !n.isBridge)
+  const primary = natOpts.find(n => n.order === 0) || natOpts[0]
+  selectedBindNicOrder.value = primary?.order ?? 0
+  bindForm.interface_order = selectedBindNicOrder.value
   bindIPVisible.value = true
+}
+
+const onBindNicChange = (order) => {
+  bindForm.interface_order = order
+  selectedLeaseIP.value = ''
+  bindForm.ip = ''
 }
 
 // 选择 DHCP 租约时更新 IP
@@ -2039,7 +2101,7 @@ const onLeaseSelected = (val) => {
 const submitBindIP = async () => {
   bindIPSubmitting.value = true
   try {
-    const res = await bindStaticIP(bindForm)
+    const res = await bindStaticIP({ vm_name: bindForm.vm_name, interface_order: selectedBindNicOrder.value, ip: bindForm.ip })
     ElMessage.success(res.message || '静态 IP 绑定成功')
     bindIPVisible.value = false
     await fetchStaticIPs()
@@ -2053,8 +2115,8 @@ const submitBindIP = async () => {
 // 静态 IP - 解绑
 const handleUnbindIP = async (row) => {
   try {
-    await ElMessageBox.confirm(`确定解绑 ${row.vm_name} 的静态 IP（${row.ip}）？`, '提示', { type: 'warning' })
-    await unbindStaticIP({ vm_name: row.vm_name })
+    await ElMessageBox.confirm(`确定解绑 ${row.vm_name} 网卡${row.interface_order ?? 0} 的静态 IP（${row.ip}）？`, '提示', { type: 'warning' })
+    await unbindStaticIP({ vm_name: row.vm_name, interface_order: row.interface_order ?? 0 })
     ElMessage.success('静态 IP 已解绑')
     fetchStaticIPs()
   } catch {}
