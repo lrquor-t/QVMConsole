@@ -26,17 +26,19 @@ func ListStaticIPs() (*IPListInfo, error) {
 	}
 	for _, host := range staticHosts {
 		info.StaticBindings = append(info.StaticBindings, StaticIPInfo{
-			MAC:    host.MAC,
-			VMName: host.VMName,
-			IP:     host.IP,
+			MAC:            host.MAC,
+			VMName:         host.VMName,
+			IP:             host.IP,
+			InterfaceOrder: resolveInterfaceOrder(host.VMName, host.MAC),
 		})
 	}
 	if vpcStaticHosts, vpcErr := HookListAllVPCStaticHosts(); vpcErr == nil {
 		for _, host := range vpcStaticHosts {
 			info.StaticBindings = append(info.StaticBindings, StaticIPInfo{
-				MAC:    host.MAC,
-				VMName: host.VMName,
-				IP:     host.IP,
+				MAC:            host.MAC,
+				VMName:         host.VMName,
+				IP:             host.IP,
+				InterfaceOrder: resolveInterfaceOrder(host.VMName, host.MAC),
 			})
 		}
 	}
@@ -86,6 +88,25 @@ func ListStaticIPs() (*IPListInfo, error) {
 	}
 
 	return info, nil
+}
+
+// resolveInterfaceOrder 反解静态绑定 MAC 对应的网卡序号。
+// 枚举该 VM/LXC 的网卡绑定行，用 nicMAC 逐张比对；无绑定行（基础网络等单网卡 VM）按主网卡 0 计。
+func resolveInterfaceOrder(vmName, mac string) int {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" {
+		return 0
+	}
+	var rows []model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).Order("interface_order asc").Find(&rows).Error; err != nil || len(rows) == 0 {
+		return 0
+	}
+	for _, r := range rows {
+		if strings.EqualFold(nicMAC(vmName, r.InterfaceOrder), mac) {
+			return r.InterfaceOrder
+		}
+	}
+	return 0
 }
 
 // findFreeIP 自动查找空闲 IP，从 .2 到 .254 按顺序分配
@@ -416,30 +437,39 @@ func firstNICMAC(vmName string) string {
 	return firstNICMACFromSources("vm", "", ip_resolver.GetFirstVMMAC(vmName))
 }
 
-// BindStaticIP 绑定静态 IP，ipAddr 为空时自动分配空闲 IP
-// 返回实际绑定的 IP 地址
+// BindStaticIP 绑定静态 IP（主网卡推断路径），ipAddr 为空时自动分配空闲 IP。
+// 保留给 EnsureStaticIP / ResolvePortForwardTargetIP 等内部主网卡路径使用。
+// 面板按网卡绑定请用 BindStaticIPForNIC。
 func BindStaticIP(vmName, ipAddr string) (string, error) {
-	// 获取 MAC 地址
 	mac := firstNICMAC(vmName)
+	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
+	if !hasSwitch || sw == nil {
+		return bindStaticIPOnSwitch(vmName, mac, model.VPCSwitch{}, false, ipAddr)
+	}
+	return bindStaticIPOnSwitch(vmName, mac, *sw, true, ipAddr)
+}
+
+// bindStaticIPOnSwitch 在已解析的 (mac, switch) 上执行静态 IP 绑定（VPC 与 OVS 分支核心）。
+// hasSwitch=false 表示无 VPC 绑定，走全局 OVS dnsmasq。
+func bindStaticIPOnSwitch(vmName, mac string, sw model.VPCSwitch, hasSwitch bool, ipAddr string) (string, error) {
 	if mac == "" {
 		return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 	}
-	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
-	if hasSwitch && !switchIsSystemBase(*sw) {
+	if hasSwitch && !switchIsSystemBase(sw) {
 		if ipAddr == "" {
-			freeIP, err := findVPCFreeIP(*sw)
+			freeIP, err := findVPCFreeIP(sw)
 			if err != nil {
 				return "", err
 			}
 			ipAddr = freeIP
 		} else {
-			normalized, err := normalizeIPForVPC(ipAddr, *sw)
+			normalized, err := normalizeIPForVPC(ipAddr, sw)
 			if err != nil {
 				return "", err
 			}
 			ipAddr = normalized
 		}
-		if err := UpsertVPCStaticHost(*sw, vmName, mac, ipAddr); err != nil {
+		if err := UpsertVPCStaticHost(sw, vmName, mac, ipAddr); err != nil {
 			return "", fmt.Errorf("绑定 VPC 静态 IP 失败: %w", err)
 		}
 		_, _ = HookRemoveOVSStaticHost(vmName, mac)
@@ -452,8 +482,6 @@ func BindStaticIP(vmName, ipAddr string) (string, error) {
 	if hasSwitch {
 		_, _ = RemoveVPCStaticHost(sw.ID, vmName, mac)
 	}
-
-	// IP 为空时自动分配
 	if ipAddr == "" {
 		freeIP, err := findFreeIP()
 		if err != nil {
@@ -463,15 +491,10 @@ func BindStaticIP(vmName, ipAddr string) (string, error) {
 	} else {
 		ipAddr = HookNormalizeIPForOVS(ipAddr)
 	}
-
-	// 执行绑定
 	if err := HookUpsertOVSStaticHost(vmName, mac, ipAddr); err != nil {
 		return "", fmt.Errorf("绑定失败: %w", err)
 	}
-
-	// 如果虚拟机正在运行，拔插网卡以强制刷新 DHCP，确保使用新 IP
 	refreshNIC(vmName, mac, "")
-
 	return ipAddr, nil
 }
 
@@ -560,15 +583,21 @@ true`
 		utils.ShellSingleQuote(name), utils.ShellSingleQuote(script)))
 }
 
-// UnbindStaticIP 解绑静态 IP
+// UnbindStaticIP 解绑静态 IP（主网卡推断路径）。面板按网卡解绑请用 UnbindStaticIPForNIC。
 func UnbindStaticIP(vmName string) error {
-	// 获取 MAC
 	mac := firstNICMAC(vmName)
+	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
+	if !hasSwitch || sw == nil {
+		return unbindStaticIPOnSwitch(vmName, mac, model.VPCSwitch{}, false)
+	}
+	return unbindStaticIPOnSwitch(vmName, mac, *sw, true)
+}
+
+func unbindStaticIPOnSwitch(vmName, mac string, sw model.VPCSwitch, hasSwitch bool) error {
 	if mac == "" {
 		return fmt.Errorf("无法获取 MAC 地址")
 	}
-	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
-	if hasSwitch && !switchIsSystemBase(*sw) {
+	if hasSwitch && !switchIsSystemBase(sw) {
 		boundIP, err := RemoveVPCStaticHost(sw.ID, vmName, mac)
 		if err != nil {
 			return err
@@ -584,20 +613,14 @@ func UnbindStaticIP(vmName string) error {
 	if hasSwitch {
 		_, _ = RemoveVPCStaticHost(sw.ID, vmName, mac)
 	}
-
 	boundIP, err := HookRemoveOVSStaticHost(vmName, mac)
 	if err != nil {
 		return err
 	}
-
-	// 删除所有指向该 IP 的端口转发规则（倒序删除避免行号偏移）
 	if boundIP != "" {
 		RemovePortForwardsForIP(boundIP)
 	}
-
-	// 如果虚拟机正在运行，拔插网卡以强制刷新 DHCP，确保切换回动态 IP
 	refreshNIC(vmName, mac, "")
-
 	return nil
 }
 
@@ -733,6 +756,65 @@ func nicMAC(vmName string, order int) string {
 		}
 	}
 	return ""
+}
+
+// nicSwitch 解析 vm_name 第 order 张网卡接入的 VPC 交换机。
+// 与 bindOneNICStaticIP 同源：从 (vm_name, interface_order) 绑定行取 SwitchID。
+func nicSwitch(vmName string, order int) (model.VPCSwitch, bool) {
+	var b model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ? AND interface_order = ?", vmName, order).First(&b).Error; err != nil {
+		return model.VPCSwitch{}, false
+	}
+	var sw model.VPCSwitch
+	if err := model.DB.First(&sw, b.SwitchID).Error; err != nil {
+		return model.VPCSwitch{}, false
+	}
+	return sw, true
+}
+
+// NICBindError 返回网卡不可绑定静态 IP 的原因；可绑定返回空串。
+// 桥接直通网卡（BridgeMode!="nat"）返回原因；不存在的网卡返回原因；
+// order==0 且无绑定行（基础网络等推断主网卡）视为可绑定，返回空串。
+func NICBindError(vmName string, order int) string {
+	sw, ok := nicSwitch(vmName, order)
+	if !ok {
+		if order == 0 {
+			return "" // 无绑定行的主网卡，走推断路径，允许
+		}
+		return "该网卡不存在"
+	}
+	if sw.BridgeMode != "nat" {
+		return "桥接网卡不支持静态 IP"
+	}
+	return ""
+}
+
+// BindStaticIPForNIC 面板按网卡绑定静态 IP。order=0 即主网卡，ipAddr 为空时自动分配。
+// 有 (vm_name, order) 绑定行时按该网卡解析 MAC+交换机；order==0 且无绑定行时回退到主网卡推断路径
+// （兼容基础网络等无绑定行 VM）。调用方应先用 NICBindError 校验（桥接网卡会被拒绝）。
+func BindStaticIPForNIC(vmName string, order int, ipAddr string) (string, error) {
+	sw, hasSwitch := nicSwitch(vmName, order)
+	if !hasSwitch {
+		if order == 0 {
+			return BindStaticIP(vmName, ipAddr) // 回退：无绑定行的主网卡
+		}
+		return "", fmt.Errorf("网卡不存在(vm=%s,order=%d)", vmName, order)
+	}
+	mac := nicMAC(vmName, order)
+	return bindStaticIPOnSwitch(vmName, mac, sw, true, ipAddr)
+}
+
+// UnbindStaticIPForNIC 面板按网卡解绑静态 IP。order=0 即主网卡。
+func UnbindStaticIPForNIC(vmName string, order int) error {
+	sw, hasSwitch := nicSwitch(vmName, order)
+	if !hasSwitch {
+		if order == 0 {
+			return UnbindStaticIP(vmName) // 回退：无绑定行的主网卡
+		}
+		return fmt.Errorf("网卡不存在(vm=%s,order=%d)", vmName, order)
+	}
+	mac := nicMAC(vmName, order)
+	return unbindStaticIPOnSwitch(vmName, mac, sw, true)
 }
 
 // switchOccupiedIPs 收集交换机子网内已占用 IP：网关 + 静态绑定 + dnsmasq 租约 + ARP 邻居。
