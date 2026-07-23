@@ -59,7 +59,7 @@
       </el-table>
     </el-card>
 
-    <!-- 静态 IP（绑定到主网卡） -->
+    <!-- 静态 IP（按 NAT 网卡绑定） -->
     <el-card shadow="hover" class="cfg-card">
       <div class="section-title">静态 IP</div>
       <div style="margin-bottom:10px;">
@@ -170,8 +170,6 @@ const submitting = ref(false)
 const interfaces = ref([])
 const switches = ref([])
 const groups = ref([])
-
-const primaryNIC = computed(() => interfaces.value.find(i => i.is_primary))
 
 const load = async () => {
   loading.value = true
