@@ -14,6 +14,7 @@ type cloneLXCReq struct {
 	Snap    string `json:"snap" binding:"required"`
 	DstName string `json:"dst_name" binding:"required"`
 	Remark  string `json:"remark"`
+	FixedIP string `json:"fixed_ip,omitempty"` // 源主网卡固定 IP（克隆继承源网卡，仅 order0 可绑）
 }
 
 // CloneFromContainer 从源容器的指定快照克隆出新容器（异步任务）。
@@ -28,6 +29,9 @@ func CloneFromContainer(c *gin.Context) {
 	srcName := c.Param("name")
 	if err := service.LXCValidateCloneFromSnapshot(srcName, req.Snap, req.DstName); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if !validateLXCNICFixedIPs(c, service.LXCSourcePrimarySwitchID(srcName), req.FixedIP, nil) {
 		return
 	}
 	username, _ := c.Get("username")
@@ -49,6 +53,7 @@ func CloneFromContainer(c *gin.Context) {
 		Snap:    req.Snap,
 		DstName: req.DstName,
 		Remark:  req.Remark,
+		FixedIP: req.FixedIP,
 	}
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeLXCClone, params, username.(string))
 	if err != nil {

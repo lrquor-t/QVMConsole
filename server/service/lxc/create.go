@@ -13,6 +13,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service/lxc/template"
+	netpkg "kvm_console/service/network"
 	"kvm_console/utils"
 )
 
@@ -28,6 +29,7 @@ type CreateContainerParams struct {
 	Autostart       bool                     `json:"autostart"`
 	SwitchID        uint                     `json:"switch_id"`
 	SecurityGroupID uint                     `json:"security_group_id"`
+	FixedIP         string                   `json:"fixed_ip,omitempty"` // 主网卡固定 IP（留空=动态 DHCP）
 	Source          string                   `json:"source"`             // clone（默认/空）| download
 	Distro          string                   `json:"distro"`             // download 模式：发行版
 	Release         string                   `json:"release"`            // download 模式：版本
@@ -66,6 +68,21 @@ func ValidateName(name string) error { return validateContainerName(name) }
 func isReservedName(name string) bool {
 	prefix := config.GlobalConfig.LXCBasePrefix
 	return len(name) > len(prefix) && name[:len(prefix)] == prefix
+}
+
+// bindFixedIPsBeforeStart 在容器启动前写固定 IP 预约（dhcp-host），使其首启即按 dnsmasq 预约
+// 拿到目标 IP，避免「先拿动态 IP 再刷新」——LXC 容器内 DHCP 刷新易致同一网卡两个 IP。
+// 须在 PrepareContainerNICs/ensureLXCVPCBinding 建好 VPCVMBinding 之后、StartContainer 之前调用。
+// 停机态：BindStaticIPForNICs 内部的 refreshNIC 对未运行容器是 no-op，不触发容器内刷新。
+// best-effort：失败仅告警（不阻断创建，可事后在面板重新绑定）。
+func bindFixedIPsBeforeStart(name, primaryFixedIP string, extraNics []AddLXCInterfaceRequest) {
+	plans := []netpkg.NICFixedIP{{Order: 0, IP: strings.TrimSpace(primaryFixedIP)}}
+	for i, n := range extraNics {
+		plans = append(plans, netpkg.NICFixedIP{Order: i + 1, IP: strings.TrimSpace(n.FixedIP)})
+	}
+	if err := netpkg.BindStaticIPForNICs(name, plans); err != nil {
+		logger.App.Warn("启动前绑定固定 IP 失败（容器仍会创建，可事后重新绑定）", "name", name, "error", err)
+	}
 }
 
 // CreateContainer 由模板克隆创建容器（异步任务调用）。progress 上报进度。
@@ -143,6 +160,8 @@ func CreateContainer(params *CreateContainerParams, progress func(int, string)) 
 
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
+	// 启动前写固定 IP 预约：容器首启即按 dnsmasq 预约拿 IP，避免运行态刷新导致同一网卡双 IP。
+	bindFixedIPsBeforeStart(params.Name, params.FixedIP, params.ExtraNics)
 	progress(80, "启动容器")
 	// 创建后默认启动，便于分配 IP。ReconcileContainerNICs（在 StartContainer 内）按绑定统一接 OVS/VLAN/限速。
 	if err := StartContainer(params.Name); err != nil {
@@ -357,6 +376,8 @@ func createFromDownload(params *CreateContainerParams, progress func(int, string
 
 	// 改写 rootfs /etc/hostname 为本容器名（systemd/OpenRC 启动读它、覆盖 lxc.uts.name）
 	setRootfsHostname(params.Name)
+	// 启动前写固定 IP 预约：容器首启即按 dnsmasq 预约拿 IP，避免运行态刷新导致同一网卡双 IP。
+	bindFixedIPsBeforeStart(params.Name, params.FixedIP, params.ExtraNics)
 	progress(80, "启动容器")
 	if err := StartContainer(params.Name); err != nil {
 		logger.App.Warn("容器启动失败（已创建，保持停止态）", "name", params.Name, "error", err)

@@ -607,7 +607,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="IP 地址" v-if="selectedLeaseIP === ''">
-          <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位数字" />
+          <div style="display:flex; gap:8px; width:100%;">
+            <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位数字" style="flex:1;" />
+            <el-button @click="pickerVisible = true">选择</el-button>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -615,6 +618,8 @@
         <el-button type="primary" @click="submitBindIP" :loading="bindIPSubmitting">确定</el-button>
       </template>
     </el-dialog>
+
+    <IpPickerDialog v-model="pickerVisible" :switch-id="vpcInfo?.switch?.id || 0" @select="(ip) => bindForm.ip = ip" />
 
     <!-- 添加网口对话框（仅管理员） -->
     <el-dialog title="添加网口" v-model="addNicVisible" width="500px" append-to-body>
@@ -782,6 +787,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { copyTextWithFallback } from '@/utils/clipboard'
+import IpPickerDialog from './IpPickerDialog.vue'
 
 const props = defineProps({
   vmName: {
@@ -822,6 +828,7 @@ const bindIPVisible = ref(false)
 const bindIPSubmitting = ref(false)
 const bindForm = reactive({ vm_name: '', ip: '' })
 const selectedLeaseIP = ref('')
+const pickerVisible = ref(false)
 const runtimeStatus = ref(null)
 const runtimeLoading = ref(false)
 const selfQuota = ref(null)

@@ -31,6 +31,7 @@ type ContainerDetail struct {
 type AddLXCInterfaceRequest struct {
 	SwitchID             uint   `json:"switch_id" binding:"required"`
 	SecurityGroupID      uint   `json:"security_group_id"`
+	FixedIP              string `json:"fixed_ip,omitempty"`    // 该网卡固定 IP（留空=动态 DHCP）
 	BandwidthInboundAvg  int    `json:"bandwidth_inbound_avg"` // Mbps，0=不限
 	BandwidthOutboundAvg int    `json:"bandwidth_outbound_avg"`
 }

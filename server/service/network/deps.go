@@ -80,6 +80,7 @@ var (
 	HookListVPCDHCPLeases          func() ([]OVSDHCPLease, error)
 	HookListVPCDHCPLeasesForSwitch func(switchID uint) ([]OVSDHCPLease, error)
 	HookGetVMMACByOrder            func(vmName string, order int) string
+	HookGetLXCNICMAC               func(name string, order int) string
 	HookReloadVPCDNSMasq           func(switchID uint)
 )
 

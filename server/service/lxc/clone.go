@@ -18,6 +18,7 @@ type CloneParams struct {
 	Snap    string `json:"snap"`               // 源 zfs 快照名
 	DstName string `json:"dst_name"`           // 新容器名
 	Remark  string `json:"remark"`             // 新容器备注
+	FixedIP string `json:"fixed_ip,omitempty"` // 源主网卡固定 IP（克隆继承源网卡，仅 order0 可绑）
 }
 
 // ParseCloneParams 反序列化克隆任务参数。
@@ -202,6 +203,8 @@ func CloneFromSnapshot(params *CloneParams, progress func(int, string)) error {
 	if err := ensureLXCVPCBinding(params.DstName, switchID, sgID); err != nil {
 		logger.App.Warn("克隆容器 VPC 绑定失败", "name", params.DstName, "error", err)
 	}
+	// 启动前写固定 IP 预约：容器首启即按 dnsmasq 预约拿 IP，避免运行态刷新导致同一网卡双 IP。
+	bindFixedIPsBeforeStart(params.DstName, params.FixedIP, nil)
 	progress(90, "启动容器")
 	if err := StartContainer(params.DstName); err != nil {
 		logger.App.Warn("克隆容器启动失败（已创建，保持停止态）", "name", params.DstName, "error", err)

@@ -423,6 +423,7 @@ func Setup() *gin.Engine {
 				vpc.POST("/switches/:id/traffic/reset", middleware.ElasticCloudOnlyMiddleware(), handler.ResetVPCSwitchTraffic)
 				vpc.DELETE("/switches/:id", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteVPCSwitch)
 				vpc.GET("/switches/:id/vms", handler.GetVPCSwitchVMs)
+				vpc.GET("/switches/:id/available-ips", handler.GetAvailableVPCIPs)
 				vpc.GET("/security-groups", handler.ListVPCSecurityGroups)
 				vpc.POST("/security-groups", middleware.ElasticCloudOnlyMiddleware(), handler.CreateVPCSecurityGroup)
 				vpc.PUT("/security-groups/:id", middleware.ElasticCloudOnlyMiddleware(), handler.UpdateVPCSecurityGroup)
