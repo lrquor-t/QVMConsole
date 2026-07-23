@@ -4,7 +4,7 @@
     <el-card shadow="hover" class="cfg-card">
       <div class="section-title">网卡</div>
       <div class="vpc-static-ip-header">
-        <span class="cfg-hint">主网卡（序号 0）可绑定静态 IP；附加网卡由各自交换机 DHCP 分配。</span>
+        <span class="cfg-hint">每个 NAT 网卡可单独绑定静态 IP；桥接网卡由上级路由分配，不能绑定。</span>
         <div class="header-actions">
           <el-button v-if="isAdmin" type="primary" size="small" plain icon="Plus" @click="openAdd">添加网口</el-button>
           <el-button size="small" icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -61,12 +61,17 @@
 
     <!-- 静态 IP（绑定到主网卡） -->
     <el-card shadow="hover" class="cfg-card">
-      <div class="section-title">静态 IP（主网卡）</div>
+      <div class="section-title">静态 IP</div>
       <div style="margin-bottom:10px;">
-        <el-button type="primary" size="small" :disabled="!primaryNIC" @click="openBind">绑定 IP</el-button>
+        <el-button type="primary" size="small" :disabled="!hasBindableNic" @click="openBind">绑定 IP</el-button>
       </div>
       <h4>静态绑定</h4>
       <el-table :data="currentBindings" border size="small" v-loading="ipLoading">
+        <el-table-column label="网卡" min-width="150">
+          <template #default="{ row }">
+            {{ lxcBindNicLabel(row.interface_order) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="ip" label="IP 地址" />
         <el-table-column prop="mac" label="MAC 地址" />
         <el-table-column label="操作" width="90">
@@ -113,16 +118,27 @@
     <!-- 绑定 IP -->
     <el-dialog title="绑定静态 IP" v-model="bindVisible" width="420px" append-to-body>
       <el-form :model="bindForm" label-width="100px">
+        <el-form-item label="网卡">
+          <el-select v-model="selectedBindNicOrder" style="width:100%;" placeholder="选择网卡" @change="onBindNicChange">
+            <el-option
+              v-for="n in bindNicOptions"
+              :key="n.order"
+              :label="`网卡${n.order}${n.order === 0 ? '（主）' : ''} · ${n.name}${n.isBridge ? '（桥接，不可用）' : ''}`"
+              :value="n.order"
+              :disabled="n.isBridge"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="DHCP 租约">
           <el-select v-model="selectedLeaseIP" style="width:100%;" placeholder="选择租约或自动分配" @change="onLease">
-            <el-option v-for="l in currentLeases" :key="l.ip" :label="`${l.ip}（${l.hostname || name}）`" :value="l.ip" />
+            <el-option v-for="l in selectedNicLeases" :key="l.ip" :label="`${l.ip}（${l.hostname || name}）`" :value="l.ip" />
             <el-option label="自动分配 IP" value="" />
           </el-select>
         </el-form-item>
         <el-form-item label="IP 地址" v-if="selectedLeaseIP === ''">
           <div style="display:flex; gap:8px; width:100%;">
             <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位" style="flex:1;" />
-            <el-button @click="pickerVisible = true" :disabled="!primaryNIC">选择</el-button>
+            <el-button @click="pickerVisible = true" :disabled="!selectedBindNic">选择</el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -132,7 +148,7 @@
       </template>
     </el-dialog>
 
-    <IpPickerDialog v-model="pickerVisible" :switch-id="primaryNIC?.switch_id || 0" @select="(ip) => bindForm.ip = ip" />
+    <IpPickerDialog v-model="pickerVisible" :switch-id="selectedBindNic?.switchId || 0" @select="(ip) => bindForm.ip = ip" />
   </div>
 </template>
 
@@ -250,15 +266,55 @@ const fetchIPs = async () => {
 }
 const bindVisible = ref(false)
 const bindSubmitting = ref(false)
-const bindForm = reactive({ vm_name: '', ip: '' })
+const bindForm = reactive({ vm_name: '', interface_order: 0, ip: '' })
+const selectedBindNicOrder = ref(0)
 const selectedLeaseIP = ref('')
 const pickerVisible = ref(false)
-const openBind = () => { bindForm.vm_name = props.name; bindForm.ip = ''; selectedLeaseIP.value = ''; bindVisible.value = true }
+const bindNicOptions = computed(() => {
+  return interfaces.value
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(i => ({
+      order: i.order ?? 0,
+      name: i.switch_name || '-',
+      switchId: i.switch_id || 0,
+      mac: (i.mac || '').toLowerCase(),
+      isBridge: i.bridge_mode === 'bridge'
+    }))
+})
+const selectedBindNic = computed(() => bindNicOptions.value.find(n => n.order === selectedBindNicOrder.value) || null)
+const hasBindableNic = computed(() => bindNicOptions.value.some(n => !n.isBridge))
+const selectedNicLeases = computed(() => {
+  const mac = selectedBindNic.value?.mac
+  if (!mac) return []
+  return currentLeases.value.filter(l => l.vm_name === props.name && (l.mac || '').toLowerCase() === mac)
+})
+const lxcBindNicLabel = (order) => {
+  const o = order ?? 0
+  const nic = interfaces.value.find(i => (i.order ?? 0) === o)
+  const name = nic?.switch_name
+  return name ? `网卡${o}${o === 0 ? '（主）' : ''} · ${name}` : `网卡${o}${o === 0 ? '（主）' : ''}`
+}
+const openBind = () => {
+  bindForm.vm_name = props.name
+  bindForm.ip = ''
+  selectedLeaseIP.value = ''
+  const natOpts = bindNicOptions.value.filter(n => !n.isBridge)
+  const primary = natOpts.find(n => n.order === 0) || natOpts[0]
+  selectedBindNicOrder.value = primary?.order ?? 0
+  bindForm.interface_order = selectedBindNicOrder.value
+  bindVisible.value = true
+}
+const onBindNicChange = (order) => {
+  bindForm.interface_order = order
+  selectedLeaseIP.value = ''
+  bindForm.ip = ''
+}
 const onLease = (v) => { bindForm.ip = v }
 const submitBind = async () => {
   bindSubmitting.value = true
   try {
-    const res = await bindStaticIP(bindForm)
+    const res = await bindStaticIP({ vm_name: bindForm.vm_name, interface_order: selectedBindNicOrder.value, ip: bindForm.ip })
     ElMessage.success(res.message || '静态 IP 绑定成功')
     bindVisible.value = false
     await Promise.all([fetchIPs(), load()])
@@ -267,7 +323,7 @@ const submitBind = async () => {
 const onUnbind = async (row) => {
   try {
     await ElMessageBox.confirm(`确定解绑 ${row.ip}？`, '提示', { type: 'warning' })
-    await unbindStaticIP({ vm_name: props.name })
+    await unbindStaticIP({ vm_name: props.name, interface_order: row.interface_order ?? 0 })
     ElMessage.success('已解绑')
     await Promise.all([fetchIPs(), load()])
   } catch (e) {}
