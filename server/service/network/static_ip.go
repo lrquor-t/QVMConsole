@@ -290,7 +290,7 @@ func EnsureStaticIP(vmName string) (string, error) {
 	if mac == "" {
 		return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 	}
-	if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
+	if sw, ok := HookGetVPCSwitchForVM(vmName); ok && !switchIsSystemBase(*sw) {
 		if host, ok := GetVPCStaticHostByVMName(sw.ID, vmName); ok {
 			if !strings.EqualFold(host.MAC, mac) {
 				if err := UpsertVPCStaticHost(*sw, vmName, mac, host.IP); err != nil {
@@ -348,7 +348,7 @@ func ResolvePortForwardTargetIP(vmName, requestedIP string) (string, error) {
 		}
 		return requestedIP, nil
 	}
-	if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
+	if sw, ok := HookGetVPCSwitchForVM(vmName); ok && !switchIsSystemBase(*sw) {
 		mac := firstNICMAC(vmName)
 		if mac == "" {
 			return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
@@ -424,7 +424,8 @@ func BindStaticIP(vmName, ipAddr string) (string, error) {
 	if mac == "" {
 		return "", fmt.Errorf("无法获取虚拟机 %s 的 MAC 地址", vmName)
 	}
-	if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
+	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
+	if hasSwitch && !switchIsSystemBase(*sw) {
 		if ipAddr == "" {
 			freeIP, err := findVPCFreeIP(*sw)
 			if err != nil {
@@ -444,6 +445,12 @@ func BindStaticIP(vmName, ipAddr string) (string, error) {
 		_, _ = HookRemoveOVSStaticHost(vmName, mac)
 		go refreshNIC(vmName, mac, "")
 		return ipAddr, nil
+	}
+
+	// 系统基础网络（VLANID==0，走全局 OVS dnsmasq）或无 VPC 绑定：写 ovs/dhcp-hosts。
+	// 基础网络顺带清理旧版面板写入的死文件 dhcp-hosts-<baseID> 残留，统一到 ovs/dhcp-hosts。
+	if hasSwitch {
+		_, _ = RemoveVPCStaticHost(sw.ID, vmName, mac)
 	}
 
 	// IP 为空时自动分配
@@ -541,7 +548,8 @@ func UnbindStaticIP(vmName string) error {
 	if mac == "" {
 		return fmt.Errorf("无法获取 MAC 地址")
 	}
-	if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
+	sw, hasSwitch := HookGetVPCSwitchForVM(vmName)
+	if hasSwitch && !switchIsSystemBase(*sw) {
 		boundIP, err := RemoveVPCStaticHost(sw.ID, vmName, mac)
 		if err != nil {
 			return err
@@ -551,6 +559,11 @@ func UnbindStaticIP(vmName string) error {
 		}
 		go refreshNIC(vmName, mac, "")
 		return nil
+	}
+
+	// 系统基础网络或无 VPC 绑定：解绑走 ovs/dhcp-hosts；基础网络顺带清死文件残留。
+	if hasSwitch {
+		_, _ = RemoveVPCStaticHost(sw.ID, vmName, mac)
 	}
 
 	boundIP, err := HookRemoveOVSStaticHost(vmName, mac)

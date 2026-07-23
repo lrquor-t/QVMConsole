@@ -214,6 +214,11 @@ func migrateOVSStaticHostToVPCIfNeeded(vmName string, sw model.VPCSwitch) {
 	if vmName == "" || sw.ID == 0 {
 		return
 	}
+	// 系统基础网络（VLANID==0）走全局 OVS dnsmasq（ovs/dhcp-hosts），其静态绑定必须
+	// 留在 ovs/dhcp-hosts 才能生效；不能迁移到死文件 dhcp-hosts-<baseID>。
+	if sw.VLANID == 0 && sw.BridgeMode == "nat" {
+		return
+	}
 	mac := strings.ToLower(strings.TrimSpace(ip_resolver.GetFirstVMMAC(vmName)))
 	host, ok := HookGetOVSStaticHostByVMName(vmName)
 	if !ok && mac != "" {
