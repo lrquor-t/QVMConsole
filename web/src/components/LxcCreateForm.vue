@@ -265,7 +265,7 @@ const openPicker = (nic) => { pickerNic.value = nic; pickerVisible.value = true 
 const onPickerSelect = (ip) => { if (pickerNic.value) pickerNic.value.fixed_ip = ip }
 const isNicNatSwitch = (nic) => {
   const sw = switchOf(nic.switch_id)
-  return !!sw && sw.bridge_mode === 'nat' && sw.vlan_id > 0 && !!sw.cidr
+  return !!sw && sw.bridge_mode === 'nat' && !!sw.cidr
 }
 // 系统交换机（username 空）→ 全部；私属交换机 → 按属主过滤（与 LxcNetworkPanel 一致）
 const sgsForSwitch = (switchId) => {

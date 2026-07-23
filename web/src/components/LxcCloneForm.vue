@@ -90,7 +90,7 @@ const srcPrimarySwitch = ref(null)
 const pickerVisible = ref(false)
 const isNatPrimary = computed(() => {
   const sw = srcPrimarySwitch.value
-  return !!sw && sw.bridge_mode === 'nat' && sw.vlan_id > 0 && !!sw.cidr
+  return !!sw && sw.bridge_mode === 'nat' && !!sw.cidr
 })
 
 const loadSrcPrimary = async () => {

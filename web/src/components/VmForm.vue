@@ -3551,7 +3551,7 @@ const openPicker = (nic) => { pickerNic.value = nic; pickerVisible.value = true 
 const onPickerSelect = (ip) => { if (pickerNic.value) pickerNic.value.fixed_ip = ip }
 const isExtraNicNat = (nic) => {
   const sw = vpcSwitches.value.find(item => item.id === nic.switch_id)
-  return !!sw && sw.bridge_mode === 'nat' && sw.vlan_id > 0 && !!sw.cidr
+  return !!sw && sw.bridge_mode === 'nat' && !!sw.cidr
 }
 // 注：VmForm 无独立主卡选择，第一个有效网口(validNics[0])即主卡
 const buildAllNicsPayload = () => {
