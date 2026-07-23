@@ -257,7 +257,8 @@ func RemoveVPCStaticHost(switchID uint, vmName, mac string) (string, error) {
 	var removedIP string
 	var next []OVSStaticHost
 	for _, host := range hosts {
-		match := strings.EqualFold(host.MAC, mac) || (vmName != "" && host.VMName == vmName)
+		// 按 MAC 精确移除该网卡绑定（vmName 仅作标签；同一 VM 多网卡不能一并清掉）。
+		match := mac != "" && strings.EqualFold(host.MAC, mac)
 		if match {
 			removedIP = host.IP
 			continue
@@ -270,6 +271,8 @@ func RemoveVPCStaticHost(switchID uint, vmName, mac string) (string, error) {
 	if err := HookWriteVPCStaticHosts(switchID, next); err != nil {
 		return "", fmt.Errorf("删除 VPC 静态 IP 绑定失败: %w", err)
 	}
+	// 清理该 MAC 的 dnsmasq 租约，使释放的 IP 立即可被重新分配（否则选择器仍视为占用）。
+	HookCleanVPCDHCPLease(switchID, mac, removedIP)
 	HookReloadVPCDNSMasq(switchID)
 	return removedIP, nil
 }

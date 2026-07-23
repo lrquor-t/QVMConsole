@@ -173,12 +173,19 @@ func BuildOVSStaticHostsForUpsert(hosts []OVSStaticHost, target OVSStaticHost) (
 		sameMAC := strings.EqualFold(host.MAC, target.MAC)
 		sameIP := host.IP == target.IP
 
-		if sameVM {
-			continue
-		}
+		// dnsmasq dhcp-hosts 按 MAC 唯一：同 MAC 视为更新本网卡绑定（同 VM 换 IP，覆盖旧条目）。
+		// 同一 MAC 不能跨 VM 复用——保留原校验避免 MAC 归属冲突。
 		if sameMAC {
+			if sameVM || target.VMName == "" {
+				continue
+			}
 			return nil, fmt.Errorf("MAC 地址 %s 已绑定到虚拟机 %s，不能重复绑定", target.MAC, host.VMName)
 		}
+		// 同一虚拟机内 IP 相同但 MAC 不同：视为 MAC 迁移（EnsureStaticIP 等保留 IP 换 MAC 的路径），替换旧条目。
+		if sameIP && sameVM {
+			continue
+		}
+		// 不同虚拟机抢同一 IP：冲突，拒绝。
 		if sameIP {
 			return nil, fmt.Errorf("IP 地址 %s 已绑定到虚拟机 %s（MAC: %s），不能重复绑定", target.IP, host.VMName, host.MAC)
 		}
@@ -197,7 +204,8 @@ func RemoveOVSStaticHost(vmName, mac string) (string, error) {
 	var removedIP string
 	var next []OVSStaticHost
 	for _, host := range hosts {
-		match := strings.EqualFold(host.MAC, mac) || (vmName != "" && host.VMName == vmName)
+		// 按 MAC 精确移除该网卡绑定（vmName 仅作标签；同一 VM 多网卡不能一并清掉）。
+		match := mac != "" && strings.EqualFold(host.MAC, mac)
 		if match {
 			removedIP = host.IP
 			continue
@@ -210,6 +218,8 @@ func RemoveOVSStaticHost(vmName, mac string) (string, error) {
 	if err := writeOVSStaticHosts(next); err != nil {
 		return "", fmt.Errorf("删除 OVS 静态 IP 绑定失败: %w", err)
 	}
+	// 清理该 MAC 的 dnsmasq 租约，使释放的 IP 立即可被重新分配（否则选择器仍视为占用）。
+	CleanOVSDHCPLease(mac, removedIP)
 	ReloadOVSDNSMasq()
 	return removedIP, nil
 }
