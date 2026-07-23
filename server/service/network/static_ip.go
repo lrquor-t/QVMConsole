@@ -506,7 +506,7 @@ func refreshNIC(vmName, mac, network string) {
 	// LXC 容器：在容器内刷新 DHCP（无 libvirt 域）
 	var b model.VPCVMBinding
 	if err := model.DB.Where("vm_name = ?", vmName).First(&b).Error; err == nil && strings.TrimSpace(b.Kind) == "lxc" {
-		refreshLXCContainerDHCP(vmName)
+		refreshLXCContainerDHCP(vmName, lxcIfaceForMAC(vmName, mac))
 		return
 	}
 
@@ -550,19 +550,37 @@ func refreshNIC(vmName, mac, network string) {
 	}
 }
 
-// refreshLXCContainerDHCP 在运行中的 LXC 容器内续租 DHCP，使刚写入的 dnsmasq 预约生效。
+// lxcIfaceForMAC 根据被操作的 MAC 反解 LXC 容器内对应网卡名（eth<interface_order>）。
+// 解析失败（MAC 空、无绑定行、匹配不到）回退 eth0。用于运行态按指定网卡续租 DHCP。
+func lxcIfaceForMAC(vmName, mac string) string {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" {
+		return "eth0"
+	}
+	var rows []model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).Order("interface_order asc").Find(&rows).Error; err != nil {
+		return "eth0"
+	}
+	for _, r := range rows {
+		if strings.EqualFold(nicMAC(vmName, r.InterfaceOrder), mac) {
+			return fmt.Sprintf("eth%d", r.InterfaceOrder)
+		}
+	}
+	return "eth0"
+}
+
+// refreshLXCContainerDHCP 在运行中的 LXC 容器内对指定网卡(iface, 如 eth0/eth1)续租 DHCP，
+// 使刚写入的 dnsmasq 预约生效。
 //
 // 关键：必须按容器实际使用的网络管理器续租，不能无脑 dhclient——networkd/NetworkManager
 // 管理的容器里 dhclient 是独立 DHCP 客户端，会再拿一个租约，与 networkd/NM 的共存会导致
 // 同一网卡出现两个 IP。按 provisionRootfsNICs 写入的配置文件判定管理器（if/elif 只走一个，
-// 避免双客户端）：ifcfg-eth0 → NetworkManager、netplan/eth0.network → systemd-networkd、
+// 避免双客户端）：ifcfg-<iface> → NetworkManager、netplan/<iface>.network → systemd-networkd、
 // 其余 → ifupdown/dhclient。
-//
-// 固定 IP 当前仅主网卡 eth0 的运行态路径会触发刷新（创建/克隆的预约已前移到启动前，
-// 停机态刷新为 no-op），故续租 eth0。
-func refreshLXCContainerDHCP(name string) {
+func refreshLXCContainerDHCP(name, iface string) {
 	name = strings.TrimSpace(name)
-	if name == "" {
+	iface = strings.TrimSpace(iface)
+	if name == "" || iface == "" {
 		return
 	}
 	// 仅运行中容器才有意义
@@ -574,14 +592,15 @@ func refreshLXCContainerDHCP(name string) {
 	// - networkd：networkctl reconfigure 拆链路重新发现 → 丢旧 IP、拿预约 IP
 	// - NM：reapply，失败则 disconnect/connect 强制重新发现
 	// - dhclient：先释放再获取
-	script := `if [ -f /etc/sysconfig/network-scripts/ifcfg-eth0 ]; then
-	nmcli device reapply eth0 2>/dev/null || { nmcli device disconnect eth0 2>/dev/null; nmcli device connect eth0 2>/dev/null; }
-elif [ -f /etc/netplan/90-lxc-nics.yaml ] || [ -f /etc/systemd/network/eth0.network ]; then
-	networkctl reconfigure eth0 2>/dev/null
+	script := fmt.Sprintf(`IFACE=%s
+if [ -f /etc/sysconfig/network-scripts/ifcfg-$IFACE ]; then
+	nmcli device reapply $IFACE 2>/dev/null || { nmcli device disconnect $IFACE 2>/dev/null; nmcli device connect $IFACE 2>/dev/null; }
+elif [ -f /etc/netplan/90-lxc-nics.yaml ] || [ -f /etc/systemd/network/$IFACE.network ]; then
+	networkctl reconfigure $IFACE 2>/dev/null
 elif command -v dhclient >/dev/null 2>&1; then
-	dhclient -r eth0 2>/dev/null; dhclient eth0 2>/dev/null
+	dhclient -r $IFACE 2>/dev/null; dhclient $IFACE 2>/dev/null
 fi
-true`
+true`, utils.ShellSingleQuote(iface))
 	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c %s 2>/dev/null",
 		utils.ShellSingleQuote(name), utils.ShellSingleQuote(script)))
 }
