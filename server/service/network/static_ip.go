@@ -718,6 +718,14 @@ func switchOccupiedIPs(sw model.VPCSwitch) map[string]bool {
 				used[l.IP] = true
 			}
 		}
+		// 兼容旧版面板绑定：BindStaticIP 对基础网络 VM 走 VPC 路径，静态绑定会写进
+		// vpc/dhcp-hosts-<baseID>（该文件无独立 dnsmasq 读取，但记录确实存在）。
+		// 选择器需一并计入，否则会把已绑定 IP 当作可分配（与 bind 去重来源对齐）。
+		if hosts, err := HookListVPCStaticHosts(sw.ID); err == nil {
+			for _, h := range hosts {
+				used[h.IP] = true
+			}
+		}
 	} else {
 		if hosts, err := HookListVPCStaticHosts(sw.ID); err == nil {
 			for _, h := range hosts {
