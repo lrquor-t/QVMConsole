@@ -664,13 +664,18 @@ func RemovePortForwardsForIP(targetIP string) {
 	}
 }
 
-// switchHasManagedDHCP 判断交换机是否运行独立受管 dnsmasq（NAT + 非系统 VLAN + 有 DHCP 池）。
-// 与 ApplyVPCSwitchRuntime 启动 dnsmasq 的条件严格对齐：只有这类交换机才会读取 dhcp-hosts-<id>。
-func switchHasManagedDHCP(sw model.VPCSwitch) bool {
+// switchSupportsFixedIP 判断交换机是否支持固定 IP 绑定：NAT 模式且有 DHCP 池。
+// 同时覆盖 VPC 每交换机 dnsmasq（VLANID!=0）与系统基础网络的全局 OVS dnsmasq（VLANID==0）。
+// 直通/桥接模式（BridgeMode!="nat"）或无 DHCP 池的交换机返回 false。
+func switchSupportsFixedIP(sw model.VPCSwitch) bool {
 	return sw.BridgeMode == "nat" &&
-		sw.VLANID != 0 &&
 		strings.TrimSpace(sw.DHCPStart) != "" &&
 		strings.TrimSpace(sw.DHCPEnd) != ""
+}
+
+// switchIsSystemBase 判断是否为系统基础网络（NAT + VLANID==0，走全局 OVS dnsmasq）。
+func switchIsSystemBase(sw model.VPCSwitch) bool {
+	return sw.BridgeMode == "nat" && sw.VLANID == 0
 }
 
 // NICFixedIP 单张网卡的固定 IP 绑定计划。IP 为空表示该网卡维持动态 DHCP。
@@ -698,17 +703,31 @@ func nicMAC(vmName string, order int) string {
 	return ""
 }
 
-// vpcOccupiedIPs 收集交换机子网内已占用 IP：网关 + 静态绑定 + dnsmasq 租约 + ARP 邻居。
-func vpcOccupiedIPs(sw model.VPCSwitch) map[string]bool {
+// switchOccupiedIPs 收集交换机子网内已占用 IP：网关 + 静态绑定 + dnsmasq 租约 + ARP 邻居。
+// 基础网络（system-base）走全局 OVS 源；其余走 VPC 每交换机源。
+func switchOccupiedIPs(sw model.VPCSwitch) map[string]bool {
 	used := map[string]bool{sw.GatewayIP: true}
-	if hosts, err := HookListVPCStaticHosts(sw.ID); err == nil {
-		for _, h := range hosts {
-			used[h.IP] = true
+	if switchIsSystemBase(sw) {
+		if hosts, err := HookListOVSStaticHosts(); err == nil {
+			for _, h := range hosts {
+				used[h.IP] = true
+			}
 		}
-	}
-	if leases, err := HookListVPCDHCPLeasesForSwitch(sw.ID); err == nil {
-		for _, l := range leases {
-			used[l.IP] = true
+		if leases, err := HookListOVSDHCPLeases(); err == nil {
+			for _, l := range leases {
+				used[l.IP] = true
+			}
+		}
+	} else {
+		if hosts, err := HookListVPCStaticHosts(sw.ID); err == nil {
+			for _, h := range hosts {
+				used[h.IP] = true
+			}
+		}
+		if leases, err := HookListVPCDHCPLeasesForSwitch(sw.ID); err == nil {
+			for _, l := range leases {
+				used[l.IP] = true
+			}
 		}
 	}
 	// ARP 增强：邻居表里存活的 IP（租约过期但仍占用 / 客户机内手设静态 IP）
@@ -724,7 +743,7 @@ func AvailableVPCIPs(switchID uint) ([]string, error) {
 	if err := model.DB.First(&sw, switchID).Error; err != nil {
 		return nil, fmt.Errorf("交换机不存在")
 	}
-	if !switchHasManagedDHCP(sw) {
+	if !switchSupportsFixedIP(sw) {
 		return []string{}, nil
 	}
 	start := net.ParseIP(sw.DHCPStart).To4()
@@ -732,7 +751,7 @@ func AvailableVPCIPs(switchID uint) ([]string, error) {
 	if start == nil || end == nil {
 		return nil, fmt.Errorf("交换机 DHCP 地址池无效")
 	}
-	used := vpcOccupiedIPs(sw)
+	used := switchOccupiedIPs(sw)
 	var out []string
 	for ip := append(net.IP(nil), start...); compareIPv4(ip, end) <= 0; incrementIPv4(ip) {
 		if !used[ip.String()] {
@@ -748,10 +767,10 @@ func IsVPCIPFree(switchID uint, ip string) bool {
 	if err := model.DB.First(&sw, switchID).Error; err != nil {
 		return false
 	}
-	if !switchHasManagedDHCP(sw) {
+	if !switchSupportsFixedIP(sw) {
 		return false
 	}
-	return !vpcOccupiedIPs(sw)[strings.TrimSpace(ip)]
+	return !switchOccupiedIPs(sw)[strings.TrimSpace(ip)]
 }
 
 // ValidateFixedIPForSwitch 创建/克隆前预检：交换机存在、IP 合法且空闲。空 IP 放行。
@@ -773,7 +792,9 @@ func ValidateFixedIPForSwitch(switchID uint, ip string) error {
 	return nil
 }
 
-// bindOneNICStaticIP 为单张网卡写 dnsmasq dhcp-host 预约。非受管交换机静默跳过（mac/switchID 返 0，无错）。
+// bindOneNICStaticIP 为单张网卡写 dnsmasq dhcp-host 预约。
+// 基础网络（system-base）走全局 OVS dnsmasq（switchID 返 0 标记）；VPC 走每交换机 dnsmasq。
+// 直通/桥接或无 DHCP 池：静默跳过（mac/switchID 返 0，无错）。
 func bindOneNICStaticIP(vmName string, order int, ip string) (mac string, switchID uint, err error) {
 	var b model.VPCVMBinding
 	if e := model.DB.Where("vm_name = ? AND interface_order = ?", vmName, order).First(&b).Error; e != nil {
@@ -783,8 +804,8 @@ func bindOneNICStaticIP(vmName string, order int, ip string) (mac string, switch
 	if e := model.DB.First(&sw, b.SwitchID).Error; e != nil {
 		return "", 0, fmt.Errorf("交换机不存在")
 	}
-	if !switchHasManagedDHCP(sw) {
-		return "", 0, nil // 直通桥/系统交换机：静默跳过
+	if !switchSupportsFixedIP(sw) {
+		return "", 0, nil // 直通/桥接或无 DHCP 池：静默跳过
 	}
 	mac = nicMAC(vmName, order)
 	if mac == "" {
@@ -793,6 +814,15 @@ func bindOneNICStaticIP(vmName string, order int, ip string) (mac string, switch
 	normalized, err := normalizeIPForVPC(ip, sw)
 	if err != nil {
 		return "", 0, err
+	}
+	if switchIsSystemBase(sw) {
+		// 基础网络：全局 OVS dnsmasq 读 /etc/kvm-console/ovs/dhcp-hosts。
+		// 切勿走 UpsertVPCStaticHost——会写 dhcp-hosts-<baseID> 死文件（VLANID==0 无独立 dnsmasq）。
+		if err := HookUpsertOVSStaticHost(vmName, mac, normalized); err != nil {
+			return "", 0, err
+		}
+		go refreshNIC(vmName, mac, "")
+		return mac, 0, nil // switchID=0 标记 OVS 路径
 	}
 	if err := UpsertVPCStaticHost(sw, vmName, mac, normalized); err != nil {
 		return "", 0, err
@@ -818,8 +848,14 @@ func BindStaticIPForNICs(vmName string, plans []NICFixedIP) error {
 		mac, swID, err := bindOneNICStaticIP(vmName, p.Order, ip)
 		if err != nil {
 			for _, d := range doneList {
-				if _, rmErr := RemoveVPCStaticHost(d.switchID, vmName, d.mac); rmErr != nil {
-					logger.App.Warn("回滚固定 IP 绑定失败", "vm", vmName, "switch", d.switchID, "mac", d.mac, "error", rmErr)
+				if d.switchID == 0 {
+					if _, rmErr := HookRemoveOVSStaticHost(vmName, d.mac); rmErr != nil {
+						logger.App.Warn("回滚固定 IP 绑定失败(OVS)", "vm", vmName, "mac", d.mac, "error", rmErr)
+					}
+				} else {
+					if _, rmErr := RemoveVPCStaticHost(d.switchID, vmName, d.mac); rmErr != nil {
+						logger.App.Warn("回滚固定 IP 绑定失败", "vm", vmName, "switch", d.switchID, "mac", d.mac, "error", rmErr)
+					}
 				}
 			}
 			return fmt.Errorf("网卡(order=%d)绑定固定 IP %s 失败: %w", p.Order, ip, err)
