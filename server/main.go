@@ -385,15 +385,10 @@ func registerTaskHandlers() {
 		if err := service.LXCCreateContainer(params, progress); err != nil {
 			return "", err
 		}
-		fixedPlans := []service.NICFixedIP{{Order: 0, IP: params.FixedIP}}
-		for i, n := range params.ExtraNics {
-			fixedPlans = append(fixedPlans, service.NICFixedIP{Order: i + 1, IP: n.FixedIP})
-		}
-		if err := service.BindStaticIPForNICs(params.Name, fixedPlans); err != nil {
-			return "", fmt.Errorf("容器创建完成，但绑定固定 IP 失败: %w", err)
-		}
-		// 全部网卡（主卡+附加）已由 CreateContainer→PrepareContainerNICs 在启动前写入 config，
-		// lxc-start 按 config 一次性建出，无需再启动后热插拔。
+		// 全部网卡（主卡+附加）已由 CreateContainer→PrepareContainerNICs 在启动前写入 config；
+		// 固定 IP 预约也已在 CreateContainer/cloneContainer 启动前（停机态）写好，
+		// lxc-start 一次性建出，无需启动后再绑定/热插拔（运行态绑定会触发容器内 DHCP 刷新，
+		// LXC 易致同一网卡双 IP）。
 		return `{"name":"` + params.Name + `"}`, nil
 	})
 
@@ -472,11 +467,7 @@ func registerTaskHandlers() {
 		if err := service.LXCCloneFromSnapshot(params, progress); err != nil {
 			return "", err
 		}
-		if params.FixedIP != "" {
-			if err := service.BindStaticIPForNICs(params.DstName, []service.NICFixedIP{{Order: 0, IP: params.FixedIP}}); err != nil {
-				return "", fmt.Errorf("容器克隆完成，但绑定固定 IP 失败: %w", err)
-			}
-		}
+		// 固定 IP 预约已在 cloneContainer 启动前（停机态）写好，无需启动后再绑定。
 		return `{"name":"` + params.DstName + `"}`, nil
 	})
 

@@ -203,6 +203,8 @@ func CloneFromSnapshot(params *CloneParams, progress func(int, string)) error {
 	if err := ensureLXCVPCBinding(params.DstName, switchID, sgID); err != nil {
 		logger.App.Warn("克隆容器 VPC 绑定失败", "name", params.DstName, "error", err)
 	}
+	// 启动前写固定 IP 预约：容器首启即按 dnsmasq 预约拿 IP，避免运行态刷新导致同一网卡双 IP。
+	bindFixedIPsBeforeStart(params.DstName, params.FixedIP, nil)
 	progress(90, "启动容器")
 	if err := StartContainer(params.DstName); err != nil {
 		logger.App.Warn("克隆容器启动失败（已创建，保持停止态）", "name", params.DstName, "error", err)

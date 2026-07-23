@@ -524,7 +524,16 @@ func refreshNIC(vmName, mac, network string) {
 	}
 }
 
-// refreshLXCContainerDHCP 在运行中的 LXC 容器内释放并重新获取 DHCP（best-effort）。
+// refreshLXCContainerDHCP 在运行中的 LXC 容器内续租 DHCP，使刚写入的 dnsmasq 预约生效。
+//
+// 关键：必须按容器实际使用的网络管理器续租，不能无脑 dhclient——networkd/NetworkManager
+// 管理的容器里 dhclient 是独立 DHCP 客户端，会再拿一个租约，与 networkd/NM 的共存会导致
+// 同一网卡出现两个 IP。按 provisionRootfsNICs 写入的配置文件判定管理器（if/elif 只走一个，
+// 避免双客户端）：ifcfg-eth0 → NetworkManager、netplan/eth0.network → systemd-networkd、
+// 其余 → ifupdown/dhclient。
+//
+// 固定 IP 当前仅主网卡 eth0 的运行态路径会触发刷新（创建/克隆的预约已前移到启动前，
+// 停机态刷新为 no-op），故续租 eth0。
 func refreshLXCContainerDHCP(name string) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -535,10 +544,20 @@ func refreshLXCContainerDHCP(name string) {
 	if res.Error != nil || !strings.Contains(res.Stdout, "RUNNING") {
 		return
 	}
-	// best-effort：容器内未必有 dhclient，忽略错误
-	utils.ExecShell(fmt.Sprintf(
-		"lxc-attach -n %s -- sh -c 'dhclient -r 2>/dev/null; dhclient 2>/dev/null; true' 2>/dev/null",
-		utils.ShellSingleQuote(name)))
+	// 单管理器续租（best-effort，忽略错误）：
+	// - networkd：networkctl reconfigure 拆链路重新发现 → 丢旧 IP、拿预约 IP
+	// - NM：reapply，失败则 disconnect/connect 强制重新发现
+	// - dhclient：先释放再获取
+	script := `if [ -f /etc/sysconfig/network-scripts/ifcfg-eth0 ]; then
+	nmcli device reapply eth0 2>/dev/null || { nmcli device disconnect eth0 2>/dev/null; nmcli device connect eth0 2>/dev/null; }
+elif [ -f /etc/netplan/90-lxc-nics.yaml ] || [ -f /etc/systemd/network/eth0.network ]; then
+	networkctl reconfigure eth0 2>/dev/null
+elif command -v dhclient >/dev/null 2>&1; then
+	dhclient -r eth0 2>/dev/null; dhclient eth0 2>/dev/null
+fi
+true`
+	utils.ExecShell(fmt.Sprintf("lxc-attach -n %s -- sh -c %s 2>/dev/null",
+		utils.ShellSingleQuote(name), utils.ShellSingleQuote(script)))
 }
 
 // UnbindStaticIP 解绑静态 IP
