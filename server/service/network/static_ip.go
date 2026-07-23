@@ -520,12 +520,20 @@ func refreshNIC(vmName, mac, network string) {
 
 	if HookUseOVSNetwork() {
 		var ifaceXML string
-		if sw, ok := HookGetVPCSwitchForVM(vmName); ok {
+		// 按被刷新网卡的 MAC 找它自己的交换机，取正确的 VLAN；多网卡时不能误用主网卡交换机，
+		// 否则会把该网卡按错误 VLAN 拔插（如把 net1(VLAN100) 网卡按基础网络(VLAN0) 插回 → 丢网）。
+		sw, swOK := vmSwitchForMAC(vmName, mac)
+		if !swOK {
+			if p, ok := HookGetVPCSwitchForVM(vmName); ok && p != nil { // 回退：MAC 无法解析时用主网卡交换机
+				sw, swOK = *p, true
+			}
+		}
+		if swOK {
 			ifaceXML = HookBuildOVSInterfaceXMLWithVLAN(mac, nicModel, sw.VLANID)
 			if err := libvirt_rpc.DetachDeviceFlagsRPC(vmName, ifaceXML, 1); err == nil { // VIR_DOMAIN_DEVICE_MODIFY_LIVE
 				time.Sleep(1 * time.Second)
 				if err := libvirt_rpc.AttachDeviceFlagsRPC(vmName, ifaceXML, 1); err == nil {
-					_ = applyVPCSwitchRuntime(vmName, *sw)
+					_ = applyVPCSwitchRuntime(vmName, sw)
 				}
 			}
 			return
@@ -567,6 +575,25 @@ func lxcIfaceForMAC(vmName, mac string) string {
 		}
 	}
 	return "eth0"
+}
+
+// vmSwitchForMAC 解析 VM 指定 MAC 网卡接入的 VPC 交换机（按该网卡，而非主网卡）。
+// 供 refreshNIC 拔插时取该网卡自己的 VLAN，避免多网卡下误用主网卡交换机把网卡插到错的网络。
+func vmSwitchForMAC(vmName, mac string) (model.VPCSwitch, bool) {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" {
+		return model.VPCSwitch{}, false
+	}
+	var rows []model.VPCVMBinding
+	if err := model.DB.Where("vm_name = ?", vmName).Order("interface_order asc").Find(&rows).Error; err != nil {
+		return model.VPCSwitch{}, false
+	}
+	for _, r := range rows {
+		if strings.EqualFold(nicMAC(vmName, r.InterfaceOrder), mac) {
+			return nicSwitch(vmName, r.InterfaceOrder)
+		}
+	}
+	return model.VPCSwitch{}, false
 }
 
 // refreshLXCContainerDHCP 在运行中的 LXC 容器内对指定网卡(iface, 如 eth0/eth1)续租 DHCP，
