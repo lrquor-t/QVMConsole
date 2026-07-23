@@ -308,8 +308,18 @@ func CountVMInterfaces(vmName string) int {
 	return count
 }
 
-// GetVMMACByOrder 获取虚拟机第 N 个网口的 MAC 地址
+// GetVMMACByOrder 获取虚拟机第 N 个网口（按 interface_order）的 MAC 地址。
+// 读持久化(inactive)域 XML 的 <interface> 文档顺序——该顺序稳定等于 interface_order，
+// 不受运行态 detach/attach 重排影响（例如重绑 IP 触发的网卡拔插会把网卡插到列表末尾），
+// 且对关机 VM 同样有效。inactive XML 不可用时回退到 live domiflist。
 func GetVMMACByOrder(vmName string, order int) string {
+	if macs := extractInterfaceMACsInOrder(utils.ExecCommand("virsh", "dumpxml", vmName, "--inactive").Stdout); len(macs) > 0 {
+		if order >= 0 && order < len(macs) {
+			return macs[order]
+		}
+		return ""
+	}
+	// 回退：live domiflist（inactive 不可用时）
 	result := utils.ExecCommand("virsh", "domiflist", vmName)
 	if result.Error != nil {
 		return ""
@@ -323,12 +333,42 @@ func GetVMMACByOrder(vmName string, order int) string {
 		if idx == order {
 			fields := strings.Fields(line)
 			if len(fields) >= 5 {
-				return fields[4]
+				return strings.ToLower(strings.TrimSpace(fields[4]))
 			}
 		}
 		idx++
 	}
 	return ""
+}
+
+// extractInterfaceMACsInOrder 按文档顺序提取域 XML 中各 <interface> 的 MAC 地址。
+func extractInterfaceMACsInOrder(xmlText string) []string {
+	var macs []string
+	searchFrom := 0
+	for {
+		startRel := strings.Index(xmlText[searchFrom:], "<interface ")
+		if startRel < 0 {
+			break
+		}
+		start := searchFrom + startRel
+		endRel := strings.Index(xmlText[start:], "</interface>")
+		if endRel < 0 {
+			break
+		}
+		end := start + endRel + len("</interface>")
+		block := xmlText[start:end]
+		lower := strings.ToLower(block)
+		macRel := strings.Index(lower, "mac address='")
+		if macRel >= 0 {
+			valStart := macRel + len("mac address='")
+			valEnd := strings.Index(block[valStart:], "'")
+			if valEnd >= 0 {
+				macs = append(macs, strings.ToLower(strings.TrimSpace(block[valStart:valStart+valEnd])))
+			}
+		}
+		searchFrom = end
+	}
+	return macs
 }
 
 // UpsertVMBindingNicModel 更新绑定的网卡型号
