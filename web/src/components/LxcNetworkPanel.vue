@@ -120,7 +120,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="IP 地址" v-if="selectedLeaseIP === ''">
-          <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位" />
+          <div style="display:flex; gap:8px; width:100%;">
+            <el-input v-model="bindForm.ip" placeholder="留空自动分配，或输入完整IP/最后一位" style="flex:1;" />
+            <el-button @click="pickerVisible = true" :disabled="!primaryNIC">选择</el-button>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -128,6 +131,8 @@
         <el-button type="primary" :loading="bindSubmitting" @click="submitBind">确定</el-button>
       </template>
     </el-dialog>
+
+    <IpPickerDialog v-model="pickerVisible" :switch-id="primaryNIC?.switch_id || 0" @select="(ip) => bindForm.ip = ip" />
   </div>
 </template>
 
@@ -138,6 +143,7 @@ import { useUserStore } from '@/store/user'
 import { listLXCInterfaces, addLXCInterface, updateLXCInterface, removeLXCInterface } from '@/api/lxc'
 import { bindStaticIP, unbindStaticIP, getStaticIPList } from '@/api/network'
 import { getVPCSwitches, getVPCSecurityGroups } from '@/api/vpc'
+import IpPickerDialog from './IpPickerDialog.vue'
 
 const props = defineProps({ name: { type: String, required: true } })
 const userStore = useUserStore()
@@ -246,6 +252,7 @@ const bindVisible = ref(false)
 const bindSubmitting = ref(false)
 const bindForm = reactive({ vm_name: '', ip: '' })
 const selectedLeaseIP = ref('')
+const pickerVisible = ref(false)
 const openBind = () => { bindForm.vm_name = props.name; bindForm.ip = ''; selectedLeaseIP.value = ''; bindVisible.value = true }
 const onLease = (v) => { bindForm.ip = v }
 const submitBind = async () => {
