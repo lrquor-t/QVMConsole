@@ -532,9 +532,10 @@ func refreshNIC(vmName, mac, network string) {
 			ifaceXML = HookBuildOVSInterfaceXMLWithVLAN(mac, nicModel, sw.VLANID)
 			if err := libvirt_rpc.DetachDeviceFlagsRPC(vmName, ifaceXML, 1); err == nil { // VIR_DOMAIN_DEVICE_MODIFY_LIVE
 				time.Sleep(1 * time.Second)
-				if err := libvirt_rpc.AttachDeviceFlagsRPC(vmName, ifaceXML, 1); err == nil {
-					_ = applyVPCSwitchRuntime(vmName, sw)
-				}
+				// 重 attach 的 XML 已带 <vlan> 标签，libvirt 会自行设置该端口 VLAN。
+				// 不再调用 applyVPCSwitchRuntime：它只作用于 VM 第一张网卡（GetVMVnetIF），
+				// 多网卡时会用本网卡交换机的 VLAN 把主网卡端口打错（如把基础网络主网卡打成 net1）。
+				libvirt_rpc.AttachDeviceFlagsRPC(vmName, ifaceXML, 1)
 			}
 			return
 		}
