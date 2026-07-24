@@ -363,6 +363,21 @@ else
     warn "libguestfs-tools (noarch) RPM 下载失败，virt-win-reg 将尝试通过系统源安装"
 fi
 
+# ==================== 捆绑 OVS 便携安装器（供无 OVS 的系统离线使用，仅 x86_64）====================
+# install.sh 在系统源装不上 OVS 时，会回退到此便携安装器（自带 glibc 加载器 + systemd 开机自启）
+if [ "$TARGET_ARCH" = "amd64" ]; then
+    OVS_INSTALLER_SRC="${OVS_INSTALLER_SRC:-/opt/openvswitch/openvswitch-3.7.1-x86_64-installer.bin}"
+    if [ -f "$OVS_INSTALLER_SRC" ]; then
+        cp -f "$OVS_INSTALLER_SRC" "$RELEASE_DIR/${OUTPUT_NAME}/bundled/openvswitch-installer.bin"
+        chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/bundled/openvswitch-installer.bin"
+        success "OVS 便携安装器已捆绑 (来源: $OVS_INSTALLER_SRC)"
+    else
+        warn "未找到 OVS 便携安装器 ($OVS_INSTALLER_SRC)，跳过捆绑。无 OVS 的目标系统需自行安装 openvswitch"
+    fi
+else
+    info "目标架构 ${TARGET_ARCH} 无 OVS 便携安装器，跳过捆绑（aarch64 请走系统源）"
+fi
+
 # ==================== 生成 tar.gz ====================
 cd "$RELEASE_DIR"
 tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}/"
@@ -388,5 +403,8 @@ fi
 echo -e "${CYAN}║${NC}    - web-dist/          前端静态文件"
 echo -e "${CYAN}║${NC}    - install.sh         安装脚本"
 echo -e "${CYAN}║${NC}    - bundled/           捆绑的 RPM 包（用于缺失的系统包）"
+if [ "$TARGET_ARCH" = "amd64" ] && [ -f "$RELEASE_DIR/${OUTPUT_NAME}/bundled/openvswitch-installer.bin" ]; then
+    echo -e "${CYAN}║${NC}    - bundled/openvswitch-installer.bin  便携 OVS（无 OVS 系统的兜底安装器）"
+fi
 echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""

@@ -48,7 +48,6 @@ APT_DEPS=(
     "libvirt-daemon-system"
     "libvirt-daemon-driver-qemu"
     "libvirt-clients"
-    "openvswitch-switch"
     "dnsmasq-base"
     "virtinst"
     "libguestfs-tools"
@@ -624,6 +623,7 @@ check_and_install_deps() {
 
     install_optional_polkit
     check_optional_kvm_stat
+    ensure_openvswitch
     ensure_required_commands
     ensure_core_services
 
@@ -798,7 +798,8 @@ ensure_core_services() {
     systemctl enable --now libvirtd 2>/dev/null || systemctl enable --now libvirt-daemon 2>/dev/null || \
         systemctl enable --now virtqemud 2>/dev/null || true
     systemctl enable --now openvswitch-switch 2>/dev/null || \
-        systemctl enable --now openvswitch 2>/dev/null || true
+        systemctl enable --now openvswitch 2>/dev/null || \
+        systemctl enable --now ovsdb-server ovs-vswitchd 2>/dev/null || true
     systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
 
     if ! systemctl is-active --quiet libvirtd 2>/dev/null && \
@@ -819,8 +820,9 @@ ensure_core_services() {
         fi
         exit 1
     fi
-    if ! systemctl is-active --quiet openvswitch-switch 2>/dev/null && \
-       ! systemctl is-active --quiet openvswitch 2>/dev/null; then
+    # OVS 运行判断改为实测 ovs-vsctl：兼容发行版 openvswitch-switch/openvswitch、
+    # 源码编译、以及便携版 ovsdb-server/ovs-vswitchd 三种安装方式，避免便携安装时误报未运行
+    if ! ovs-vsctl --no-wait --timeout=3 show >/dev/null 2>&1; then
         warn "openvswitch 当前未运行，面板会在网络修复时再次尝试启动"
     fi
     success "核心服务检查完成"
@@ -862,6 +864,65 @@ print_ovs_dep_info() {
         warn "OVS 未安装，安装命令: ${install_cmd}"
     fi
     info "──────────────────────────────────────────"
+}
+
+# ovs_is_available 判断 OVS 是否真正可用（apt/dnf/源码编译/便携包 任一安装方式）
+# 关键：不仅看 ovs-vsctl 是否在 PATH，还要能跑起来（--version），避免有命令但缺依赖的假阳性
+ovs_is_available() {
+    command -v ovs-vsctl >/dev/null 2>&1 && ovs-vsctl --version >/dev/null 2>&1
+}
+
+# ensure_openvswitch 确保 OVS 可用，回退顺序：
+#   1) 已可用（含源码编译安装）→ 直接用
+#   2) 系统包管理器安装（apt openvswitch-switch / dnf|yum openvswitch）
+#   3) 发行包内捆绑的便携安装器（仅 x86_64，装到 /opt/openvswitch-3.7.1 + 软链 /usr/local/bin + 开机自启）
+#   4) 仍不可用 → 警告（最终由 ensure_required_commands 的 ovs-vsctl/ovs-ofctl 硬校验决定是否终止）
+ensure_openvswitch() {
+    info "检查 Open vSwitch 是否可用..."
+    if ovs_is_available; then
+        success "Open vSwitch 已可用 ($(ovs-vsctl --version 2>/dev/null | head -1))"
+        return 0
+    fi
+
+    # 1) 系统包优先
+    info "未检测到 OVS，尝试通过系统包管理器安装..."
+    case "$PKG_MGR" in
+        apt) pkg_update_index >/dev/null 2>&1 || true; pkg_install openvswitch-switch 2>/dev/null || true ;;
+        dnf|yum) pkg_install openvswitch 2>/dev/null || true ;;
+    esac
+    if ovs_is_available; then
+        success "Open vSwitch 已通过系统包安装"
+        return 0
+    fi
+
+    # 2) 回退发行包内捆绑的便携安装器（仅 x86_64）
+    # 注意：本函数在 get_release 之前执行，故 RELEASE_SOURCE_DIR 尚未就绪，
+    #       只能依赖 install.sh 自身所在目录（与 install_bundled_packages 同样的定位方式）
+    if [ "$ARCH" = "x86_64" ]; then
+        local script_dir bundled_dir bin
+        script_dir="$(cd "$(dirname "$0")" && pwd)"
+        bundled_dir="${script_dir}/bundled"
+        bin="${bundled_dir}/openvswitch-installer.bin"
+        if [ -f "$bin" ]; then
+            info "使用捆绑的便携 OVS 安装器: $bin"
+            chmod +x "$bin"
+            # 让安装器自行 start + 开机自启（生成 ovsdb-server/ovs-vswitchd 单元）
+            if "$bin" >/tmp/ovs-portable-install.log 2>&1 && ovs_is_available; then
+                success "Open vSwitch 已通过捆绑便携安装器安装"
+                return 0
+            fi
+            warn "捆绑 OVS 安装器执行失败，详见 /tmp/ovs-portable-install.log"
+        else
+            warn "发行包未包含 OVS 便携安装器 (${bin})"
+        fi
+    else
+        warn "aarch64 平台无捆绑 OVS 安装器，请通过系统源安装 openvswitch"
+    fi
+
+    if ovs_is_available; then
+        return 0
+    fi
+    warn "Open vSwitch 仍不可用，OVS 相关网络功能将无法使用（后续命令校验可能终止安装）"
 }
 
 # configure_qemu_for_rpm 修复 openEuler/麒麟 上 QEMU 权限问题
@@ -1397,7 +1458,8 @@ _setup_ovs_inner() {
     fi
 
     systemctl enable --now openvswitch-switch 2>/dev/null || \
-        systemctl enable --now openvswitch 2>/dev/null || true
+        systemctl enable --now openvswitch 2>/dev/null || \
+        systemctl enable --now ovsdb-server ovs-vswitchd 2>/dev/null || true
     # 等待 OVS 数据库就绪，避免 ovs-vsctl 挂起
     for _i in 1 2 3 4 5 6 7 8 9 10; do
         ovs-vsctl --no-wait show 2>/dev/null && break
