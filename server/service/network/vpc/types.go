@@ -86,6 +86,7 @@ type VMInterfaceInfo struct {
 	Binding       model.VPCVMBinding      `json:"binding"`
 	Switch        *model.VPCSwitch        `json:"switch"`
 	SecurityGroup *model.VPCSecurityGroup `json:"security_group"`
+	MAC           string                  `json:"mac"` // 该网卡 MAC（按 interface_order 从持久化 XML 稳定解析）
 }
 
 // VMSwitchInfo 交换机下虚拟机简要信息

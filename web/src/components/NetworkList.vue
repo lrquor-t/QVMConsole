@@ -1823,11 +1823,17 @@ const ipSourceText = (source) => {
   return map[source] || '-'
 }
 
-// 根据网口行获取运行时 IP（通过接口序号匹配 runtimeStatus）
+// 根据网口行获取运行时 IP：优先按该网卡 MAC 匹配 runtimeStatus（运行态接口顺序会被
+// 拔插重排，下标不再可靠等于 interface_order）；MAC 不可用时回退按下标。
 const getInterfaceIP = (row) => {
+  const ifaces = runtimeStatus.value?.interfaces || []
+  const mac = (row.mac || '').toLowerCase()
+  if (mac) {
+    const hit = ifaces.find(i => (i.mac || '').toLowerCase() === mac)
+    return hit?.ip || ''
+  }
   const order = row.binding?.interface_order
   if (order === undefined || order === null) return ''
-  const ifaces = runtimeStatus.value?.interfaces || []
   if (order < ifaces.length) {
     return ifaces[order].ip || ''
   }
