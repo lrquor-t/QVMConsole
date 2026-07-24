@@ -77,7 +77,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-amd64
-          path: release/kvm-console-linux-amd64.tar.gz
+          path: release/kvm-console-linux-amd64-v${{ inputs.version }}.tar.gz
 
       # ==================== 阿里云 OSS 上传 ====================
       - name: 安装阿里云 ossutil
@@ -106,7 +106,7 @@ jobs:
           echo "上传目标: ${OSS_PATH}"
           echo "======================================"
 
-          ossutil cp release/kvm-console-linux-amd64.tar.gz ${OSS_PATH}/kvm-console-linux-amd64.tar.gz -f
+          ossutil cp release/kvm-console-linux-amd64-v${VERSION}.tar.gz ${OSS_PATH}/kvm-console-linux-amd64-v${VERSION}.tar.gz -f
 
           echo "======================================"
           echo "构建产物已上传至阿里云 OSS"
@@ -159,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-arm64
-          path: release/kvm-console-linux-arm64.tar.gz
+          path: release/kvm-console-linux-arm64-v${{ inputs.version }}.tar.gz
 
       # ==================== 阿里云 OSS 上传 ====================
       - name: 安装阿里云 ossutil
@@ -188,7 +188,7 @@ jobs:
           echo "上传目标: ${OSS_PATH}"
           echo "======================================"
 
-          ossutil cp release/kvm-console-linux-arm64.tar.gz ${OSS_PATH}/kvm-console-linux-arm64.tar.gz -f
+          ossutil cp release/kvm-console-linux-arm64-v${VERSION}.tar.gz ${OSS_PATH}/kvm-console-linux-arm64-v${VERSION}.tar.gz -f
 
           echo "======================================"
           echo "构建产物已上传至阿里云 OSS"

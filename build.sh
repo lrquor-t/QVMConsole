@@ -111,6 +111,7 @@ BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # 根据目标架构确定输出名和 Go 编译参数
 OUTPUT_NAME="kvm-console-linux-${TARGET_ARCH}"
+TARBALL_NAME="${OUTPUT_NAME}-${BUILD_VERSION}.tar.gz"  # 版本化发行包名，如 kvm-console-linux-amd64-v1.0.0.tar.gz
 GOARCH_VALUE="$TARGET_ARCH"  # Go GOARCH 与我们的命名一致（amd64/arm64）
 IS_CROSS_COMPILE=false
 if [ "$TARGET_ARCH" != "$HOST_ARCH" ]; then
@@ -398,15 +399,15 @@ fi
 
 # ==================== 生成 tar.gz ====================
 cd "$RELEASE_DIR"
-tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}/"
+tar -czf "${TARBALL_NAME}" "${OUTPUT_NAME}/"
 
-PACKAGE_SIZE=$(du -sh "$RELEASE_DIR/${OUTPUT_NAME}.tar.gz" | cut -f1)
+PACKAGE_SIZE=$(du -sh "$RELEASE_DIR/${TARBALL_NAME}" | cut -f1)
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║         构建完成！                               ║${NC}"
 echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  产物:   ${GREEN}release/${OUTPUT_NAME}.tar.gz${NC}"
+echo -e "${CYAN}║${NC}  产物:   ${GREEN}release/${TARBALL_NAME}${NC}"
 echo -e "${CYAN}║${NC}  大小:   ${GREEN}${PACKAGE_SIZE}${NC}"
 echo -e "${CYAN}║${NC}  版本:   ${GREEN}${BUILD_VERSION}${NC}"
 echo -e "${CYAN}║${NC}  架构:   ${GREEN}${TARGET_ARCH}${NC}"

@@ -1598,16 +1598,19 @@ get_release() {
         return
     fi
 
-    local local_tarball_name
+    local arch_suffix
     if [ "$ARCH" = "x86_64" ]; then
-        local_tarball_name="kvm-console-linux-amd64.tar.gz"
+        arch_suffix="amd64"
     elif [ "$ARCH" = "aarch64" ]; then
-        local_tarball_name="kvm-console-linux-arm64.tar.gz"
+        arch_suffix="arm64"
     fi
+
+    # 本地发行包：兼容版本化名(kvm-console-linux-amd64-v1.0.0.tar.gz)与旧的非版本化名；
+    # 同目录多个时取版本号最大者
     local local_tarball=""
-    if [ -f "$(pwd)/${local_tarball_name}" ]; then
-        local_tarball="$(pwd)/${local_tarball_name}"
-        read -rp "检测到本地发行包 ${local_tarball}，是否使用? [Y/n]: " use_local
+    local_tarball=$(find "$(pwd)" -maxdepth 1 -type f -name "kvm-console-linux-${arch_suffix}*.tar.gz" 2>/dev/null | sort -V | tail -n1)
+    if [ -n "$local_tarball" ]; then
+        read -rp "检测到本地发行包 ${local_tarball##*/}，是否使用? [Y/n]: " use_local
         use_local=${use_local:-Y}
         if [[ "$use_local" =~ ^[Yy]$ ]]; then
             extract_tarball "$local_tarball"
@@ -1641,25 +1644,20 @@ get_release() {
         error "无法连接 GitHub API，请检查网络或使用离线发行包"
         exit 1
     }
-    local arch_suffix
-    if [ "$ARCH" = "x86_64" ]; then
-        arch_suffix="amd64"
-    elif [ "$ARCH" = "aarch64" ]; then
-        arch_suffix="arm64"
-    fi
     local download_url
     local tag_name
-    download_url=$(printf '%s' "$release_info" | awk -F'"' -v s="linux-${arch_suffix}.tar.gz" '/browser_download_url/ && $0 ~ s {print $4; exit}')
+    # 资产名兼容版本化(kvm-console-linux-amd64-v1.0.0.tar.gz)与旧的非版本化名
+    download_url=$(printf '%s' "$release_info" | awk -F'"' -v s="linux-${arch_suffix}.*[.]tar[.]gz" '/browser_download_url/ && $0 ~ s {print $4; exit}')
     tag_name=$(printf '%s' "$release_info" | awk -F'"' '/tag_name/ {print $4; exit}')
     if [ -z "$download_url" ]; then
-        error "未找到 linux-${arch_suffix}.tar.gz 发行包"
+        error "未找到 linux-${arch_suffix}*.tar.gz 发行包"
         exit 1
     fi
 
     info "最新版本: ${tag_name:-unknown}"
     TMP_RELEASE_DIR=$(mktemp -d)
-    curl -L --progress-bar -o "${TMP_RELEASE_DIR}/kvm-console-linux-amd64.tar.gz" "$download_url"
-    extract_tarball "${TMP_RELEASE_DIR}/kvm-console-linux-amd64.tar.gz"
+    curl -L --progress-bar -o "${TMP_RELEASE_DIR}/kvm-console-linux-${arch_suffix}.tar.gz" "$download_url"
+    extract_tarball "${TMP_RELEASE_DIR}/kvm-console-linux-${arch_suffix}.tar.gz"
 }
 
 install_files() {
