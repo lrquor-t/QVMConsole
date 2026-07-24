@@ -4,9 +4,10 @@ import "strings"
 
 // StaticIPInfo 静态 IP 绑定信息
 type StaticIPInfo struct {
-	VMName string `json:"vm_name"`
-	IP     string `json:"ip"`
-	MAC    string `json:"mac"`
+	VMName         string `json:"vm_name"`
+	IP             string `json:"ip"`
+	MAC            string `json:"mac"`
+	InterfaceOrder int    `json:"interface_order"` // 关联网卡序号（0=主；无法反解时按 0 计）
 }
 
 // IPListInfo 完整 IP 信息

@@ -448,6 +448,9 @@ func ListVMInterfaces(vmName string) ([]VMInterfaceInfo, error) {
 	result := make([]VMInterfaceInfo, 0, len(bindings))
 	for _, b := range bindings {
 		info := VMInterfaceInfo{Binding: b}
+		if HookGetVMMACByOrder != nil {
+			info.MAC = strings.ToLower(strings.TrimSpace(HookGetVMMACByOrder(vmName, b.InterfaceOrder)))
+		}
 		if sw, ok := switches[b.SwitchID]; ok {
 			info.Switch = sw
 		}

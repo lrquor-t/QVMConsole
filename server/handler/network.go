@@ -79,8 +79,9 @@ func GetAvailableVPCIPs(c *gin.Context) {
 
 // BindStaticIPRequest 绑定静态 IP 请求
 type BindStaticIPRequest struct {
-	VMName string `json:"vm_name" binding:"required"`
-	IP     string `json:"ip"` // 可留空，为空时自动分配空闲 IP
+	VMName         string `json:"vm_name" binding:"required"`
+	InterfaceOrder int    `json:"interface_order"` // 网卡序号，默认 0（主网卡）
+	IP             string `json:"ip"`              // 可留空，为空时自动分配空闲 IP
 }
 
 // BindStaticIP 绑定静态 IP
@@ -126,7 +127,15 @@ func BindStaticIP(c *gin.Context) {
 		}
 	}
 
-	assignedIP, err := netservice.BindStaticIP(req.VMName, req.IP)
+	if reason := netservice.NICBindError(req.VMName, req.InterfaceOrder); reason != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": reason,
+		})
+		return
+	}
+
+	assignedIP, err := netservice.BindStaticIPForNIC(req.VMName, req.InterfaceOrder, req.IP)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
@@ -146,7 +155,8 @@ func BindStaticIP(c *gin.Context) {
 
 // UnbindStaticIPRequest 解绑请求
 type UnbindStaticIPRequest struct {
-	VMName string `json:"vm_name" binding:"required"`
+	VMName         string `json:"vm_name" binding:"required"`
+	InterfaceOrder int    `json:"interface_order"` // 网卡序号，默认 0（主网卡）
 }
 
 // UnbindStaticIP 解绑静态 IP
@@ -173,7 +183,7 @@ func UnbindStaticIP(c *gin.Context) {
 		}
 	}
 
-	if err := netservice.UnbindStaticIP(req.VMName); err != nil {
+	if err := netservice.UnbindStaticIPForNIC(req.VMName, req.InterfaceOrder); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
 			"message": err.Error(),

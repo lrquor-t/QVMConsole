@@ -70,7 +70,9 @@ func GetVMBridgeInterface(vmName string) string {
 	return ""
 }
 
-// ListNeighborIPsInCIDR 读宿主机邻居表，返回 CIDR 内非 FAILED/INCOMPLETE 的 IP（best-effort，供 ARP 占用增强）。
+// ListNeighborIPsInCIDR 读宿主机邻居表，返回 CIDR 内确认仍在用的 IP（best-effort，供 ARP 占用增强）。
+// 只认 REACHABLE/DELAY/PROBE/PERMANENT 等「活跃或刚确认」的状态；
+// STALE（曾经见过、最近未确认，通常是已释放 IP 的残留）不计入，避免释放后的 IP 一直被选择器挡住。
 func ListNeighborIPsInCIDR(cidr string) []string {
 	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -87,7 +89,7 @@ func ListNeighborIPsInCIDR(cidr string) []string {
 		if ip == nil || !ipnet.Contains(ip) {
 			continue
 		}
-		if strings.Contains(line, "FAILED") || strings.Contains(line, "INCOMPLETE") {
+		if strings.Contains(line, "FAILED") || strings.Contains(line, "INCOMPLETE") || strings.Contains(line, "STALE") {
 			continue
 		}
 		out = append(out, ip.String())
