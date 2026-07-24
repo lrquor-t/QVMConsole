@@ -26,8 +26,8 @@ export const defaultMenuLayouts = {
     { kind: 'item', key: 'home', enabled: true },
     { kind: 'group', id: 'host', title: '主机管理', icon: 'host', enabled: true, children: [
       { kind: 'item', key: 'vm-list', enabled: true },
-      { kind: 'item', key: 'nodes', enabled: true },
-      { kind: 'item', key: 'lxc-list', enabled: true }
+      { kind: 'item', key: 'lxc-list', enabled: true },
+      { kind: 'item', key: 'nodes', enabled: true }
     ]},
     { kind: 'group', id: 'template', title: '模板管理', icon: 'template-group', enabled: true, children: [
       { kind: 'item', key: 'template', enabled: true },
