@@ -55,7 +55,7 @@ usage() {
     echo "示例:"
     echo "  $0                       构建全部，版本号为 dev"
     echo "  $0 -v 1.0.0             指定版本号构建全部"
-    echo "  $0 --variant compat      仅构建 zig 兼容版（最低 GLIBC 2.2.5）"
+    echo "  $0 --variant compat      仅构建 zig 兼容版（最低 GLIBC 2.17）"
     echo "  $0 --variant native      仅构建宿主机原生版"
     echo "  $0 --target-arch arm64   交叉编译 ARM64 版本"
     echo "  $0 --target-arch amd64   交叉编译 AMD64 版本"
@@ -147,7 +147,18 @@ if [ "$SKIP_FRONTEND" = false ]; then
 
     info "安装前端依赖..."
     cd "$WEB_DIR"
-    npm ci
+    NPM_CI_LOG=$(mktemp)
+    if npm ci 2>&1 | tee "$NPM_CI_LOG"; then
+        rm -f "$NPM_CI_LOG"
+    elif grep -Eq 'npm error code EUSAGE|package\.json and package-lock\.json.*sync|Missing: .* from lock file' "$NPM_CI_LOG"; then
+        warn "检测到前端锁文件与当前平台依赖元数据不同步，正在重新解析并修复锁文件..."
+        npm install
+        rm -f "$NPM_CI_LOG"
+    else
+        cat "$NPM_CI_LOG"
+        rm -f "$NPM_CI_LOG"
+        error "前端依赖安装失败"
+    fi
 
     info "构建前端..."
     npm run build
@@ -181,7 +192,7 @@ if [ "$SKIP_BACKEND" = false ]; then
         native)  BUILD_NATIVE=true ;;
     esac
 
-    # ========== 构建 zig 兼容版（最低 GLIBC 2.2.5） ==========
+    # ========== 构建 zig 兼容版（最低 GLIBC 2.17） ==========
     if [ "$BUILD_COMPAT" = true ]; then
         info "构建 zig 兼容版..."
 
@@ -197,15 +208,22 @@ if [ "$SKIP_BACKEND" = false ]; then
             if command -v zig &>/dev/null; then
                 if [ "$IS_CROSS_COMPILE" = true ]; then
                     if [ "$TARGET_ARCH" = "amd64" ]; then
-                        export CC="zig cc -target x86_64-linux-gnu"
-                        export CXX="zig cxx -target x86_64-linux-gnu"
+                        export CC="zig cc -target x86_64-linux-gnu.2.17"
+                        export CXX="zig cxx -target x86_64-linux-gnu.2.17"
                     elif [ "$TARGET_ARCH" = "arm64" ]; then
-                        export CC="zig cc -target aarch64-linux-gnu"
-                        export CXX="zig cxx -target aarch64-linux-gnu"
+                        export CC="zig cc -target aarch64-linux-gnu.2.17"
+                        export CXX="zig cxx -target aarch64-linux-gnu.2.17"
                     fi
                 else
-                    export CC="zig cc"
-                    export CXX="zig cxx"
+                    # 原生编译同样必须显式 -target 指定低版本 glibc；否则 zig cc 会链接
+                    # 宿主机 glibc（如本机 2.36），compat 产物会和 native 版一样失去旧系统兼容性。
+                    if [ "$TARGET_ARCH" = "amd64" ]; then
+                        export CC="zig cc -target x86_64-linux-gnu.2.17"
+                        export CXX="zig cxx -target x86_64-linux-gnu.2.17"
+                    elif [ "$TARGET_ARCH" = "arm64" ]; then
+                        export CC="zig cc -target aarch64-linux-gnu.2.17"
+                        export CXX="zig cxx -target aarch64-linux-gnu.2.17"
+                    fi
                 fi
                 info "使用 zig 作为 C 编译器: ${CC}"
             elif [ "$IS_CROSS_COMPILE" = true ]; then
@@ -241,7 +259,7 @@ if [ "$SKIP_BACKEND" = false ]; then
         if [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
             error "zig 兼容版构建失败，未生成二进制文件"
         fi
-        success "zig 兼容版构建完成（最低 GLIBC 2.2.5）"
+        success "zig 兼容版构建完成（最低 GLIBC 2.17）"
     fi
 
     # ========== 构建宿主机原生版 ==========
@@ -395,7 +413,7 @@ echo -e "${CYAN}║${NC}  架构:   ${GREEN}${TARGET_ARCH}${NC}"
 echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║${NC}  内容:"
 if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
-    echo -e "${CYAN}║${NC}    - kvm-console        后端二进制（zig 兼容版，最低 GLIBC 2.2.5）"
+    echo -e "${CYAN}║${NC}    - kvm-console        后端二进制（zig 兼容版，最低 GLIBC 2.17）"
 fi
 if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
     echo -e "${CYAN}║${NC}    - kvm-console-native  后端二进制（宿主机原生版）"

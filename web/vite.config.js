@@ -6,6 +6,11 @@ import vue from '@vitejs/plugin-vue'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  optimizeDeps: {
+    // spark-md5 仅被懒加载路由（storage/template/lxc 的 chunkUploader）静态引用，
+    // 启动时预打包，避免运行时才被发现、触发 re-optimize 进而 504 Outdated Optimize Dep
+    include: ['spark-md5']
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
